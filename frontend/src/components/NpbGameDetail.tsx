@@ -1,0 +1,953 @@
+import { useEffect, useRef, useState } from 'react';
+import {
+  getGameInnings, getGameStats, getGameBatters, getGamePitchers, getGamePlayByPlay,
+  getNpbRoster,
+  GameInning, GameStats, BatterStat, PitcherStat, PlayByPlayEvent, NpbPlayer,
+} from '../api/npb';
+
+const NPB_LOGO_BASE = 'https://p.npb.jp/img/common/logo/2026';
+
+const CODE_TO_NAME: Record<string, string> = {
+  g: '巨人', db: 'DeNA', t: '阪神', c: '広島',
+  d: '中日', s: 'ヤクルト', h: 'ソフトバンク', f: '日本ハム',
+  b: 'オリックス', e: '楽天', l: '西武', m: 'ロッテ',
+};
+
+interface NPBGame {
+  id: number;
+  team_home: string;
+  team_away: string;
+  score_home: number | null;
+  score_away: number | null;
+  status: string;
+  game_detail: string | null;
+  venue: string | null;
+  game_date: string;
+}
+
+interface Props {
+  game: NPBGame;
+  awayCode: string;
+  homeCode: string;
+  onClose: () => void;
+  standalone?: boolean; // true = 獨立頁面，無暗色遮罩
+  onPrev?: () => void;
+  onNext?: () => void;
+  hasPrev?: boolean;
+  hasNext?: boolean;
+}
+
+type MainTab = 'home' | 'score' | 'pbp' | 'stats';
+type StatsSubTab = 'batter' | 'pitcher';
+
+// ── TeamLogo ──────────────────────────────────────────────────────────────────
+
+function TeamLogo({ code, size = 32 }: { code: string; size?: number }) {
+  const [error, setError] = useState(false);
+  if (error || !code) return (
+    <span className="inline-flex items-center justify-center rounded-full bg-gray-500 text-white font-black flex-shrink-0"
+      style={{ width: size, height: size, fontSize: size * 0.35 }}>
+      {CODE_TO_NAME[code]?.slice(0, 2) ?? code}
+    </span>
+  );
+  return (
+    <img
+      src={`${NPB_LOGO_BASE}/logo_${code}_m.gif`}
+      alt={CODE_TO_NAME[code] ?? code}
+      width={size} height={size}
+      onError={() => setError(true)}
+      className="flex-shrink-0"
+    />
+  );
+}
+
+// ── BSO 燈號 ──────────────────────────────────────────────────────────────────
+
+function BSOLights({ balls, strikes, outs }: { balls: number; strikes: number; outs: number }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] text-gray-300 w-3.5 font-bold">B</span>
+        {[0, 1, 2].map(i => (
+          <div key={i} className={`w-3.5 h-3.5 rounded-full border-2 ${
+            i < balls ? 'bg-green-400 border-green-300' : 'bg-gray-700 border-gray-600'
+          }`} />
+        ))}
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] text-gray-300 w-3.5 font-bold">S</span>
+        {[0, 1].map(i => (
+          <div key={i} className={`w-3.5 h-3.5 rounded-full border-2 ${
+            i < strikes ? 'bg-yellow-400 border-yellow-300' : 'bg-gray-700 border-gray-600'
+          }`} />
+        ))}
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] text-gray-300 w-3.5 font-bold">O</span>
+        {[0, 1].map(i => (
+          <div key={i} className={`w-3.5 h-3.5 rounded-full border-2 ${
+            i < outs ? 'bg-red-400 border-red-300' : 'bg-gray-700 border-gray-600'
+          }`} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── 好球帶（9 宮格）────────────────────────────────────────────────────────────
+
+function StrikeZoneOverlay() {
+  const zones = Array.from({ length: 9 });
+  const size = 22;
+  const gap = 1;
+  return (
+    <div className="flex flex-col items-center">
+      <div className="text-[9px] text-gray-300 font-bold tracking-wider mb-1.5 text-center">好球帶</div>
+      <div
+        className="grid"
+        style={{ gridTemplateColumns: `repeat(3, ${size}px)`, gap }}
+      >
+        {zones.map((_, i) => (
+          <div
+            key={i}
+            style={{ width: size, height: size }}
+            className="border border-gray-400/60 bg-white/10 hover:bg-white/20 transition"
+          />
+        ))}
+      </div>
+      {/* 本壘板 */}
+      <div className="mt-1.5">
+        <svg viewBox="0 0 40 14" width="40" height="14">
+          <polygon points="20,1 38,1 38,10 20,13 2,10 2,1" fill="#9ca3af" opacity="0.7" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// ── 棒球場面板（真實圖片背景 + 壘包跑者 + BSO + 好球帶）────────────────────────
+
+function BaseballFieldPanel({ bases, balls, strikes, outs }: {
+  bases: number; balls: number; strikes: number; outs: number;
+}) {
+  const has1B = (bases & 1) !== 0;
+  const has2B = (bases & 2) !== 0;
+  const has3B = (bases & 4) !== 0;
+  // 基於真實球場照片校正後的壘包座標
+  const basePositions = {
+    b1: { left: '85%', top: '45%' },   // 一壘（右側）
+    b2: { left: '50%', top: '33%' },   // 二壘（中央上方）
+    b3: { left: '15%', top: '45%' },   // 三壘（左側）
+  };
+
+  const BaseMarker = ({ active, label }: { active: boolean; label: string }) => (
+    <div className="relative flex flex-col items-center gap-0.5">
+      {active && (
+        <div className="w-4 h-4 rounded-full bg-red-500 border-2 border-white shadow-lg shadow-red-500/50 animate-pulse" />
+      )}
+      <div className={`w-5 h-5 rounded-sm border-2 shadow ${
+        active
+          ? 'bg-yellow-400 border-yellow-200 shadow-yellow-400/50'
+          : 'bg-white/85 border-gray-300'
+      }`} style={{ transform: 'rotate(45deg)' }} />
+      <span className="text-[8px] text-white font-black drop-shadow">{label}</span>
+    </div>
+  );
+
+  return (
+    <div className="relative overflow-hidden bg-gray-900" style={{ height: 400 }}>
+      {/* 真實棒球場圖片 */}
+      <img
+        src="/baseball-field.png"
+        alt="baseball field"
+        className="absolute inset-0 w-full h-full object-cover"
+        onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+      />
+      {/* 半透明暗色遮罩，提升 overlay 可讀性 */}
+      <div className="absolute inset-0 bg-black/25" />
+
+      {/* ─ 壘包指示器（對應照片實際位置）─ */}
+      <div className="absolute" style={{ left: basePositions.b2.left, top: basePositions.b2.top, transform: 'translate(-50%, -50%)' }}>
+        <BaseMarker active={has2B} label="2B" />
+      </div>
+      <div className="absolute" style={{ left: basePositions.b3.left, top: basePositions.b3.top, transform: 'translate(-50%, -50%)' }}>
+        <BaseMarker active={has3B} label="3B" />
+      </div>
+      <div className="absolute" style={{ left: basePositions.b1.left, top: basePositions.b1.top, transform: 'translate(-50%, -50%)' }}>
+        <BaseMarker active={has1B} label="1B" />
+      </div>
+
+      {/* ─ BSO 燈號（左下）─ */}
+      <div className="absolute bottom-4 left-4 bg-black/80 backdrop-blur-sm rounded-xl px-3 py-2.5 shadow-xl">
+        <div className="text-[9px] text-gray-400 font-bold tracking-widest text-center mb-1.5">
+          B · S · O
+        </div>
+        <BSOLights balls={balls} strikes={strikes} outs={outs} />
+      </div>
+
+      {/* ─ 好球帶（右下）─ */}
+      <div className="absolute bottom-4 right-4 bg-black/80 backdrop-blur-sm rounded-xl px-3 py-3 shadow-xl">
+        <StrikeZoneOverlay />
+      </div>
+    </div>
+  );
+}
+
+// ── 先發投手卡片 ──────────────────────────────────────────────────────────────
+
+function StarterCard({ label, name, pitchCount, era }: {
+  label: string; name: string; pitchCount?: number; era?: string;
+}) {
+  return (
+    <div className="bg-gray-50 border border-gray-200 rounded-xl p-3.5">
+      <div className="text-[10px] text-gray-400 font-bold mb-1.5 tracking-wide">
+        先発投手 · {label}
+      </div>
+      <div className="font-black text-gray-800">{name || '未定'}</div>
+      <div className="flex gap-3 mt-1.5 text-xs text-gray-500">
+        {pitchCount != null && pitchCount > 0 && <span>{pitchCount} 球</span>}
+        {era && <span>防御率 {era}</span>}
+      </div>
+    </div>
+  );
+}
+
+// ── 打撃陣容 ──────────────────────────────────────────────────────────────────
+
+function LineupPanel({ name, batters, rosterMap }: {
+  name: string;
+  batters: BatterStat[];
+  rosterMap: Map<string, string>;
+}) {
+  if (batters.length === 0) return (
+    <div className="text-center py-6 text-gray-400 text-xs">打者資料尚未更新</div>
+  );
+
+  // 追蹤已顯示的棒次（同一棒次只顯示一次數字）
+  const shownOrders = new Set<number>();
+
+  return (
+    <div>
+      <div className="font-black text-xs text-gray-700 mb-2 px-1">{name}</div>
+      {/* 欄位標題 */}
+      <div className="flex items-center gap-2 px-2 pb-1 border-b border-gray-100 text-[9px] text-gray-400 font-bold">
+        <span className="w-4 shrink-0 text-center">棒</span>
+        <span className="w-8 shrink-0 text-center">守備</span>
+        <span className="flex-1">選手</span>
+        <span className="w-4 shrink-0 text-center">打</span>
+        <span className="w-10 shrink-0 text-right">打率</span>
+      </div>
+      <div className="space-y-0">
+        {batters.map((b, i) => {
+          const avg = b.at_bats > 0 ? (b.hits / b.at_bats).toFixed(3) : '.---';
+          const side = rosterMap.get(b.player_name) ?? '–';
+          const pos = b.position || '–';
+          // 位置有括號 = 先発（starter）；無括號 = 代打/代走等替補
+          const isStarter = pos.startsWith('(') || pos.startsWith('（');
+          // 棒次只在該棒次第一次出現時顯示
+          const showOrder = isStarter && !shownOrders.has(b.batting_order);
+          if (showOrder) shownOrders.add(b.batting_order);
+
+          return (
+            <div
+              key={i}
+              className={`flex items-center gap-2 py-[3px] px-2 text-xs ${
+                isStarter ? 'hover:bg-gray-50' : 'hover:bg-amber-50 bg-amber-50/30'
+              }`}
+            >
+              {/* 棒次 */}
+              <span className="w-4 shrink-0 text-center font-black text-[11px] text-gray-700">
+                {showOrder ? b.batting_order : ''}
+              </span>
+              {/* 守備位置（保留括號） */}
+              <span className={`w-8 shrink-0 text-center text-[10px] font-bold ${
+                isStarter ? 'text-gray-600' : 'text-amber-600'
+              }`}>
+                {pos}
+              </span>
+              {/* 選手名 */}
+              <span className={`flex-1 truncate text-[11px] ${
+                isStarter ? 'font-bold text-gray-800' : 'font-medium text-amber-700'
+              }`}>
+                {b.player_name}
+              </span>
+              {/* 打席方向 */}
+              <span className={`shrink-0 text-[10px] w-4 text-center font-bold ${
+                side === '左' ? 'text-blue-600' :
+                side === '右' ? 'text-red-500' :
+                side === '両' ? 'text-purple-600' : 'text-gray-300'
+              }`}>
+                {side}
+              </span>
+              {/* 打率 */}
+              <span className="text-gray-500 tabular-nums text-[11px] shrink-0 w-10 text-right">{avg}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── 主元件 ────────────────────────────────────────────────────────────────────
+
+export default function NpbGameDetail({ game, awayCode, homeCode, onClose, standalone = false, onPrev, onNext, hasPrev = false, hasNext = false }: Props) {
+  const [innings,    setInnings]    = useState<GameInning[]>([]);
+  const [stats,      setStats]      = useState<GameStats | null>(null);
+  const [batters,    setBatters]    = useState<BatterStat[]>([]);
+  const [pitchers,   setPitchers]   = useState<PitcherStat[]>([]);
+  const [playByPlay, setPlayByPlay] = useState<PlayByPlayEvent[]>([]);
+  const [awayRoster, setAwayRoster] = useState<NpbPlayer[]>([]);
+  const [homeRoster, setHomeRoster] = useState<NpbPlayer[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [tab,          setTab]          = useState<MainTab>('score');
+  const [statsTab,     setStatsTab]     = useState<StatsSubTab>('batter');
+  // Local state 追蹤即時比分——不依賴父層 prop，避免父層未刷新時畫面停滯
+  const [awayScore, setAwayScore] = useState<number | null>(game.score_away);
+  const [homeScore, setHomeScore] = useState<number | null>(game.score_home);
+  const [liveStatus, setLiveStatus] = useState<string>(game.status);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const isLive  = liveStatus === 'live';
+  const isFinal = liveStatus === 'final';
+
+  const loadData = async () => {
+    const [inn, st, bat, pit, pbp] = await Promise.all([
+      getGameInnings(game.id),
+      getGameStats(game.id),
+      getGameBatters(game.id),
+      getGamePitchers(game.id),
+      getGamePlayByPlay(game.id),
+    ]);
+    setInnings(inn);
+    setStats(st);
+    setBatters(bat);
+    setPitchers(pit);
+    setPlayByPlay(pbp);
+
+    // 從最新局分加總回推即時比分，確保 Header 分數即時更新
+    if (inn.length > 0) {
+      setAwayScore(inn.reduce((s, i) => s + (i.score_away ?? 0), 0));
+      setHomeScore(inn.reduce((s, i) => s + (i.score_home ?? 0), 0));
+    }
+  };
+
+  useEffect(() => {
+    loadData().catch(() => {}).finally(() => setLoading(false));
+
+    // 載入名單（用於左右打判斷）
+    Promise.all([
+      getNpbRoster(awayCode).catch(() => [] as NpbPlayer[]),
+      getNpbRoster(homeCode).catch(() => [] as NpbPlayer[]),
+    ]).then(([aR, hR]) => { setAwayRoster(aR); setHomeRoster(hR); });
+
+    // 無論初始 prop 狀態，一律啟動輪詢；由 liveStatus 狀態控制是否繼續
+    intervalRef.current = setInterval(() => loadData().catch(() => {}), 30_000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [game.id]);
+
+  // 比賽變為 final 時停止輪詢
+  useEffect(() => {
+    if (isFinal && intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, [isFinal]);
+
+  // 同步父層 prop 狀態變更（例如父層查到 final 後傳入）
+  useEffect(() => {
+    setLiveStatus(game.status);
+    if (game.score_away != null) setAwayScore(game.score_away);
+    if (game.score_home != null) setHomeScore(game.score_home);
+  }, [game.status, game.score_away, game.score_home]);
+
+  const awayName = CODE_TO_NAME[awayCode] ?? game.team_away;
+  const homeName = CODE_TO_NAME[homeCode] ?? game.team_home;
+
+  const awayBatters  = batters.filter(b => b.team_code === awayCode).sort((a, b) => a.batting_order - b.batting_order);
+  const homeBatters  = batters.filter(b => b.team_code === homeCode).sort((a, b) => a.batting_order - b.batting_order);
+  const awayPitchers = pitchers.filter(p => p.team_code === awayCode).sort((a, b) => a.pitcher_order - b.pitcher_order);
+  const homePitchers = pitchers.filter(p => p.team_code === homeCode).sort((a, b) => a.pitcher_order - b.pitcher_order);
+
+  const awayRosterMap = new Map(awayRoster.map(p => [p.name_jp, p.batting]));
+  const homeRosterMap = new Map(homeRoster.map(p => [p.name_jp, p.batting]));
+
+  // totalAway/totalHome 優先使用 local state（由 loadData 即時更新）
+  const totalAway = awayScore ?? innings.reduce((s, i) => s + (i.score_away ?? 0), 0);
+  const totalHome = homeScore ?? innings.reduce((s, i) => s + (i.score_home ?? 0), 0);
+
+  const TABS: { key: MainTab; label: string }[] = [
+    { key: 'home',  label: '首頁' },
+    { key: 'score', label: '比分速報' },
+    { key: 'pbp',   label: '文字速報' },
+    { key: 'stats', label: '成績' },
+  ];
+
+  return (
+    <div
+      className={standalone
+        ? "min-h-screen bg-gray-100"
+        : "fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"}
+      onClick={standalone ? undefined : onClose}
+    >
+      <div
+        className={standalone
+          ? "max-w-4xl mx-auto bg-white min-h-screen flex flex-col shadow-xl"
+          : "bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[98vh] flex flex-col overflow-hidden"}
+        onClick={standalone ? undefined : (e => e.stopPropagation())}
+      >
+        {standalone && (
+          <div className="flex items-center justify-between px-4 pt-4 pb-1">
+            <button onClick={onClose} className="flex items-center gap-2 text-sm font-bold text-gray-500 hover:text-red-600 transition">
+              ← 返回
+            </button>
+            <button
+              onClick={async () => {
+                setIsRefreshing(true);
+                await loadData().catch(() => {});
+                setIsRefreshing(false);
+              }}
+              disabled={isRefreshing}
+              className="flex items-center gap-1 text-sm font-bold text-gray-500 hover:text-red-600 disabled:opacity-50 transition"
+            >
+              {isRefreshing ? '⟳' : '↻'} 更新比分
+            </button>
+          </div>
+        )}
+        {/* ── Header：置中，無 [X] / 一球速報 ── */}
+        <div className="bg-gray-900 text-white px-6 py-3 shrink-0">
+          {!standalone && (onPrev || onNext) && (
+            <div className="flex items-center justify-between mb-2">
+              <button
+                onClick={onPrev}
+                disabled={!hasPrev}
+                className="flex items-center gap-1 text-xs font-bold text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-default transition px-2 py-1 rounded-lg hover:bg-white/10"
+              >
+                ← 上一場
+              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={async () => {
+                    setIsRefreshing(true);
+                    await loadData().catch(() => {});
+                    setIsRefreshing(false);
+                  }}
+                  disabled={isRefreshing}
+                  title="更新比分"
+                  className="text-xs font-bold text-gray-400 hover:text-white disabled:opacity-50 transition px-2 py-1 rounded-lg hover:bg-white/10"
+                >
+                  {isRefreshing ? '⟳' : '↻'} 更新
+                </button>
+                <button
+                  onClick={onClose}
+                  className="text-xs font-bold text-gray-400 hover:text-white transition px-2 py-1 rounded-lg hover:bg-white/10"
+                >
+                  ✕ 關閉
+                </button>
+              </div>
+              <button
+                onClick={onNext}
+                disabled={!hasNext}
+                className="flex items-center gap-1 text-xs font-bold text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-default transition px-2 py-1 rounded-lg hover:bg-white/10"
+              >
+                下一場 →
+              </button>
+            </div>
+          )}
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <TeamLogo code={awayCode} size={28} />
+              <span className="font-bold text-sm">{awayName}</span>
+              <span className={`text-2xl font-black tabular-nums leading-none ${
+                (isFinal || isLive) && totalAway > totalHome ? 'text-yellow-400' : 'text-white'
+              }`}>
+                {isFinal || isLive ? totalAway : '–'}
+              </span>
+            </div>
+            <div className="text-center px-1">
+              {isLive  && <span className="text-xs font-black text-red-400 animate-pulse block">● LIVE</span>}
+              {isFinal && <span className="text-xs text-gray-400 block">終了</span>}
+              {!isLive && !isFinal && <span className="text-xs text-gray-500 block">vs</span>}
+              {game.game_detail && <div className="text-[11px] text-gray-400">{game.game_detail}</div>}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`text-2xl font-black tabular-nums leading-none ${
+                (isFinal || isLive) && totalHome > totalAway ? 'text-yellow-400' : 'text-white'
+              }`}>
+                {isFinal || isLive ? totalHome : '–'}
+              </span>
+              <span className="font-bold text-sm">{homeName}</span>
+              <TeamLogo code={homeCode} size={28} />
+            </div>
+          </div>
+          {game.venue && (
+            <div className="text-center text-[11px] text-gray-500 mt-1">{game.venue}</div>
+          )}
+        </div>
+
+        {/* ── 各局得分表：固定於 Tab 上方 ── */}
+        {!loading && (
+          <div className="shrink-0 border-b border-gray-200 bg-white">
+            <InningScoreTable
+              innings={innings} stats={stats}
+              awayName={awayName} homeName={homeName}
+              totalAway={totalAway} totalHome={totalHome}
+            />
+          </div>
+        )}
+
+        {/* ── Tabs ── */}
+        <div className="flex border-b border-gray-200 bg-gray-50 shrink-0">
+          {TABS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`relative flex-1 py-2.5 text-sm font-bold transition ${
+                tab === key
+                  ? 'border-b-2 border-red-600 text-red-600 bg-white'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {label}
+              {key === 'pbp' && isLive && (
+                <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* ── 內容區 ── */}
+        <div className="overflow-y-auto flex-1">
+          {loading ? (
+            <div className="text-center py-10 text-gray-400 font-bold">載入中...</div>
+
+          ) : tab === 'home' ? (
+            /* ── 首頁：先発投手 + 打撃陣容 ── */
+            <div className="p-4 space-y-5">
+              {/* 先発投手 */}
+              <div className="grid grid-cols-2 gap-3">
+                <StarterCard
+                  label={awayName}
+                  name={awayPitchers[0]?.player_name ?? '未定'}
+                  pitchCount={awayPitchers[0]?.pitch_count}
+                />
+                <StarterCard
+                  label={homeName}
+                  name={homePitchers[0]?.player_name ?? '未定'}
+                  pitchCount={homePitchers[0]?.pitch_count}
+                />
+              </div>
+
+              {/* 打撃陣容 */}
+              <div className="grid grid-cols-2 gap-6">
+                <LineupPanel
+                  name={awayName}
+                  batters={awayBatters}
+                  rosterMap={awayRosterMap}
+                />
+                <LineupPanel
+                  name={homeName}
+                  batters={homeBatters}
+                  rosterMap={homeRosterMap}
+                />
+              </div>
+            </div>
+
+          ) : tab === 'score' ? (
+            /* ── 比分速報：棒球場 SVG + BSO + 壘包 ── */
+            <BaseballFieldPanel
+              bases={0}
+              balls={0}
+              strikes={0}
+              outs={isFinal ? 3 : 0}
+            />
+
+          ) : tab === 'pbp' ? (
+            /* ── 文字速報 ── */
+            playByPlay.length === 0 ? (
+              <div className="text-center py-8 text-gray-400 text-sm">速報資料尚未更新</div>
+            ) : (
+              <PlayByPlayInline events={playByPlay} awayName={awayName} homeName={homeName} />
+            )
+
+          ) : (
+            /* ── 成績：打者 / 投手 子選項 ── */
+            <div>
+              <div className="flex border-b border-gray-100 bg-gray-50">
+                {(['batter', 'pitcher'] as StatsSubTab[]).map(key => (
+                  <button
+                    key={key}
+                    onClick={() => setStatsTab(key)}
+                    className={`flex-1 py-2 text-sm font-bold transition ${
+                      statsTab === key
+                        ? 'border-b-2 border-blue-500 text-blue-600 bg-white'
+                        : 'text-gray-400 hover:text-gray-600'
+                    }`}
+                  >
+                    {key === 'batter' ? '打者成績' : '投手成績'}
+                  </button>
+                ))}
+              </div>
+              <div className="p-4 space-y-6">
+                {statsTab === 'batter' ? (
+                  <>
+                    {awayBatters.length > 0 && <BatterTable title={awayName} batters={awayBatters} />}
+                    {homeBatters.length > 0 && <BatterTable title={homeName} batters={homeBatters} />}
+                    {awayBatters.length === 0 && homeBatters.length === 0 && <EmptyState text="打者成績尚未更新" />}
+                  </>
+                ) : (
+                  <>
+                    {awayPitchers.length > 0 && <PitcherTable title={awayName} pitchers={awayPitchers} />}
+                    {homePitchers.length > 0 && <PitcherTable title={homeName} pitchers={homePitchers} />}
+                    {awayPitchers.length === 0 && homePitchers.length === 0 && <EmptyState text="投手成績尚未更新" />}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 各局得分表 ────────────────────────────────────────────────────────────────
+
+function InningScoreTable({ innings, stats, awayName, homeName, totalAway, totalHome }: {
+  innings: GameInning[];
+  stats: GameStats | null;
+  awayName: string; homeName: string;
+  totalAway: number; totalHome: number;
+}) {
+  if (innings.length === 0 && !stats) {
+    return <p className="text-center py-4 text-gray-400 text-sm">比分資料尚未更新</p>;
+  }
+
+  const maxInning = Math.max(innings.length, 9);
+  const cols = Array.from({ length: maxInning }, (_, i) => i + 1);
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-center text-sm border-collapse">
+        <thead>
+          <tr className="bg-gray-50 text-gray-500">
+            <th className="text-left px-3 py-2 font-bold w-20 text-gray-600">球隊</th>
+            {cols.map(n => (
+              <th key={n} className="px-2 py-2 font-bold min-w-[28px]">{n}</th>
+            ))}
+            <th className="px-3 py-2 font-black text-gray-800 border-l border-gray-200">R</th>
+            {stats && <>
+              <th className="px-2 py-2 font-bold text-gray-500">H</th>
+              <th className="px-2 py-2 font-bold text-gray-500">E</th>
+            </>}
+          </tr>
+        </thead>
+        <tbody>
+          {[
+            { name: awayName, getScore: (i: GameInning) => i.score_away, total: totalAway, hits: stats?.hits_away, errors: stats?.errors_away },
+            { name: homeName, getScore: (i: GameInning) => i.score_home, total: totalHome, hits: stats?.hits_home, errors: stats?.errors_home },
+          ].map((team, rowIdx) => (
+            <tr key={rowIdx} className={rowIdx === 0 ? 'border-b border-gray-200' : ''}>
+              <td className="text-left px-3 py-2 font-bold text-gray-800">{team.name}</td>
+              {cols.map(n => {
+                const inn = innings.find(i => i.inning === n);
+                const score = inn ? team.getScore(inn) : null;
+                return (
+                  <td key={n} className="px-2 py-2 tabular-nums text-gray-700">
+                    {score !== null && score !== undefined ? score : <span className="text-gray-300">·</span>}
+                  </td>
+                );
+              })}
+              <td className="px-3 py-2 font-black text-gray-900 border-l border-gray-200 tabular-nums">
+                {team.total}
+              </td>
+              {stats && <>
+                <td className="px-2 py-2 text-gray-600 tabular-nums">{team.hits ?? 0}</td>
+                <td className="px-2 py-2 text-gray-600 tabular-nums">{team.errors ?? 0}</td>
+              </>}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {stats && (stats.win_pitcher || stats.loss_pitcher || stats.attendance) && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 px-3 py-2 text-xs text-gray-500 border-t border-gray-100">
+          {stats.win_pitcher  && <span><span className="text-green-600 font-bold">勝</span> {stats.win_pitcher}</span>}
+          {stats.loss_pitcher && <span><span className="text-red-600 font-bold">敗</span> {stats.loss_pitcher}</span>}
+          {stats.save_pitcher && <span><span className="text-blue-600 font-bold">救</span> {stats.save_pitcher}</span>}
+          {stats.attendance   && <span>観客 {stats.attendance.toLocaleString()}人</span>}
+          {stats.game_time    && <span>時間 {stats.game_time}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 文字速報 ──────────────────────────────────────────────────────────────────
+
+// ── 日文→中文翻譯 ─────────────────────────────────────────────────────────────
+function translateJa(text: string): string {
+  const map: [RegExp | string, string][] = [
+    // 出局數
+    [/0アウト/g, '0出局'], [/1アウト/g, '1出局'], [/2アウト/g, '2出局'], [/無死/g, '0出局'],
+    // 壘上
+    [/1塁/g, '1壘'], [/2塁/g, '2壘'], [/3塁/g, '3壘'],
+    [/1・2塁/g, '1・2壘'], [/1・3塁/g, '1・3壘'], [/2・3塁/g, '2・3壘'],
+    [/満塁/g, '滿壘'], [/無走者/g, '壘上無人'],
+    // カウント接続詞
+    [/より/g, ' → '],
+    // 三振
+    ['空振り三振', '空振三振'], ['見逃し三振', '見逃三振'],
+    // 安打
+    ['センター前ヒット', '中外野安打'], ['ライト前ヒット', '右外野安打'], ['レフト前ヒット', '左外野安打'],
+    ['ライト線ヒット', '右外野線安打'], ['レフト線ヒット', '左外野線安打'],
+    ['センターヒット', '中外野安打'], ['セカンドヒット', '二壘手安打'],
+    ['サードヒット', '三壘手安打'], ['ショートヒット', '游擊手安打'],
+    ['ファーストヒット', '一壘手安打'], ['内野安打', '內野安打'],
+    [/ヒット/g, '安打'],
+    // 長打
+    ['本塁打', '全壘打'], ['ホームラン', '全壘打'],
+    ['二塁打', '二壘安打'], ['三塁打', '三壘安打'],
+    // ゴロ
+    ['ショートゴロ', '游擊滾地球'], ['セカンドゴロ', '二壘滾地球'],
+    ['ファーストゴロ', '一壘滾地球'], ['サードゴロ', '三壘滾地球'],
+    ['ピッチャーゴロ', '投手前滾地球'], ['キャッチャーゴロ', '捕手前滾地球'],
+    [/ゴロ/g, '滾地球'],
+    // フライ
+    ['センターフライ', '中外野飛球'], ['ライトフライ', '右外野飛球'], ['レフトフライ', '左外野飛球'],
+    ['ライト線フライ', '右外野線飛球'], ['レフト線フライ', '左外野線飛球'],
+    ['ファウルフライ', '界外飛球'], ['内野フライ', '內野飛球'],
+    [/フライ/g, '飛球'],
+    // ライナー
+    ['センターライナー', '中外野平飛球'], ['ライトライナー', '右外野平飛球'], ['レフトライナー', '左外野平飛球'],
+    [/ライナー/g, '平飛球'],
+    // バント・犠打
+    ['犠打', '犧打'], ['犠飛', '犧牲飛球'], ['バント安打', '觸擊安打'], [/バント/g, '觸擊'],
+    // 四死球
+    ['四球', '四壞球'], ['死球', '觸身球'], ['敬遠', '故意四壞'],
+    // 野手選択・失策
+    ['野手選択', '野手選擇'], ['失策', '失誤'], ['捕逸', '捕逸'], ['暴投', '暴投'],
+    // 盗塁・走塁
+    ['盗塁', '盜壘'], ['盗塁死', '盜壘出局'],
+    // 併殺
+    ['併殺打', '雙殺打'], ['併殺', '雙殺'],
+    // 交代
+    [/（投手交代）/g, '（投手替換）'], [/投手交代/g, '投手替換'],
+    ['代打', '代打'], ['代走', '代跑'],
+    // 回表裏
+    [/回表/g, '局上'], [/回裏/g, '局下'],
+    // 攻守
+    ['攻', '攻'], // keep
+  ];
+  let result = text;
+  for (const [pattern, replacement] of map) {
+    if (typeof pattern === 'string') {
+      result = result.split(pattern).join(replacement);
+    } else {
+      result = result.replace(pattern, replacement);
+    }
+  }
+  return result;
+}
+
+function PlayByPlayInline({ events, awayName, homeName }: {
+  events: PlayByPlayEvent[];
+  awayName: string;
+  homeName: string;
+}) {
+  const grouped: Map<string, PlayByPlayEvent[]> = new Map();
+  for (const e of events) {
+    const key = `${e.inning}-${e.is_top}`;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(e);
+  }
+
+  return (
+    <div>
+      {[...grouped.entries()].reverse().map(([key, plays]) => {
+        const [inningStr, isTopStr] = key.split('-');
+        const inning = parseInt(inningStr);
+        const isTop  = isTopStr === 'true';
+        return (
+          <div key={key} className="border-b border-gray-100 last:border-0">
+            <div className={`px-4 py-1.5 text-xs font-bold sticky top-0 ${
+              isTop ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'
+            }`}>
+              {inning}局{isTop ? '上' : '下'}（{isTop ? awayName : homeName}攻）
+            </div>
+            <ol className="divide-y divide-gray-50">
+              {[...plays].reverse().map((p, i) => (
+                <li key={i} className="px-4 py-2 text-sm text-gray-700 leading-relaxed">
+                  <span className="text-gray-300 mr-1.5 text-xs tabular-nums">{p.play_order}.</span>
+                  {translateJa(p.description)}
+                </li>
+              ))}
+            </ol>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── 通用 ──────────────────────────────────────────────────────────────────────
+
+function EmptyState({ text }: { text: string }) {
+  return <p className="text-center py-10 text-gray-400 font-bold">{text}</p>;
+}
+
+// ── 打者成績表（安打・全壘打 → 紅色，其他無色）────────────────────────────────
+
+function BatterTable({ title, batters }: { title: string; batters: BatterStat[] }) {
+  const maxResults = Math.max(...batters.map(b => b.at_bat_results?.length ?? 0), 0);
+  const inningCols = Array.from({ length: maxResults }, (_, i) => i + 1);
+
+  return (
+    <div>
+      <h4 className="font-black text-sm text-gray-700 mb-2 px-1">{title}</h4>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="bg-gray-100 text-gray-500 text-center">
+              <th className="px-1.5 py-1.5 font-bold w-5 sticky left-0 bg-gray-100">#</th>
+              <th className="text-left px-2 py-1.5 font-bold sticky left-8 bg-gray-100 whitespace-nowrap">選手</th>
+              <th className="px-1.5 py-1.5 font-bold">打率</th>
+              <th className="px-1.5 py-1.5 font-bold">打</th>
+              <th className="px-1.5 py-1.5 font-bold">点</th>
+              <th className="px-1.5 py-1.5 font-bold">安</th>
+              <th className="px-1.5 py-1.5 font-bold">本</th>
+              <th className="px-1.5 py-1.5 font-bold">打点</th>
+              <th className="px-1.5 py-1.5 font-bold">三</th>
+              <th className="px-1.5 py-1.5 font-bold">四</th>
+              <th className="px-1.5 py-1.5 font-bold">死</th>
+              <th className="px-1.5 py-1.5 font-bold">犠</th>
+              <th className="px-1.5 py-1.5 font-bold">盗</th>
+              {inningCols.map(n => (
+                <th key={n} className="px-1.5 py-1.5 font-bold text-gray-400 min-w-[32px]">{n}回</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {batters.map((b, i) => {
+              const avg = b.at_bats > 0 ? (b.hits / b.at_bats).toFixed(3) : '.000';
+              return (
+                <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums font-bold text-gray-400 sticky left-0 bg-inherit">
+                    {b.batting_order || ''}
+                  </td>
+                  <td className="px-2 py-1.5 font-bold text-gray-800 whitespace-nowrap sticky left-8 bg-inherit">
+                    {b.position && <span className="text-gray-400 mr-1 font-normal">{b.position}</span>}
+                    {b.player_name}
+                  </td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-500">{avg}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums">{b.at_bats}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums">{b.runs}</td>
+                  <td className={`px-1.5 py-1.5 text-center tabular-nums font-bold ${b.hits > 0 ? 'text-red-600' : ''}`}>
+                    {b.hits}
+                  </td>
+                  <td className={`px-1.5 py-1.5 text-center tabular-nums font-bold ${b.home_runs > 0 ? 'text-red-600' : ''}`}>
+                    {b.home_runs}
+                  </td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums">{b.rbi}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums">{b.strikeouts}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums">{b.walks}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums">{b.hit_by_pitch}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums">{b.sacrifice_hits}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums">{b.stolen_bases}</td>
+                  {inningCols.map(n => {
+                    const result = b.at_bat_results?.[n - 1] ?? '';
+                    const isHr  = result.includes('本');
+                    const isHit = !isHr && (result.includes('安') || result.includes('二塁') || result.includes('三塁'));
+                    return (
+                      <td key={n} className="px-1 py-1 text-center whitespace-nowrap">
+                        {result ? (
+                          <span className={
+                            isHr  ? 'inline-block px-1 rounded font-bold text-white bg-red-600' :
+                            isHit ? 'inline-block px-1 rounded font-bold text-red-600 bg-red-50' :
+                            'text-gray-500'
+                          }>
+                            {result}
+                          </span>
+                        ) : (
+                          <span className="text-gray-200">·</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── 投手成績表（無顏色標註）───────────────────────────────────────────────────
+
+function PitcherTable({ title, pitchers }: { title: string; pitchers: PitcherStat[] }) {
+  return (
+    <div>
+      <h4 className="font-black text-sm text-gray-700 mb-2 px-1">{title}</h4>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="bg-gray-100 text-gray-500 text-center">
+              <th className="text-left px-2 py-1.5 font-bold whitespace-nowrap">投手</th>
+              <th className="px-1.5 py-1.5 font-bold">防御率</th>
+              <th className="px-1.5 py-1.5 font-bold">投球回</th>
+              <th className="px-1.5 py-1.5 font-bold">球数</th>
+              <th className="px-1.5 py-1.5 font-bold">打者</th>
+              <th className="px-1.5 py-1.5 font-bold">被安</th>
+              <th className="px-1.5 py-1.5 font-bold">被本</th>
+              <th className="px-1.5 py-1.5 font-bold">奪三</th>
+              <th className="px-1.5 py-1.5 font-bold">与四</th>
+              <th className="px-1.5 py-1.5 font-bold">与死</th>
+              <th className="px-1.5 py-1.5 font-bold">暴投</th>
+              <th className="px-1.5 py-1.5 font-bold">失点</th>
+              <th className="px-1.5 py-1.5 font-bold">自責</th>
+              <th className="px-1.5 py-1.5 font-bold">結果</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pitchers.map((p, i) => {
+              const ipNum = parseInnings(p.innings_pitched);
+              const era = ipNum > 0 ? ((p.earned_runs / ipNum) * 27).toFixed(2) : '–';
+              return (
+                <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                  <td className="px-2 py-1.5 font-bold text-gray-800 whitespace-nowrap">{p.player_name}</td>
+                  <td className="px-1.5 py-1.5 text-center text-gray-600">{era}</td>
+                  <td className="px-1.5 py-1.5 text-center text-gray-700">{p.innings_pitched}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-700">{p.pitch_count}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-700">{p.batters_faced}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-700">{p.hits_allowed}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-700">{p.home_runs_allowed}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums font-bold text-gray-700">{p.strikeouts}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-700">{p.walks}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-700">{p.hit_by_pitch}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-700">{p.balk}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-700">{p.runs_allowed}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-700">{p.earned_runs}</td>
+                  <td className="px-1.5 py-1.5 text-center text-gray-700 font-bold">
+                    {p.result ?? '–'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function parseInnings(ip: string): number {
+  if (!ip) return 0;
+  const parts = ip.trim().split(/\s+/);
+  const full = parseInt(parts[0], 10) || 0;
+  if (parts[1] === '1/3') return full + 1 / 3;
+  if (parts[1] === '2/3') return full + 2 / 3;
+  return full;
+}
