@@ -24,3 +24,6 @@ postgres-data/
 
 # Windows reserved filenames
 nul
+
+# Uploaded media files
+backend/uploads/
