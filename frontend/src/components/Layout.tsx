@@ -55,7 +55,7 @@ export default function Layout() {
 
   const filteredScores =
     scoreCategory === 'LIVE' ? games.filter(g => g.status === 'live' && g.league !== 'CPBL' && g.league !== 'CPBL-W') :
-    scoreCategory === 'NPB' ? [...npbGames, ...npb2Games].sort((a, b) => new Date(a.game_date).getTime() - new Date(b.game_date).getTime()) :
+    scoreCategory === 'NPB' ? npbGames :
     scoreCategory === 'CPBL' ? cpblGames :
     games.filter(g => g.league === scoreCategory);
 

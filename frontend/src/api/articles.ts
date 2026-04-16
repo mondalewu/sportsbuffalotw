@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { Article } from '../types';
+import type { Article, ArticleImage } from '../types';
 
 export interface ArticlesParams {
   category?: string;
@@ -42,4 +42,17 @@ export const deleteArticle = async (id: number): Promise<void> => {
 export const fetchExternalNews = async (): Promise<Article[]> => {
   const res = await apiClient.post('/articles/fetch-external');
   return res.data;
+};
+
+export const uploadArticleImages = async (articleId: number, files: File[]): Promise<ArticleImage[]> => {
+  const form = new FormData();
+  files.forEach(f => form.append('images', f));
+  const res = await apiClient.post(`/articles/${articleId}/images/upload`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
+};
+
+export const deleteArticleImage = async (articleId: number, imageId: number): Promise<void> => {
+  await apiClient.delete(`/articles/${articleId}/images/${imageId}`);
 };

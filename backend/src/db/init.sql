@@ -88,6 +88,8 @@ CREATE TABLE IF NOT EXISTS play_by_play (
   score_home INT DEFAULT 0,             -- 當時主隊得分
   score_away INT DEFAULT 0,             -- 當時客隊得分
   sequence_num SERIAL,                  -- 事件順序
+  hitter_acnt VARCHAR(20),              -- CPBL 打者 acnt（用於大頭照）
+  batting_order INT,                    -- 棒次
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -154,6 +156,7 @@ CREATE TABLE IF NOT EXISTS npb_players (
   birth_date DATE,
   height VARCHAR(10),
   weight VARCHAR(10),
+  photo_url VARCHAR(500),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(team_code, number, name_jp)
@@ -203,7 +206,8 @@ CREATE TABLE IF NOT EXISTS game_batter_stats (
   stolen_bases INT DEFAULT 0,
   hit_by_pitch INT DEFAULT 0,
   sacrifice_hits INT DEFAULT 0,
-  at_bat_results TEXT[] DEFAULT '{}'
+  at_bat_results TEXT[] DEFAULT '{}',
+  box_avg NUMERIC(5,3)
 );
 
 -- 投手成績 per game
@@ -226,6 +230,8 @@ CREATE TABLE IF NOT EXISTS game_pitcher_stats (
   hit_by_pitch INT DEFAULT 0,
   balk INT DEFAULT 0
 );
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pitcher_stats_game_team_player
+  ON game_pitcher_stats (game_id, team_code, player_name);
 
 -- 逐球速報 (Yahoo Baseball play-by-play)
 CREATE TABLE IF NOT EXISTS game_play_by_play (
@@ -292,6 +298,27 @@ CREATE TABLE IF NOT EXISTS cpbl_player_stats (
   UNIQUE(acnt, year, kind_code)
 );
 
+-- CPBL 投手賽季成績（逐日累計）
+CREATE TABLE IF NOT EXISTS cpbl_pitcher_stats (
+  id SERIAL PRIMARY KEY,
+  acnt VARCHAR(20) REFERENCES cpbl_players(acnt) ON DELETE CASCADE,
+  year INT NOT NULL,
+  kind_code VARCHAR(5) NOT NULL DEFAULT 'A',
+  games INT DEFAULT 0,
+  wins INT DEFAULT 0,
+  losses INT DEFAULT 0,
+  saves INT DEFAULT 0,
+  innings_pitched_num DECIMAL(6,2) DEFAULT 0,  -- 投球局（含1/3換算）
+  hits_allowed INT DEFAULT 0,
+  home_runs_allowed INT DEFAULT 0,
+  walks INT DEFAULT 0,
+  strikeouts INT DEFAULT 0,
+  earned_runs INT DEFAULT 0,
+  era DECIMAL(5,2) DEFAULT 0,                  -- 防禦率
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(acnt, year, kind_code)
+);
+
 -- 先發名單（スタメン）
 CREATE TABLE IF NOT EXISTS game_lineups (
   id SERIAL PRIMARY KEY,
@@ -322,6 +349,7 @@ CREATE INDEX IF NOT EXISTS idx_pitcher_stats_game ON game_pitcher_stats(game_id)
 CREATE INDEX IF NOT EXISTS idx_game_lineups_game ON game_lineups(game_id);
 CREATE INDEX IF NOT EXISTS idx_cpbl_players_team ON cpbl_players(team_code);
 CREATE INDEX IF NOT EXISTS idx_cpbl_player_stats_acnt ON cpbl_player_stats(acnt, year);
+CREATE INDEX IF NOT EXISTS idx_cpbl_pitcher_stats_acnt ON cpbl_pitcher_stats(acnt, year);
 CREATE INDEX IF NOT EXISTS idx_pbp_game_id ON game_play_by_play (game_id, inning, is_top, play_order);
 
 -- ── Live Stories ──────────────────────────────────────────────────────────────
@@ -371,6 +399,43 @@ CREATE TABLE IF NOT EXISTS home_videos (
   category      VARCHAR(100) NOT NULL DEFAULT '',
   created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
+
+-- 文章多圖表
+CREATE TABLE IF NOT EXISTS article_images (
+  id         SERIAL PRIMARY KEY,
+  article_id INT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+  image_url  VARCHAR(1000) NOT NULL,
+  caption    VARCHAR(300)  DEFAULT '',
+  sort_order INT           NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_article_images_article ON article_images(article_id);
+
+-- 逐球投球資料（好球帶位置 + 球種）
+CREATE TABLE IF NOT EXISTS game_pitch_data (
+  id           SERIAL PRIMARY KEY,
+  game_id      INT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  at_bat_key   VARCHAR(20) NOT NULL,   -- Docomo key e.g. "0510401"
+  pitch_num    INT NOT NULL DEFAULT 1, -- 打席内投球番号
+  inning       INT NOT NULL,
+  is_top       BOOLEAN NOT NULL,
+  pitcher_name VARCHAR(100),
+  batter_name  VARCHAR(100),
+  ball_kind    VARCHAR(50),            -- 球種（日文） e.g. "カーブ"
+  ball_kind_id VARCHAR(10),
+  x            INT,                    -- 水平位置 (0~200, 100=center)
+  y            INT,                    -- 垂直位置 (0~200, 低=大)
+  speed        INT,                    -- 球速 km/h
+  result       VARCHAR(50),            -- 結果 e.g. "見逃し"
+  result_id    VARCHAR(10),
+  is_strike    BOOLEAN DEFAULT FALSE,
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (game_id, at_bat_key, pitch_num)
+);
+CREATE INDEX IF NOT EXISTS idx_pitch_data_game ON game_pitch_data(game_id, inning, is_top);
+
+-- 補欄位遷移（舊 DB 上線時需 ALTER TABLE）
+ALTER TABLE game_batter_stats ADD COLUMN IF NOT EXISTS box_avg NUMERIC(5,3);
 
 -- 確保賽程唯一性索引（用 expression index，支援 ON CONFLICT 子句）
 CREATE UNIQUE INDEX IF NOT EXISTS uq_games_league_teams_date

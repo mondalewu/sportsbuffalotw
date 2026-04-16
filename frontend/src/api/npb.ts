@@ -119,6 +119,28 @@ export const getGamePlayByPlay = async (gameId: number): Promise<PlayByPlayEvent
   return res.data;
 };
 
+export interface PitchData {
+  at_bat_key: string;
+  pitch_num: number;
+  inning: number;
+  is_top: boolean;
+  pitcher_name: string;
+  batter_name: string;
+  ball_kind: string;
+  ball_kind_id: string;
+  x: number;
+  y: number;
+  speed: number | null;
+  result: string;
+  result_id: string;
+  is_strike: boolean;
+}
+
+export const getGamePitchData = async (gameId: number): Promise<PitchData[]> => {
+  const res = await apiClient.get(`/npb/games/${gameId}/pitch-data`);
+  return res.data;
+};
+
 // ── 一球速報（Phase 1: 基本資料；Phase 2: 球路資料）──────────────────────
 
 export interface NpbGame {

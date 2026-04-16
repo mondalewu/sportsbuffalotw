@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { verifyToken, requireRole } from '../middleware/auth';
-import { runScraper, scraperStatus, runCpblFullScheduleScraper, scheduleScraperStatus, runCpblStandingsScraper, runCpblFarmScheduleScraper, farmScraperStatus } from '../services/cpblScraper';
+import { runScraper, scraperStatus, runCpblFullScheduleScraper, scheduleScraperStatus, runCpblStandingsScraper, runCpblFarmScheduleScraper, farmScraperStatus, runCpblPlayerStatsScraper, rescrapeGameByGameSno, aggregateCpblSeasonStats, runCpblPitcherStatsScraper, aggregateCpblPitcherSeasonStats } from '../services/cpblScraper';
 import { runCpblWikiRosterScraper, cpblRosterScraperStatus } from '../services/cpblRosterScraper';
 import { runNpbScraper, npbScraperStatus, runNpbHistoricalBackfill, backfillStatus, runPbpBackfill, pbpBackfillStatus, runFarmYahooPbpScraper, farmPbpBackfillStatus } from '../services/npbScraper';
 import { runNpbScheduleScraper, npbScheduleScraperStatus } from '../services/npbScheduleScraper';
@@ -9,6 +9,7 @@ import { runNpbFarmScraper, npbFarmScraperStatus, runNpbFarmScraperMonth } from 
 import { runYahooFarmScraper, yahooFarmScraperStatus, runYahooFarmScheduleScraper, yahooFarmScheduleStatus, scrapeYahooGameById } from '../services/yahooFarmScraper';
 import { runYahooFarmRosterScraper, farmRosterScraperStatus } from '../services/npbYahooFarmRosterScraper';
 import { runNpbStandingsScraper, npbStandingsScraperStatus } from '../services/npbStandingsScraper';
+import { runDocomoFarmScraper, docomoScraperStatus } from '../services/docomoFarmScraper';
 import pool from '../db/pool';
 
 const router = Router();
@@ -26,6 +27,7 @@ router.get('/status', verifyToken, requireRole('editor', 'admin'), (_req: Reques
     npbFarm: npbFarmScraperStatus,
     npbFarmRoster: farmRosterScraperStatus,
     npbStandings: npbStandingsScraperStatus,
+    docomoFarm: docomoScraperStatus,
     npbBackfill: backfillStatus,
     npbPbpBackfill: pbpBackfillStatus,
     npbFarmPbp: farmPbpBackfillStatus,
@@ -136,6 +138,60 @@ router.get('/trigger-cpbl-farm', verifyToken, requireRole('editor', 'admin'), (_
 // POST /api/v1/scraper/trigger-cpbl-standings — 爬取 CPBL 積分榜
 router.post('/trigger-cpbl-standings', verifyToken, requireRole('editor', 'admin'), async (_req: Request, res: Response): Promise<void> => {
   const result = await runCpblStandingsScraper();
+  res.json(result);
+});
+
+// POST /api/v1/scraper/trigger-cpbl-player-stats — 聚合 CPBL 打者賽季成績
+router.post('/trigger-cpbl-player-stats', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const year = parseInt(req.body?.year ?? '2026', 10);
+  const result = await aggregateCpblSeasonStats(year);
+  res.json(result);
+});
+
+// POST /api/v1/scraper/trigger-cpbl-pitcher-stats — 爬取/聚合 CPBL 投手賽季成績
+router.post('/trigger-cpbl-pitcher-stats', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const year = parseInt(req.body?.year ?? '2026', 10);
+  const result = await runCpblPitcherStatsScraper(year);
+  res.json(result);
+});
+
+// POST /api/v1/scraper/rescrape-cpbl-all — 重刷所有 CPBL 歷史比賽打者成績
+router.post('/rescrape-cpbl-all', verifyToken, requireRole('editor', 'admin'), async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const games = await pool.query<{ id: number; game_detail: string; league: string; game_date: string }>(
+      `SELECT id, game_detail, league, game_date FROM games
+       WHERE league IN ('CPBL','CPBL-W') AND status = 'final' AND game_detail IS NOT NULL
+       ORDER BY game_date ASC`
+    );
+    res.json({ message: `開始重刷 ${games.rows.length} 場 CPBL 比賽，後台執行中...` });
+    (async () => {
+      let ok = 0, fail = 0;
+      for (const g of games.rows) {
+        try {
+          const year = new Date(g.game_date).getFullYear();
+          const kindCode = g.league === 'CPBL' ? 'A' : 'G';
+          const gameDate = new Date(g.game_date);
+          await rescrapeGameByGameSno(g.id, parseInt(g.game_detail, 10), kindCode, year, gameDate);
+          ok++;
+        } catch { fail++; }
+      }
+      console.log(`[Rescrape] CPBL 重刷完成：${ok} 成功, ${fail} 失敗`);
+    })();
+  } catch (err) {
+    res.status(500).json({ message: (err as Error).message });
+  }
+});
+
+// POST /api/v1/scraper/rescrape-cpbl-game — 重新爬蟲指定場次
+router.post('/rescrape-cpbl-game', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const { gameId, gameSno, kindCode, year } = req.body;
+  if (!gameId || !gameSno || !kindCode || !year) {
+    res.status(400).json({ message: '必填: gameId, gameSno, kindCode, year' });
+    return;
+  }
+  const result = await rescrapeGameByGameSno(
+    parseInt(gameId, 10), parseInt(gameSno, 10), kindCode, parseInt(year, 10),
+  );
   res.json(result);
 });
 
@@ -297,6 +353,21 @@ router.post('/backfill-farm-pbp', verifyToken, requireRole('editor', 'admin'), (
 // GET /api/v1/scraper/backfill-farm-pbp — 查詢二軍 PBP 補抓進度
 router.get('/backfill-farm-pbp', verifyToken, requireRole('editor', 'admin'), (_req: Request, res: Response): void => {
   res.json({ status: farmPbpBackfillStatus });
+});
+
+// POST /api/v1/scraper/trigger-docomo-farm — 手動觸發 Docomo 二軍爬蟲（含投球資料）
+router.post('/trigger-docomo-farm', verifyToken, requireRole('editor', 'admin'), async (_req: Request, res: Response): Promise<void> => {
+  if (docomoScraperStatus.isRunning) {
+    res.json({ message: 'Docomo 爬蟲正在執行中', status: docomoScraperStatus });
+    return;
+  }
+  runDocomoFarmScraper().catch(console.error);
+  res.status(202).json({ message: 'Docomo 二軍爬蟲已啟動（含打投成績 + 投球位置）', status: docomoScraperStatus });
+});
+
+// GET /api/v1/scraper/trigger-docomo-farm — 查詢進度
+router.get('/trigger-docomo-farm', verifyToken, requireRole('editor', 'admin'), (_req: Request, res: Response): void => {
+  res.json({ status: docomoScraperStatus });
 });
 
 // POST /api/v1/scraper/import-games — 手動匯入比賽資料（用於無法爬取的聯盟，如 CPBL 二軍）

@@ -61,6 +61,14 @@ async function ensureFarmTeam(team: typeof FARM_TEAMS[number]): Promise<void> {
   );
 }
 
+// section id → 守備位置
+const SECTION_POSITION: Record<string, string> = {
+  'section-pitcher':   '投手',
+  'section-catcher':   '捕手',
+  'section-infielder': '内野手',
+  'section-outfielder':'外野手',
+};
+
 async function scrapeYahooTeamRoster(teamCode: string, yahooTeamId: string): Promise<number> {
   const url = `${YAHOO_BASE}/npb/teams/${yahooTeamId}/players`;
   try {
@@ -70,48 +78,43 @@ async function scrapeYahooTeamRoster(teamCode: string, yahooTeamId: string): Pro
     await pool.query('DELETE FROM npb_players WHERE team_code = $1', [teamCode]);
 
     let count = 0;
-    $('table tr').each((_rowIdx, tr) => {
-      const tds = $(tr).find('td');
-      if (tds.length < 3) return;
+    const inserts: Promise<unknown>[] = [];
 
-      const number = tds.eq(0).text().trim();
-      if (!number || /背番/.test(number)) return;
+    // 各守備位置 section（跳過監督・コーチ）
+    for (const [sectionId, position] of Object.entries(SECTION_POSITION)) {
+      $(`#${sectionId} li.bb-playerList__item`).each((_i, li) => {
+        const link = $(li).find('a.bb-playerList__link').first();
+        const playerHref = link.attr('href') ?? '';
+        const playerIdMatch = playerHref.match(/\/player\/(\d+)\//);
+        const playerId = playerIdMatch?.[1] ?? null;
+        const photoUrl = playerId
+          ? `${YAHOO_BASE}/npb/photo/player/100/${playerId}.jpg`
+          : null;
 
-      const nameLink = tds.eq(1).find('a').first();
-      const nameJp = nameLink.text().trim() || tds.eq(1).text().trim();
-      if (!nameJp) return;
+        const number = $(li).find('.bb-playerList__number').text().trim();
+        const nameJp  = $(li).find('.bb-playerList__name').text().trim();
+        const nameKana = $(li).find('.bb-playerList__other').text().trim();
 
-      const playerHref = nameLink.attr('href') ?? '';
-      const playerIdMatch = playerHref.match(/\/player\/(\d+)\//);
-      const playerId = playerIdMatch?.[1] ?? null;
-      const photoUrl = playerId
-        ? `${YAHOO_BASE}/npb/photo/player/100/${playerId}.jpg`
-        : null;
+        if (!nameJp) return;
 
-      const position = tds.eq(2).text().trim();
+        inserts.push(
+          pool.query(
+            `INSERT INTO npb_players
+               (team_code, number, name_jp, name_kana, position, photo_url)
+             VALUES ($1,$2,$3,$4,$5,$6)
+             ON CONFLICT (team_code, number, name_jp) DO UPDATE
+               SET name_kana = EXCLUDED.name_kana,
+                   position  = EXCLUDED.position,
+                   photo_url = EXCLUDED.photo_url,
+                   updated_at = NOW()`,
+            [teamCode, number, nameJp, nameKana, position, photoUrl],
+          ).catch((e) => console.warn(`[Farm Roster] insert失敗 ${nameJp}:`, e.message)),
+        );
+        count++;
+      });
+    }
 
-      let throwing = '';
-      let batting = '';
-      if (tds.length > 3) {
-        const battingText = tds.eq(3).text().trim();
-        if (battingText.length >= 2) {
-          throwing = battingText[0] ?? '';
-          batting = battingText[1] ?? '';
-        }
-      }
-
-      const height = tds.length > 4 ? parseInt(tds.eq(4).text()) || null : null;
-      const weight = tds.length > 5 ? parseInt(tds.eq(5).text()) || null : null;
-
-      pool.query(
-        `INSERT INTO npb_players
-           (team_code, number, name_jp, name_kana, position, throwing, batting, height, weight, photo_url)
-         VALUES ($1,$2,$3,'',$4,$5,$6,$7,$8,$9)`,
-        [teamCode, number, nameJp, position, throwing, batting, height, weight, photoUrl],
-      ).catch(() => {});
-      count++;
-    });
-
+    await Promise.all(inserts);
     await new Promise(r => setTimeout(r, 500));
     console.log(`[Farm Roster] ${teamCode}: ${count} 選手`);
     return count;

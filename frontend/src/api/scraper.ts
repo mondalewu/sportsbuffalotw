@@ -31,6 +31,7 @@ export interface AllScraperStatus {
   npbFarmPbp?: SimpleScraperStatus;
   yahooFarm?: ScraperStatus;
   yahooFarmSchedule?: SimpleScraperStatus;
+  docomoFarm?: SimpleScraperStatus;
   [key: string]: unknown;
 }
 

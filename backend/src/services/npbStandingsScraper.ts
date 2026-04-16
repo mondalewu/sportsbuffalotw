@@ -55,6 +55,8 @@ export interface NpbStanding {
   win_rate: number;
   games_behind: number | null;
   rank: number;
+  runs_scored?: number;
+  runs_allowed?: number;
 }
 
 export interface NpbStandingsScraperStatus {
@@ -124,13 +126,32 @@ export async function fetchNpbStandings(): Promise<NpbStanding[]> {
 }
 
 async function saveNpbStandings(standings: NpbStanding[]): Promise<void> {
+  // 從 games 表計算各隊得失分
+  const runsRes = await pool.query<{ team: string; runs_scored: number; runs_allowed: number }>(`
+    SELECT team, SUM(scored) AS runs_scored, SUM(allowed) AS runs_allowed
+    FROM (
+      SELECT team_home AS team, COALESCE(score_home,0) AS scored, COALESCE(score_away,0) AS allowed
+      FROM games WHERE league='NPB' AND status='final'
+        AND EXTRACT(YEAR FROM game_date AT TIME ZONE 'Asia/Tokyo') = 2026
+      UNION ALL
+      SELECT team_away, COALESCE(score_away,0), COALESCE(score_home,0)
+      FROM games WHERE league='NPB' AND status='final'
+        AND EXTRACT(YEAR FROM game_date AT TIME ZONE 'Asia/Tokyo') = 2026
+    ) t GROUP BY team`);
+  const runsMap: Record<string, { runs_scored: number; runs_allowed: number }> = {};
+  for (const row of runsRes.rows) {
+    runsMap[row.team] = { runs_scored: Number(row.runs_scored), runs_allowed: Number(row.runs_allowed) };
+  }
+
   await pool.query(`DELETE FROM standings WHERE league IN ('NPB-Central','NPB-Pacific') AND season = '2026'`);
   for (const s of standings) {
+    const runs = runsMap[s.team] ?? { runs_scored: 0, runs_allowed: 0 };
     await pool.query(
       `INSERT INTO standings
-         (league, team_name, wins, losses, draws, win_rate, games_behind, rank, season)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'2026')`,
-      [s.league, s.team, s.wins, s.losses, s.draws, s.win_rate, s.games_behind, s.rank],
+         (league, team_name, wins, losses, draws, win_rate, games_behind, rank, season, runs_scored, runs_allowed)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'2026',$9,$10)`,
+      [s.league, s.team, s.wins, s.losses, s.draws, s.win_rate, s.games_behind, s.rank,
+       runs.runs_scored, runs.runs_allowed],
     );
   }
 }

@@ -1,3 +1,10 @@
+export interface ArticleImage {
+  id: number;
+  image_url: string;
+  caption: string;
+  sort_order: number;
+}
+
 export interface Article {
   id: number;
   title: string;
@@ -9,6 +16,7 @@ export interface Article {
   author_id?: number;
   is_hot: boolean;
   published_at: string;
+  images?: ArticleImage[];
 }
 
 export interface Game {

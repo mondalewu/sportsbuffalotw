@@ -240,13 +240,8 @@ async function fetchFarmGameLinksToday(): Promise<string[]> {
       const full = href.startsWith('http') ? href : `${NPB_BASE}${href}`;
       if (!seen.has(full)) { seen.add(full); links.push(full); }
     });
-    // Legacy /scores/ format fallback
-    $('a[href*="/scores/"]').each((_, el) => {
-      const href = $(el).attr('href') ?? '';
-      if (!href.match(/\/scores\/(\d{4})\/(\d{4})\/([\w]+-[\w]+-\d+)\/?/)) return;
-      const full = `${NPB_BASE}${href.endsWith('/') ? href : href + '/'}`;
-      if (!seen.has(full)) { seen.add(full); links.push(full); }
-    });
+    // Note: Do NOT include /scores/ fallback here — those are 一軍 URLs and would
+    // pollute NPB2 with first-team games.
   } catch (e) {
     console.warn('[NPB Farm] fetchFarmGameLinksToday 失敗:', (e as Error).message);
   }

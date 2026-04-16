@@ -15,7 +15,7 @@ const TEAM_CONFIG: Record<string, { abbr: string; bg: string; color: string }> =
 
 const TEAM_CODE_MAP: Record<string, string> = {
   'AJL011': '樂天桃猿', 'AEO011': '富邦悍將', 'ACN011': '中信兄弟',
-  'AKP011': '台鋼雄鷹', 'AAA011': '味全龍',   'AJD011': '統一獅',
+  'AKP011': '台鋼雄鷹', 'AAA011': '味全龍',   'ADD011': '統一獅',
 };
 
 // ── 介面 ──────────────────────────────────────────────────────────────────────
@@ -45,6 +45,8 @@ interface BatterRow {
   home_runs: number; strikeouts: number; walks: number;
   hit_by_pitch: number; sacrifice_hits: number; stolen_bases: number;
   at_bat_results: string[] | null;
+  season_avg: number | null;
+  season_ab?: number | null;
 }
 interface LineupRow {
   team_code: string; is_home: boolean; batting_order: number;
@@ -54,8 +56,18 @@ interface PitcherRow {
   team_code: string; pitcher_order: number | null; player_name: string;
   innings_pitched: string | null; hits_allowed: number; runs_allowed: number;
   earned_runs: number; walks: number; strikeouts: number; pitch_count: number;
+  season_era: number | null; season_ip: number | null;
   batters_faced: number; home_runs_allowed: number; hit_by_pitch: number;
   balk: number; result: string | null;
+}
+
+interface PlayByPlayEvent {
+  id: number; game_id: number; inning: number; is_top: boolean;
+  batter_name: string; pitcher_name: string;
+  situation: string; result_text: string;
+  score_home: number; score_away: number; sequence_num: number;
+  hitter_acnt?: string | null;
+  batting_order?: number | null;
 }
 
 interface Props {
@@ -149,40 +161,219 @@ function StrikeZoneOverlay() {
   );
 }
 
+// ── 局面解析 ──────────────────────────────────────────────────────────────────
+
+function parseSituation(situation: string) {
+  const outs    = parseInt(situation.match(/^(\d+)出/)?.[1]  ?? '0', 10);
+  const balls   = parseInt(situation.match(/(\d+)B/)?.[1]    ?? '0', 10);
+  const strikes = parseInt(situation.match(/(\d+)S/)?.[1]    ?? '0', 10);
+  const base1   = /一壘|一二壘|一三壘|滿壘/.test(situation);
+  const base2   = /二壘|一二壘|二三壘|滿壘/.test(situation);
+  const base3   = /三壘|一三壘|二三壘|滿壘/.test(situation);
+  return { outs, balls, strikes, base1, base2, base3 };
+}
+
+// ── 上壘球員推算（從 PBP 事件序列追蹤）────────────────────────────────────────
+
+function inferRunners(events: PlayByPlayEvent[]): { base1: string | null; base2: string | null; base3: string | null } {
+  if (!events.length) return { base1: null, base2: null, base3: null };
+
+  // 找到最新一局（ASC 排序，最後一筆最新）
+  const latest = events[events.length - 1];
+  const sameHalf = events.filter(e => e.inning === latest.inning && e.is_top === latest.is_top);
+  // 確保時間順序（sequence_num ASC）
+  const chronological = [...sameHalf].sort((a, b) => a.sequence_num - b.sequence_num);
+
+  let b1: string | null = null;
+  let b2: string | null = null;
+  let b3: string | null = null;
+
+  // 清除某人名在所有壘的記錄（避免同一選手出現在多個壘包）
+  function clearName(name: string) {
+    if (b1 === name) b1 = null;
+    if (b2 === name) b2 = null;
+    if (b3 === name) b3 = null;
+  }
+
+  for (const ev of chronological) {
+    const r = ev.result_text;
+    const name = ev.batter_name;
+
+    if (/本壘打/.test(r)) {
+      b1 = null; b2 = null; b3 = null;
+    } else if (/三壘安打/.test(r)) {
+      // 所有人得分，打者上三壘
+      b1 = null; b2 = null; clearName(name); b3 = name;
+    } else if (/二壘安打/.test(r)) {
+      // 一壘跑者通常得分，打者上二壘
+      b1 = null; b3 = b2; clearName(name); b2 = name;
+    } else if (/一壘安打/.test(r) || (r.includes('安打') && !r.includes('二壘') && !r.includes('三壘'))) {
+      // 推進跑者
+      if (b2) b3 = b2;
+      b2 = b1;
+      clearName(name);
+      b1 = name;
+    } else if (/四壞球|死球|滿壘/.test(r) && !r.includes('出局')) {
+      // 強迫推進
+      if (b1 && b2) { b3 = b2; b2 = b1; clearName(name); b1 = name; }
+      else if (b1) { b2 = b1; clearName(name); b1 = name; }
+      else { clearName(name); b1 = name; }
+    } else if (/盜壘成功/.test(r)) {
+      if (b1 === name) { b2 = name; b1 = null; }
+      else if (b2 === name) { b3 = name; b2 = null; }
+    } else if (/得分/.test(r)) {
+      // 清除跑者（得分回本壘）
+      if (b3) b3 = null;
+      else if (b2) b2 = null;
+      else if (b1) b1 = null;
+    } else if (/雙殺|併殺/.test(r)) {
+      b1 = null;
+    } else if (/三振|飛球|滾地|接殺|觸殺|封殺|出局|比賽結束/.test(r)) {
+      // 打者出局，壘上跑者維持（簡化：不移動）
+    }
+  }
+
+  return { base1: b1, base2: b2, base3: b3 };
+}
+
+// ── 打者今日成績摘要 ──────────────────────────────────────────────────────────
+
+function todayResultSummary(results: string[] | null): string {
+  if (!results || !results.length) return '';
+  const hits = results.filter(r => /安|二|三|本/.test(r)).length;
+  const ab   = results.length;
+  if (hits === 0) return `${ab}打數0安`;
+  return `${ab}打數${hits}安`;
+}
+
 // ── 球場面板 ──────────────────────────────────────────────────────────────────
 
-function BaseballFieldPanel({ outs }: { outs: number }) {
+function BaseballFieldPanel({
+  outs,
+  isFinal,
+  latestEvent,
+  allEvents,
+  batterAvgMap,
+  batterResultMap,
+  pitcherStatsMap,
+}: {
+  outs: number;
+  isFinal?: boolean;
+  latestEvent?: PlayByPlayEvent | null;
+  allEvents?: PlayByPlayEvent[];
+  batterAvgMap?: Record<string, string>;
+  batterResultMap?: Record<string, string[]>;
+  pitcherStatsMap?: Record<string, { era: string; pitch_count: number }>;
+}) {
+  const parsed = latestEvent
+    ? parseSituation(latestEvent.situation)
+    : { outs, balls: 0, strikes: 0, base1: false, base2: false, base3: false };
+
+  const { base1: occ1, base2: occ2, base3: occ3 } = parsed;
+  const displayOuts    = parsed.outs;
+  const displayBalls   = parsed.balls;
+  const displayStrikes = parsed.strikes;
+
+  const runners = allEvents ? inferRunners(allEvents) : { base1: null, base2: null, base3: null };
+
+  const batterAvg    = latestEvent && batterAvgMap     ? (batterAvgMap[latestEvent.batter_name]       ?? null) : null;
+  const batterToday  = latestEvent && batterResultMap  ? (batterResultMap[latestEvent.batter_name]    ?? null) : null;
+  const pitcherInfo  = latestEvent && pitcherStatsMap  ? (pitcherStatsMap[latestEvent.pitcher_name]   ?? null) : null;
+
+  // 壘包定義（位置 + 是否有人）
+  const BASES = [
+    { key: '2B', left: '50%',  top: '33%', occupied: occ2, runner: runners.base2, anchor: 'center' },
+    { key: '3B', left: '15%',  top: '45%', occupied: occ3, runner: runners.base3, anchor: 'right' },
+    { key: '1B', left: '85%',  top: '45%', occupied: occ1, runner: runners.base1, anchor: 'left' },
+  ];
+
   return (
-    <div className="relative overflow-hidden bg-gray-900" style={{ height: 400 }}>
+    <div className="relative overflow-hidden bg-gray-900" style={{ height: 420 }}>
       <img
         src="/baseball-field.png"
         alt="baseball field"
         className="absolute inset-0 w-full h-full object-cover"
         onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
       />
-      <div className="absolute inset-0 bg-black/25" />
+      <div className="absolute inset-0 bg-black/30" />
 
-      {/* 壘包（空置）*/}
-      {[
-        { left: '50%', top: '33%', label: '2B' },
-        { left: '15%', top: '45%', label: '3B' },
-        { left: '85%', top: '45%', label: '1B' },
-      ].map(({ left, top, label }) => (
-        <div key={label} className="absolute flex flex-col items-center gap-0.5"
+      {/* ── 比賽結束 overlay ── */}
+      {isFinal && (
+        <div className="absolute inset-0 flex items-center justify-center z-10">
+          <div className="bg-black/75 backdrop-blur-sm rounded-3xl px-10 py-6 text-center shadow-2xl border border-white/10">
+            <div className="text-white text-2xl font-black tracking-widest mb-1">比賽結束</div>
+            <div className="text-gray-400 text-xs font-bold tracking-wider">FINAL</div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 壘包 + 跑者姓名 ── */}
+      {BASES.map(({ key, left, top, occupied, runner }) => (
+        <div key={key} className="absolute flex flex-col items-center"
           style={{ left, top, transform: 'translate(-50%, -50%)' }}>
-          <div className="w-5 h-5 rounded-sm border-2 shadow bg-white/85 border-gray-300"
-            style={{ transform: 'rotate(45deg)' }} />
-          <span className="text-[8px] text-white font-black drop-shadow">{label}</span>
+          {/* 跑者姓名（壘上有人才顯示，有追蹤到姓名才顯示 badge） */}
+          {occupied && runner && (
+            <div className="mb-1 bg-black/85 text-yellow-300 text-[10px] font-black px-2 py-0.5 rounded-full whitespace-nowrap shadow border border-yellow-400/30">
+              {runner}
+            </div>
+          )}
+          {/* 壘包 */}
+          <div
+            className={`w-6 h-6 rounded-sm border-2 shadow-lg transition-all duration-300 ${
+              occupied
+                ? 'bg-yellow-400 border-yellow-200 shadow-yellow-400/80 scale-110'
+                : 'bg-white/80 border-gray-300'
+            }`}
+            style={{ transform: 'rotate(45deg)' }}
+          />
         </div>
       ))}
 
-      {/* BSO 燈號 */}
+      {/* ── 投手資訊（中央偏上，草坪區）── */}
+      {latestEvent && !isFinal && (
+        <div className="absolute text-center" style={{ left: '50%', top: '52%', transform: 'translate(-50%, -50%)' }}>
+          <div className="bg-black/70 backdrop-blur-sm rounded-2xl px-4 py-2 shadow-xl text-white inline-block">
+            <div className="text-[9px] text-gray-400 font-bold tracking-widest mb-0.5">場上投手</div>
+            <div className="font-black text-sm">{latestEvent.pitcher_name}</div>
+            {pitcherInfo && (
+              <div className="text-[11px] text-blue-300 font-bold mt-0.5 flex items-center justify-center gap-2">
+                <span>{pitcherInfo.pitch_count} 球</span>
+                <span className="text-gray-500">·</span>
+                <span>ERA {pitcherInfo.era}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── BSO 燈號（左下）── */}
       <div className="absolute bottom-4 left-4 bg-black/80 backdrop-blur-sm rounded-xl px-3 py-2.5 shadow-xl">
         <div className="text-[9px] text-gray-400 font-bold tracking-widest text-center mb-1.5">B · S · O</div>
-        <BSOLights balls={0} strikes={0} outs={outs} />
+        <BSOLights balls={displayBalls} strikes={displayStrikes} outs={displayOuts} />
       </div>
 
-      {/* 好球帶 */}
+      {/* ── 打者資訊（下方中央，本壘板上方）── */}
+      {latestEvent && !isFinal && (
+        <div className="absolute text-center" style={{ left: '50%', bottom: 16, transform: 'translateX(-50%)' }}>
+          <div className="bg-black/80 backdrop-blur-sm rounded-2xl px-5 py-2.5 shadow-xl text-white inline-block min-w-[180px]">
+            <div className="text-[9px] text-gray-400 font-bold tracking-widest mb-0.5">打者</div>
+            <div className="font-black text-base leading-tight">{latestEvent.batter_name}</div>
+            <div className="flex items-center justify-center gap-2 mt-0.5">
+              {batterAvg && (
+                <span className="text-[11px] text-yellow-300 font-bold">打率 {batterAvg}</span>
+              )}
+              {batterToday && batterToday.length > 0 && (
+                <>
+                  <span className="text-gray-600 text-[10px]">·</span>
+                  <span className="text-[11px] text-green-300 font-bold">本場 {todayResultSummary(batterToday)}</span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 好球帶（右下）── */}
       <div className="absolute bottom-4 right-4 bg-black/80 backdrop-blur-sm rounded-xl px-3 py-3 shadow-xl">
         <StrikeZoneOverlay />
       </div>
@@ -190,17 +381,169 @@ function BaseballFieldPanel({ outs }: { outs: number }) {
   );
 }
 
-// ── 打者陣容 ──────────────────────────────────────────────────────────────────
+// ── 打者陣容（NPB 同款格式）─────────────────────────────────────────────────────
+
+function CpblLineupPanel({
+  name, lineups, batters,
+}: {
+  name: string;
+  lineups: LineupRow[];
+  batters: BatterRow[];
+}) {
+  // Build batting avg map from batter stats (prefer season avg)
+  const avgMap: Record<string, { avg: string; atBats: number }> = {};
+  batters.forEach(b => {
+    const avg = b.season_avg != null && b.season_avg > 0
+      ? Number(b.season_avg).toFixed(3)
+      : b.at_bats > 0 ? (b.hits / b.at_bats).toFixed(3) : '.---';
+    avgMap[b.player_name] = { avg, atBats: b.at_bats };
+  });
+
+  // Group by batting_order: first = starter, rest = substitutes
+  const grouped: { order: number; starter: LineupRow; subs: LineupRow[] }[] = [];
+  for (const l of lineups.sort((a, b) => a.batting_order - b.batting_order)) {
+    const existing = grouped.find(g => g.order === l.batting_order);
+    if (existing) {
+      existing.subs.push(l);
+    } else {
+      grouped.push({ order: l.batting_order, starter: l, subs: [] });
+    }
+  }
+
+  if (grouped.length === 0) {
+    return <div className="text-center py-6 text-gray-400 text-xs">打序尚未公布</div>;
+  }
+
+  return (
+    <div>
+      <div className="font-black text-xs text-gray-700 mb-2 px-1">{name}</div>
+      {/* 欄位標題 */}
+      <div className="flex items-center gap-2 px-2 pb-1 border-b border-gray-100 text-[9px] text-gray-400 font-bold">
+        <span className="w-4 shrink-0 text-center">棒</span>
+        <span className="w-8 shrink-0 text-center">守備</span>
+        <span className="flex-1">選手</span>
+        <span className="w-5 shrink-0 text-center">打</span>
+        <span className="w-10 shrink-0 text-right">打率</span>
+      </div>
+      <div className="space-y-0">
+        {grouped.map(({ order, starter, subs }) => {
+          const starterStats = avgMap[starter.player_name];
+          const isReplaced = subs.length > 0;
+          return (
+            <div key={order}>
+              {/* 先發 */}
+              <div className={`flex items-center gap-2 py-[3px] px-2 text-xs hover:bg-gray-50 ${isReplaced ? 'opacity-40' : ''}`}>
+                <span className="w-4 shrink-0 text-center font-black text-[11px] text-gray-700">{order}</span>
+                <span className="w-8 shrink-0 text-center text-[10px] font-bold text-gray-600">({starter.position || '–'})</span>
+                <span className="flex-1 truncate text-[11px] font-bold text-gray-800">{starter.player_name}</span>
+                <span className="shrink-0 text-[10px] w-5 text-center text-gray-400">
+                  {starterStats?.atBats != null && starterStats.atBats > 0 ? starterStats.atBats : '–'}
+                </span>
+                <span className="text-gray-500 tabular-nums text-[11px] shrink-0 w-10 text-right">
+                  {starterStats?.avg ?? '.---'}
+                </span>
+              </div>
+              {/* 代打・代走 */}
+              {subs.map((s, i) => {
+                const subStats = avgMap[s.player_name];
+                return (
+                  <div key={i} className="flex items-center gap-2 py-[3px] px-2 text-xs hover:bg-amber-50 bg-amber-50/30">
+                    <span className="w-4 shrink-0" />
+                    <span className="w-8 shrink-0 text-center text-[10px] font-bold text-amber-600">{s.position || '代'}</span>
+                    <span className="flex-1 truncate text-[11px] font-medium text-amber-700">{s.player_name}</span>
+                    <span className="shrink-0 text-[10px] w-5 text-center text-gray-400">
+                      {subStats?.atBats != null && subStats.atBats > 0 ? subStats.atBats : '–'}
+                    </span>
+                    <span className="text-amber-600 tabular-nums text-[11px] shrink-0 w-10 text-right">
+                      {subStats?.avg ?? '.---'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── 從 PBP 推導每局打擊結果（Content → 短碼）────────────────────────────────────
+
+function cpblResultShortCode(text: string): string {
+  if (!text) return '';
+  if (text.includes('全壘打')) return '全打';
+  if (text.includes('三壘安打')) return '三安';
+  if (text.includes('二壘安打')) return '二安';
+  if (text.includes('一壘安打') || text.includes('內野安打')) return '一安';
+  if (text.includes('四壞球') || text.includes('四壞') || text.includes('四球')) return '四球';
+  if (text.includes('死球') || text.includes('觸身球')) return '死球';
+  if (text.includes('犧牲短打') || text.includes('犧打')) return '犧打';
+  if (text.includes('犧牲飛球') || text.includes('犧飛')) return '犧飛';
+  if (text.includes('三振')) return '三振';
+  if (text.includes('雙殺打') || text.includes('雙殺')) return '雙殺';
+  if (text.includes('飛球接殺') || text.includes('高飛')) return '飛出';
+  if (text.includes('平飛')) return '直飛';
+  if (text.includes('滾地球') && text.includes('出局')) return '滾出';
+  if (text.includes('出局')) return '出局';
+  return '';
+}
+
+function isFinalEvent(text: string): boolean {
+  return (
+    text.includes('出局') ||
+    text.includes('安打') ||
+    text.includes('全壘打') ||
+    text.includes('四壞球') ||
+    text.includes('四壞') ||
+    text.includes('四球') ||
+    text.includes('死球') ||
+    text.includes('觸身球') ||
+    text.includes('犧牲')
+  );
+}
+
+// Returns: { [playerName]: { [inning]: shortCode } }
+function buildCpblInningResultMap(
+  pbpEvents: PlayByPlayEvent[]
+): Record<string, Record<number, string>> {
+  const map: Record<string, Record<number, string>> = {};
+  // PBP events arrive in sequence; we keep the last "final" event per batter per inning
+  for (const ev of pbpEvents) {
+    const name = ev.batter_name;
+    if (!name) continue;
+    if (!isFinalEvent(ev.result_text)) continue;
+    const code = cpblResultShortCode(ev.result_text);
+    if (!code) continue;
+    if (!map[name]) map[name] = {};
+    map[name][ev.inning] = code;
+  }
+  return map;
+}
 
 // ── 打者成績表（與 NPB 同款格式）───────────────────────────────────────────────
 
-function BatterTable({ title, batters, lineups }: { title: string; batters: BatterRow[]; lineups?: LineupRow[] }) {
-  const maxResults = Math.max(...batters.map(b => b.at_bat_results?.length ?? 0), 0);
+function BatterTable({ title, batters, lineups, inningResultMap }: {
+  title: string; batters: BatterRow[]; lineups?: LineupRow[];
+  inningResultMap?: Record<string, Record<number, string>>;
+}) {
+  // Compute max inning from inningResultMap or at_bat_results
+  const maxInningFromMap = inningResultMap
+    ? Math.max(0, ...Object.values(inningResultMap).flatMap(m => Object.keys(m).map(Number)))
+    : 0;
+  const maxResults = Math.max(...batters.map(b => b.at_bat_results?.length ?? 0), 0, maxInningFromMap);
   const inningCols = Array.from({ length: maxResults }, (_, i) => i + 1);
 
   // 棒次對照表：從先發名單補充（batter stats 若未含棒次時使用）
   const lineupOrderByName: Record<string, number> = {};
   lineups?.forEach(l => { if (l.batting_order > 0) lineupOrderByName[l.player_name] = l.batting_order; });
+
+  // 正規化顯示棒次：無論 DB 存 1-9 或 10-18，一律顯示 1-9
+  const uniqueOrders = [...new Set(
+    batters.map(b => b.batting_order || lineupOrderByName[b.player_name] || 0).filter(o => o > 0)
+  )].sort((a, b) => a - b);
+  const displayOrderMap: Record<number, number> = {};
+  uniqueOrders.forEach((o, i) => { displayOrderMap[o] = i + 1; });
 
   return (
     <div>
@@ -223,26 +566,62 @@ function BatterTable({ title, batters, lineups }: { title: string; batters: Batt
               <th className="px-1.5 py-1.5 font-bold">犠</th>
               <th className="px-1.5 py-1.5 font-bold">盗</th>
               {inningCols.map(n => (
-                <th key={n} className="px-1.5 py-1.5 font-bold text-gray-400 min-w-[32px]">{n}打</th>
+                <th key={n} className="px-1.5 py-1.5 font-bold text-gray-400 min-w-[36px]">{n}回</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {batters.map((b, i) => {
+            {(() => {
+              // Build starter lookup from lineups: for each batting_order, the FIRST player in lineups is the starter
+              const starterByOrder: Record<number, string> = {};
+              if (lineups && lineups.length > 0) {
+                // lineups is already sorted by batting_order from the parent filter
+                // The starter is the one whose position is NOT 代打/代走/pinch
+                for (const l of lineups) {
+                  if (l.batting_order > 0 && !starterByOrder[l.batting_order]) {
+                    starterByOrder[l.batting_order] = l.player_name;
+                  }
+                }
+              }
+              const seenOrders = new Set<number>();
+              return batters.map((b, i) => {
               const order = b.batting_order || lineupOrderByName[b.player_name] || 0;
-              const avg = b.at_bats > 0 ? (b.hits / b.at_bats).toFixed(3) : '.000';
+              // If we have lineup data, use it to determine starter; otherwise fall back to first-seen
+              const isStarter = order > 0 && (
+                starterByOrder[order]
+                  ? starterByOrder[order] === b.player_name
+                  : !seenOrders.has(order)
+              );
+              if (order > 0) seenOrders.add(order);
+              const isSub = order > 0 && !isStarter;
+              const avg = b.season_avg != null && b.season_avg > 0
+                ? Number(b.season_avg).toFixed(3)
+                : b.at_bats > 0 ? (b.hits / b.at_bats).toFixed(3) : '.000';
+              // Use inningResultMap if available, else fall back to at_bat_results array
+              const playerInningMap = inningResultMap?.[b.player_name] ?? {};
+              const hasInningData = Object.keys(playerInningMap).length > 0;
+              const rowBg = isSub ? 'bg-amber-50/40' : i % 2 === 0 ? 'bg-white' : 'bg-gray-50';
               return (
-                <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                  <td className="px-1.5 py-1.5 text-center tabular-nums font-bold text-gray-400 sticky left-0 bg-inherit">
-                    {order > 0 ? order : ''}
+                <tr key={i} className={rowBg}>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums font-black text-gray-700 sticky left-0 bg-inherit">
+                    {isStarter && order > 0 ? (displayOrderMap[order] ?? order) : ''}
                   </td>
-                  <td className="px-2 py-1.5 font-bold text-gray-800 whitespace-nowrap sticky left-8 bg-inherit">
-                    {b.position && <span className="text-gray-400 mr-1 font-normal">{b.position}</span>}
-                    {b.player_name}
+                  <td className="px-2 py-1.5 whitespace-nowrap sticky left-8 bg-inherit">
+                    {isSub ? (
+                      <span className="flex items-center gap-1">
+                        <span className="text-amber-600 font-bold text-[10px]">{b.position || '代'}</span>
+                        <span className="font-medium text-amber-700">{b.player_name}</span>
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1">
+                        {b.position && <span className="text-gray-500 font-bold text-[10px]">({b.position})</span>}
+                        <span className="font-bold text-gray-800">{b.player_name}</span>
+                      </span>
+                    )}
                   </td>
                   <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-500">{avg}</td>
-                  <td className="px-1.5 py-1.5 text-center tabular-nums">{b.at_bats}</td>
-                  <td className="px-1.5 py-1.5 text-center tabular-nums">{b.runs}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums">{(() => { const pa = b.at_bats + b.walks + b.hit_by_pitch + b.sacrifice_hits; return pa > 0 ? pa : <span className="text-gray-300">–</span>; })()}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums">{b.runs > 0 ? b.runs : <span className="text-gray-300">0</span>}</td>
                   <td className={`px-1.5 py-1.5 text-center tabular-nums font-bold ${b.hits > 0 ? 'text-red-600' : ''}`}>{b.hits}</td>
                   <td className={`px-1.5 py-1.5 text-center tabular-nums font-bold ${b.home_runs > 0 ? 'text-red-600' : ''}`}>{b.home_runs}</td>
                   <td className="px-1.5 py-1.5 text-center tabular-nums">{b.rbi}</td>
@@ -252,26 +631,31 @@ function BatterTable({ title, batters, lineups }: { title: string; batters: Batt
                   <td className="px-1.5 py-1.5 text-center tabular-nums">{b.sacrifice_hits}</td>
                   <td className="px-1.5 py-1.5 text-center tabular-nums">{b.stolen_bases}</td>
                   {inningCols.map(n => {
-                    const result = b.at_bat_results?.[n - 1] ?? '';
-                    const isHr  = result.includes('本');
-                    const isHit = !isHr && (result.includes('安') || result.includes('二') || result.includes('三'));
+                    const result = hasInningData
+                      ? (playerInningMap[n] ?? '')
+                      : (b.at_bat_results?.[n - 1] ?? '');
+                    const isHr   = result.includes('全打');
+                    const isHit  = !isHr && (result.includes('安') || result === '一安' || result === '二安' || result === '三安');
+                    const isWalk = result === '四球' || result === '死球';
                     return (
-                      <td key={n} className="px-1 py-1 text-center whitespace-nowrap">
+                      <td key={n} className="px-1 py-1 text-center whitespace-nowrap min-w-[36px]">
                         {result ? (
                           <span className={
-                            isHr  ? 'inline-block px-1 rounded font-bold text-white bg-red-600' :
-                            isHit ? 'inline-block px-1 rounded font-bold text-red-600 bg-red-50' :
-                            'text-gray-500'
+                            isHr   ? 'inline-block px-1 py-0.5 rounded text-[10px] font-black text-white bg-red-600' :
+                            isHit  ? 'inline-block px-1 py-0.5 rounded text-[10px] font-bold text-red-600 bg-red-50' :
+                            isWalk ? 'text-[10px] text-blue-500 font-bold' :
+                            'text-[10px] text-gray-500'
                           }>{result}</span>
                         ) : (
-                          <span className="text-gray-200">·</span>
+                          <span className="text-gray-200 text-[10px]">–</span>
                         )}
                       </td>
                     );
                   })}
                 </tr>
               );
-            })}
+              });
+            })()}
           </tbody>
         </table>
       </div>
@@ -287,7 +671,7 @@ function parseInnings(ip: string | null): number {
   return parseInt(whole || '0') + (parseInt(frac || '0') / 3);
 }
 
-function PitcherTable({ title, pitchers }: { title: string; pitchers: PitcherRow[] }) {
+function PitcherTable({ title, pitchers, stats }: { title: string; pitchers: PitcherRow[]; stats?: GameStats | null }) {
   return (
     <div>
       <h4 className="font-black text-sm text-gray-700 mb-2 px-1">{title}</h4>
@@ -313,12 +697,22 @@ function PitcherTable({ title, pitchers }: { title: string; pitchers: PitcherRow
           <tbody>
             {pitchers.map((p, i) => {
               const ipNum = parseInnings(p.innings_pitched);
-              const era = ipNum > 0 ? ((p.earned_runs / ipNum) * 27).toFixed(2) : '–';
-              const resultColor = p.result === '勝' ? 'text-green-600' : p.result === '敗' ? 'text-red-600' : p.result === '救' ? 'text-blue-600' : 'text-gray-500';
+              const gameEra = ipNum > 0 ? ((p.earned_runs / ipNum) * 27).toFixed(2) : '–';
+              // 優先顯示賽季防禦率，不足3局時顯示本場
+              const era = p.season_era != null ? Number(p.season_era).toFixed(2) : gameEra;
+              const eraLabel = p.season_era != null ? `${era}` : gameEra;
+              const derivedResult = p.result ??
+                (stats?.win_pitcher && p.player_name === stats.win_pitcher ? '勝' :
+                 stats?.loss_pitcher && p.player_name === stats.loss_pitcher ? '敗' :
+                 stats?.save_pitcher && p.player_name === stats.save_pitcher ? '救' : null);
+              const resultColor = derivedResult === '勝' ? 'text-green-600' : derivedResult === '敗' ? 'text-red-600' : derivedResult === '救' ? 'text-blue-600' : 'text-gray-500';
               return (
                 <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                   <td className="px-2 py-1.5 font-bold text-gray-800 whitespace-nowrap sticky left-0 bg-inherit">{p.player_name}</td>
-                  <td className="px-1.5 py-1.5 text-center text-gray-600">{era}</td>
+                  <td className="px-1.5 py-1.5 text-center text-gray-600">
+                    {eraLabel}
+                    {p.season_era != null && <span className="text-gray-400 text-[9px] ml-0.5">季</span>}
+                  </td>
                   <td className="px-1.5 py-1.5 text-center text-gray-700">{p.innings_pitched ?? '–'}</td>
                   <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-700">{p.pitch_count}</td>
                   <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-700">{p.batters_faced}</td>
@@ -329,7 +723,7 @@ function PitcherTable({ title, pitchers }: { title: string; pitchers: PitcherRow
                   <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-700">{p.hit_by_pitch}</td>
                   <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-700">{p.runs_allowed}</td>
                   <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-700">{p.earned_runs}</td>
-                  <td className={`px-1.5 py-1.5 text-center font-black ${resultColor}`}>{p.result ?? ''}</td>
+                  <td className={`px-1.5 py-1.5 text-center font-black ${resultColor}`}>{derivedResult ?? ''}</td>
                 </tr>
               );
             })}
@@ -416,11 +810,12 @@ const CPBLGameDetail: React.FC<Props> = ({
   game, onClose, standalone = false,
   hasPrev = false, hasNext = false, onPrev, onNext,
 }) => {
-  const [innings,  setInnings]  = useState<InningRow[]>([]);
-  const [stats,    setStats]    = useState<GameStats | null>(null);
-  const [batters,  setBatters]  = useState<BatterRow[]>([]);
-  const [pitchers, setPitchers] = useState<PitcherRow[]>([]);
-  const [lineups,  setLineups]  = useState<LineupRow[]>([]);
+  const [innings,   setInnings]   = useState<InningRow[]>([]);
+  const [stats,     setStats]     = useState<GameStats | null>(null);
+  const [batters,   setBatters]   = useState<BatterRow[]>([]);
+  const [pitchers,  setPitchers]  = useState<PitcherRow[]>([]);
+  const [lineups,   setLineups]   = useState<LineupRow[]>([]);
+  const [pbpEvents, setPbpEvents] = useState<PlayByPlayEvent[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tab,          setTab]          = useState<MainTab>('score');
@@ -432,18 +827,20 @@ const CPBLGameDetail: React.FC<Props> = ({
   const isFinal = game.status === 'final';
 
   const loadData = async () => {
-    const [inn, st, bat, lu, pit] = await Promise.all([
+    const [inn, st, bat, lu, pit, pbp] = await Promise.all([
       fetch(`/api/v1/games/${game.id}/innings`).then(r => r.json()).catch(() => []),
       fetch(`/api/v1/games/${game.id}/stats`).then(r => r.json()).catch(() => null),
       fetch(`/api/v1/games/${game.id}/batters`).then(r => r.json()).catch(() => []),
       fetch(`/api/v1/games/${game.id}/lineups`).then(r => r.json()).catch(() => []),
       fetch(`/api/v1/games/${game.id}/pitchers`).then(r => r.json()).catch(() => []),
+      fetch(`/api/v1/games/${game.id}/play-by-play`).then(r => r.json()).catch(() => []),
     ]);
     setInnings(Array.isArray(inn) ? inn : []);
     setStats(st);
     setBatters(Array.isArray(bat) ? bat : []);
     setPitchers(Array.isArray(pit) ? pit : []);
     setLineups(Array.isArray(lu) ? lu : []);
+    setPbpEvents(Array.isArray(pbp) ? pbp : []);
   };
 
   useEffect(() => {
@@ -457,15 +854,45 @@ const CPBLGameDetail: React.FC<Props> = ({
   const totalAway = game.score_away ?? innings.reduce((s, i) => s + (i.score_away ?? 0), 0);
   const totalHome = game.score_home ?? innings.reduce((s, i) => s + (i.score_home ?? 0), 0);
 
-  // Split batters by team
+  // Split batters by team — match by code OR name (for robustness)
   const awayCode = Object.entries(TEAM_CODE_MAP).find(([, name]) => name === game.team_away)?.[0];
   const homeCode = Object.entries(TEAM_CODE_MAP).find(([, name]) => name === game.team_home)?.[0];
-  const awayBatters = awayCode
-    ? batters.filter(b => b.team_code === awayCode).sort((a, b) => a.batting_order - b.batting_order)
-    : batters.slice(0, Math.ceil(batters.length / 2));
-  const homeBatters = homeCode
-    ? batters.filter(b => b.team_code === homeCode).sort((a, b) => a.batting_order - b.batting_order)
-    : batters.slice(Math.ceil(batters.length / 2));
+  const awayBatters = batters
+    .filter(b => b.team_code === awayCode || b.team_code === game.team_away)
+    .sort((a, b) => a.batting_order - b.batting_order);
+  const homeBatters = batters
+    .filter(b => b.team_code === homeCode || b.team_code === game.team_home)
+    .sort((a, b) => a.batting_order - b.batting_order);
+
+  // 打者打率查詢表（名字 → 賽季打率，若無則用本場）
+  const batterAvgMap: Record<string, string> = {};
+  batters.forEach(b => {
+    if (b.season_avg != null && b.season_avg > 0) {
+      batterAvgMap[b.player_name] = Number(b.season_avg).toFixed(3);
+    } else if (b.at_bats > 0) {
+      batterAvgMap[b.player_name] = (b.hits / b.at_bats).toFixed(3);
+    } else {
+      batterAvgMap[b.player_name] = '.000';
+    }
+  });
+
+  // 投手成績查詢表（名字 → ERA + 球數，優先顯示賽季防禦率）
+  const pitcherStatsMap: Record<string, { era: string; pitch_count: number }> = {};
+  pitchers.forEach(p => {
+    const ipNum = parseInnings(p.innings_pitched);
+    const gameEra = ipNum > 0 ? ((p.earned_runs / ipNum) * 27).toFixed(2) : '–';
+    const era = p.season_era != null ? Number(p.season_era).toFixed(2) : gameEra;
+    pitcherStatsMap[p.player_name] = { era, pitch_count: p.pitch_count };
+  });
+
+  // 打者本場逐打席結果查詢表（名字 → at_bat_results[]）
+  const batterResultMap: Record<string, string[]> = {};
+  batters.forEach(b => {
+    if (b.at_bat_results?.length) batterResultMap[b.player_name] = b.at_bat_results;
+  });
+
+  // 最新打席事件（PBP 以 sequence_num ASC 排序，最後一筆最新）
+  const latestEvent = pbpEvents[pbpEvents.length - 1] ?? null;
 
   const TABS: { key: MainTab; label: string }[] = [
     { key: 'home',  label: '首頁' },
@@ -602,48 +1029,62 @@ const CPBLGameDetail: React.FC<Props> = ({
               {lineups.length === 0 ? (
                 <p className="text-center py-10 text-gray-400">賽前打序尚未公布</p>
               ) : (
-                <div className="grid grid-cols-2 gap-4">
-                  {[false, true].map(isHome => {
-                    const teamName = isHome ? game.team_home : game.team_away;
-                    const pitcher = lineups.find(l => l.is_home === isHome && l.batting_order === 0);
-                    const batLineup = lineups
-                      .filter(l => l.is_home === isHome && l.batting_order > 0)
-                      .sort((a, b) => a.batting_order - b.batting_order);
+                <div className="space-y-4">
+                  {/* 先發投手 */}
+                  {(() => {
+                    const awayPitcher = lineups.find(l => !l.is_home && l.batting_order === 0);
+                    const homePitcher = lineups.find(l => l.is_home && l.batting_order === 0);
+                    if (!awayPitcher && !homePitcher) return null;
                     return (
-                      <div key={String(isHome)}>
-                        <div className="flex items-center gap-2 mb-3">
-                          <TeamBadge name={teamName} size={20} />
-                          <span className="font-black text-sm text-gray-800">{teamName}</span>
-                        </div>
-                        {pitcher && (
-                          <div className="flex items-center gap-2 px-2 py-1.5 mb-2 bg-blue-50 rounded-lg text-xs">
-                            <span className="text-blue-500 font-black w-6 text-center">先</span>
-                            <span className="text-gray-400 w-6 text-center shrink-0">P</span>
-                            <span className="font-bold text-gray-800 flex-1">{pitcher.player_name}</span>
+                      <div className="grid grid-cols-2 gap-3">
+                        {[awayPitcher, homePitcher].map((p, i) => (
+                          <div key={i} className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-xl text-xs border border-blue-100">
+                            <span className="text-blue-500 font-black w-5 text-center shrink-0">先</span>
+                            <span className="text-gray-400 text-[10px] shrink-0">P</span>
+                            <span className="font-bold text-gray-800 flex-1 truncate">{p?.player_name ?? '未定'}</span>
                           </div>
-                        )}
-                        <div className="space-y-0.5">
-                          {batLineup.map(l => (
-                            <div key={l.batting_order} className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-gray-50 text-xs">
-                              <span className="text-gray-400 font-bold w-4 text-center shrink-0">{l.batting_order}</span>
-                              <span className="text-gray-400 w-6 text-center shrink-0 text-[10px]">{l.position || '–'}</span>
-                              <span className="font-bold text-gray-800 flex-1 truncate">{l.player_name}</span>
-                            </div>
-                          ))}
-                        </div>
+                        ))}
                       </div>
                     );
-                  })}
+                  })()}
+                  {/* 打者陣容 */}
+                  <div className="grid grid-cols-2 gap-6">
+                    <CpblLineupPanel
+                      name={game.team_away}
+                      lineups={lineups.filter(l => !l.is_home && l.batting_order > 0)}
+                      batters={awayBatters}
+                    />
+                    <CpblLineupPanel
+                      name={game.team_home}
+                      lineups={lineups.filter(l => l.is_home && l.batting_order > 0)}
+                      batters={homeBatters}
+                    />
+                  </div>
                 </div>
               )}
             </div>
           ) : tab === 'score' ? (
             /* 比分速報：球場面板 */
-            <BaseballFieldPanel outs={isFinal ? 3 : 0} />
+            <BaseballFieldPanel
+              outs={isFinal ? 3 : 0}
+              latestEvent={latestEvent}
+              isFinal={isFinal}
+              allEvents={pbpEvents}
+              batterAvgMap={batterAvgMap}
+              batterResultMap={batterResultMap}
+              pitcherStatsMap={pitcherStatsMap}
+            />
           ) : tab === 'pbp' ? (
             /* 文字速報 */
             <div className="p-4">
-              <LiveGameText key={pbpKey} gameId={game.id} awayTeam={game.team_away} homeTeam={game.team_home} />
+              <LiveGameText
+                key={pbpKey}
+                gameId={game.id}
+                awayTeam={game.team_away}
+                homeTeam={game.team_home}
+                batterAvgMap={batterAvgMap}
+                pitcherStatsMap={pitcherStatsMap}
+              />
               {isLive && (
                 <button
                   onClick={() => setPbpKey(k => k + 1)}
@@ -674,19 +1115,26 @@ const CPBLGameDetail: React.FC<Props> = ({
               <div className="p-4 space-y-6">
                 {statsTab === 'batter' ? (
                   <>
-                    {awayBatters.length > 0 && <BatterTable title={game.team_away} batters={awayBatters} lineups={lineups.filter(l => !l.is_home)} />}
-                    {homeBatters.length > 0 && <BatterTable title={game.team_home} batters={homeBatters} lineups={lineups.filter(l => l.is_home)} />}
-                    {awayBatters.length === 0 && homeBatters.length === 0 && (
-                      <p className="text-center py-10 text-gray-400 font-bold">打者成績尚未更新</p>
-                    )}
+                    {(() => {
+                      const inningResultMap = buildCpblInningResultMap(pbpEvents);
+                      return (
+                        <>
+                          {awayBatters.length > 0 && <BatterTable title={game.team_away} batters={awayBatters} lineups={lineups.filter(l => !l.is_home)} inningResultMap={inningResultMap} />}
+                          {homeBatters.length > 0 && <BatterTable title={game.team_home} batters={homeBatters} lineups={lineups.filter(l => l.is_home)} inningResultMap={inningResultMap} />}
+                          {awayBatters.length === 0 && homeBatters.length === 0 && (
+                            <p className="text-center py-10 text-gray-400 font-bold">打者成績尚未更新</p>
+                          )}
+                        </>
+                      );
+                    })()}
                   </>
                 ) : (
                   <>
                     {awayCode && pitchers.filter(p => p.team_code === awayCode).length > 0 && (
-                      <PitcherTable title={game.team_away} pitchers={pitchers.filter(p => p.team_code === awayCode)} />
+                      <PitcherTable title={game.team_away} pitchers={pitchers.filter(p => p.team_code === awayCode)} stats={stats} />
                     )}
                     {homeCode && pitchers.filter(p => p.team_code === homeCode).length > 0 && (
-                      <PitcherTable title={game.team_home} pitchers={pitchers.filter(p => p.team_code === homeCode)} />
+                      <PitcherTable title={game.team_home} pitchers={pitchers.filter(p => p.team_code === homeCode)} stats={stats} />
                     )}
                     {pitchers.length === 0 && (
                       <p className="text-center py-10 text-gray-400 font-bold">投手成績尚未更新</p>
