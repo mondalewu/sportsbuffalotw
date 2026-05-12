@@ -1,9 +1,9 @@
 import path from 'path';
+import fs from 'fs';
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import pool from '../db/pool';
 import { verifyToken, requireRole } from '../middleware/auth';
-import { uploadToR2, deleteFromR2, extractR2Key, generateR2Key } from '../services/r2Storage';
 
 const router = Router();
 
@@ -18,9 +18,19 @@ function generateSlug(title: string): string {
   return `${base}-${timestamp}`;
 }
 
-// ─── 圖片上傳設定（使用 memoryStorage，上傳至 Cloudflare R2）────────────────
+// ─── 圖片上傳設定 ─────────────────────────────────────────────────────────────
+const imgUploadDir = path.join(__dirname, '../../uploads/articles');
+if (!fs.existsSync(imgUploadDir)) fs.mkdirSync(imgUploadDir, { recursive: true });
+
+const imgStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, imgUploadDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+  },
+});
 const imgUpload = multer({
-  storage: multer.memoryStorage(),
+  storage: imgStorage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (_req, file, cb) => {
     if (file.mimetype.startsWith('image/')) cb(null, true);
@@ -197,9 +207,7 @@ router.post(
 
       const inserted = [];
       for (const file of files) {
-        // 上傳至 Cloudflare R2
-        const key = generateR2Key('articles', file.originalname);
-        const url = await uploadToR2(file.buffer, key, file.mimetype);
+        const url = `/uploads/articles/${file.filename}`;
         const r = await pool.query(
           `INSERT INTO article_images (article_id, image_url, caption, sort_order)
            VALUES ($1, $2, $3, $4) RETURNING *`,
@@ -245,11 +253,11 @@ router.delete('/:id/images/:imgId', verifyToken, requireRole('editor', 'admin'),
       [req.params.imgId, req.params.id]
     );
     if (r.rows.length === 0) { res.status(404).json({ message: '圖片不存在' }); return; }
-    // 若為 R2 圖片則從雲端刪除
-    const imgUrl = r.rows[0].image_url as string;
-    const r2Key = extractR2Key(imgUrl);
-    if (r2Key) {
-      deleteFromR2(r2Key).catch(e => console.warn('R2 刪除失敗:', e.message));
+    // 若為本地上傳檔案則刪除
+    const imgPath = r.rows[0].image_url as string;
+    if (imgPath.startsWith('/uploads/articles/')) {
+      const fullPath = path.join(__dirname, '../../', imgPath);
+      if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
     }
     res.status(204).send();
   } catch (err) {

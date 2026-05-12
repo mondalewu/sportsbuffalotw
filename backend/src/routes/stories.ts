@@ -3,16 +3,25 @@ import multer from 'multer';
 import ffmpeg from 'fluent-ffmpeg';
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import pool from '../db/pool';
 import { verifyToken, requireRole } from '../middleware/auth';
-import { uploadToR2, generateR2Key } from '../services/r2Storage';
 
 const router = Router();
 
-// ── 影片上傳設定（使用 memoryStorage，上傳至 Cloudflare R2）──────────────────────────
+// ── 影片上傳設定 ──────────────────────────────────────────────────────────────
+const uploadDir = path.join(__dirname, '../../uploads/stories');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`);
+  },
+});
+
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage,
   limits: { fileSize: 200 * 1024 * 1024 }, // 200 MB
   fileFilter: (_req, file, cb) => {
     const allowed = /mp4|webm|mov|avi|mkv/i;
@@ -21,90 +30,55 @@ const upload = multer({
 });
 
 // POST /api/v1/stories/upload — 上傳影片
-router.post('/upload', verifyToken, requireRole('editor', 'admin'), upload.single('video'), async (req: Request, res: Response): Promise<void> => {
+router.post('/upload', verifyToken, requireRole('editor', 'admin'), upload.single('video'), (req: Request, res: Response): void => {
   if (!req.file) {
     res.status(400).json({ message: '未收到影片檔案，或格式不支援' });
     return;
   }
-
-  try {
-    // 先將影片寫入臨時檔以便 ffprobe 取得時長
-    const tmpDir  = os.tmpdir();
-    const ext     = path.extname(req.file.originalname) || '.mp4';
-    const tmpFile = path.join(tmpDir, `upload-${Date.now()}${ext}`);
-    fs.writeFileSync(tmpFile, req.file.buffer);
-
-    ffmpeg.ffprobe(tmpFile, async (err, meta) => {
-      const duration = err ? null : (meta?.format?.duration ?? null);
-      fs.unlinkSync(tmpFile); // 刪除臨時檔
-
-      try {
-        const key = generateR2Key('stories', req.file!.originalname);
-        const url = await uploadToR2(req.file!.buffer, key, req.file!.mimetype || 'video/mp4');
-        res.status(201).json({ url, duration });
-      } catch (uploadErr) {
-        console.error('R2 影片上傳失敗:', uploadErr);
-        res.status(500).json({ message: '影片上傳失敗' });
-      }
-    });
-  } catch (err) {
-    console.error('Stories upload error:', err);
-    res.status(500).json({ message: '影片處理失敗' });
-  }
+  const url = `/uploads/stories/${req.file.filename}`;
+  // 同時回傳影片時長（秒）
+  ffmpeg.ffprobe(req.file.path, (err, meta) => {
+    const duration = err ? null : (meta?.format?.duration ?? null);
+    res.status(201).json({ url, duration });
+  });
 });
 
 // POST /api/v1/stories/trim — 裁切影片
 router.post('/trim', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
-  const { url: videoUrl, start, end } = req.body as { url: string; start: number; end: number };
+  const { filename, start, end } = req.body as { filename: string; start: number; end: number };
 
-  if (!videoUrl || start == null || end == null || end <= start) {
-    res.status(400).json({ message: '必填：url, start, end（end 必須大於 start）' });
+  if (!filename || start == null || end == null || end <= start) {
+    res.status(400).json({ message: '必填：filename, start, end（end 必須大於 start）' });
     return;
   }
 
-  // 從 R2 URL 下載影片到臨時檔進行裁切
-  const tmpDir    = os.tmpdir();
-  const ext       = path.extname(new URL(videoUrl).pathname) || '.mp4';
-  const inTmp     = path.join(tmpDir, `trim-in-${Date.now()}${ext}`);
-  const outTmp    = path.join(tmpDir, `trim-out-${Date.now()}${ext}`);
+  // 安全性：只允許 uploads/stories 目錄內的檔案，防止路徑穿越
+  const safeName = path.basename(filename);
+  const inputPath = path.join(uploadDir, safeName);
+  if (!fs.existsSync(inputPath)) {
+    res.status(404).json({ message: '找不到原始影片' });
+    return;
+  }
+
+  const ext = path.extname(safeName) || '.mp4';
+  const outName = `trim-${Date.now()}${ext}`;
+  const outputPath = path.join(uploadDir, outName);
 
   try {
-    // 下載影片內容
-    const videoBuffer = await new Promise<Buffer>((resolve, reject) => {
-      const protocol = videoUrl.startsWith('https') ? require('https') : require('http');
-      const chunks: Buffer[] = [];
-      protocol.get(videoUrl, (res: any) => {
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => resolve(Buffer.concat(chunks)));
-        res.on('error', reject);
-      }).on('error', reject);
-    });
-    fs.writeFileSync(inTmp, videoBuffer);
-
-    // FFmpeg 裁切
     await new Promise<void>((resolve, reject) => {
-      ffmpeg(inTmp)
+      ffmpeg(inputPath)
         .setStartTime(start)
         .setDuration(end - start)
-        .outputOptions('-c copy')
-        .output(outTmp)
+        .outputOptions('-c copy')          // stream copy：不重新編碼，速度極快
+        .output(outputPath)
         .on('end', () => resolve())
         .on('error', (e) => reject(e))
         .run();
     });
-
-    // 上傳至 R2
-    const trimBuffer = fs.readFileSync(outTmp);
-    const key = generateR2Key('stories', `trim${ext}`);
-    const trimUrl = await uploadToR2(trimBuffer, key, 'video/mp4');
-
-    res.json({ url: trimUrl, duration: end - start });
+    res.json({ url: `/uploads/stories/${outName}`, duration: end - start });
   } catch (err) {
     console.error('FFmpeg trim error:', err);
     res.status(500).json({ message: '裁切失敗' });
-  } finally {
-    // 清除臨時檔
-    [inTmp, outTmp].forEach(f => { try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {} });
   }
 });
 
