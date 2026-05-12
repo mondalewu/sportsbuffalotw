@@ -6,11 +6,12 @@ import { verifyToken } from '../middleware/auth';
 
 const router = Router();
 
+const isProd = process.env.NODE_ENV === 'production';
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
-  maxAge: 24 * 60 * 60 * 1000, // 24 hours
+  secure: isProd,
+  sameSite: (isProd ? 'none' : 'lax') as 'none' | 'lax',
+  maxAge: 24 * 60 * 60 * 1000,
 };
 
 // POST /api/v1/auth/register
@@ -92,7 +93,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
 // POST /api/v1/auth/logout
 router.post('/logout', (_req: Request, res: Response): void => {
-  res.clearCookie('token', { httpOnly: true, sameSite: 'lax' });
+  res.clearCookie('token', { httpOnly: true, secure: isProd, sameSite: isProd ? 'none' : 'lax' });
   res.json({ message: '已成功登出' });
 });
 
