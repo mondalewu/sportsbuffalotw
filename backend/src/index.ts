@@ -44,18 +44,8 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://frontend:5173',
-  'https://sportsbuffalotw.vercel.app',
-  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
-];
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.some(o => origin.startsWith(o.replace(/\/$/, '')))) return callback(null, true);
-    callback(new Error(`CORS blocked: ${origin}`));
-  },
+  origin: (origin, callback) => callback(null, true),
   credentials: true,
 }));
 app.use(express.json());
