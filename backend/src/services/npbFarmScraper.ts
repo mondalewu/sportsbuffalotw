@@ -15,7 +15,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import pool from '../db/pool';
-import { fetchGameDetail, scrapeNpbBoxScore } from './npbScraper';
+import { fetchGameDetail } from './npbScraper';
 
 const NPB_BASE = 'https://npb.jp';
 const FARM_MAIN_URL = 'https://npb.jp/farm/2026/';
@@ -240,13 +240,8 @@ async function fetchFarmGameLinksToday(): Promise<string[]> {
       const full = href.startsWith('http') ? href : `${NPB_BASE}${href}`;
       if (!seen.has(full)) { seen.add(full); links.push(full); }
     });
-    // Legacy /scores/ format fallback
-    $('a[href*="/scores/"]').each((_, el) => {
-      const href = $(el).attr('href') ?? '';
-      if (!href.match(/\/scores\/(\d{4})\/(\d{4})\/([\w]+-[\w]+-\d+)\/?/)) return;
-      const full = `${NPB_BASE}${href.endsWith('/') ? href : href + '/'}`;
-      if (!seen.has(full)) { seen.add(full); links.push(full); }
-    });
+    // Note: Do NOT include /scores/ fallback here — those are 一軍 URLs and would
+    // pollute NPB2 with first-team games.
   } catch (e) {
     console.warn('[NPB Farm] fetchFarmGameLinksToday 失敗:', (e as Error).message);
   }
@@ -331,7 +326,22 @@ async function upsertFarmGameFromSchedule(row: FarmGameRow): Promise<number | nu
         row.scoresUrl ?? null,
       ],
     );
-    return result.rows[0]?.id ?? null;
+    const gameId = result.rows[0]?.id ?? null;
+
+    // 勝敗投手を game_stats に保存（Docomo が提供しない情報はスケジュールページから取得）
+    if (gameId && (row.winPitcher || row.lossPitcher)) {
+      await pool.query(
+        `INSERT INTO game_stats (game_id, win_pitcher, loss_pitcher)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (game_id) DO UPDATE
+           SET win_pitcher  = COALESCE(EXCLUDED.win_pitcher,  game_stats.win_pitcher),
+               loss_pitcher = COALESCE(EXCLUDED.loss_pitcher, game_stats.loss_pitcher),
+               updated_at   = NOW()`,
+        [gameId, row.winPitcher ?? null, row.lossPitcher ?? null],
+      ).catch(() => {});
+    }
+
+    return gameId;
   } catch (e) {
     console.warn(`[NPB Farm Schedule] upsert失敗 ${row.dateStr} ${row.awayTeam}@${row.homeTeam}:`, (e as Error).message);
     return null;
@@ -455,18 +465,8 @@ export async function runNpbFarmScraperMonth(year: number, month: number): Promi
     for (const row of rows) {
       const gameId = await upsertFarmGameFromSchedule(row);
       if (gameId) updated++;
-      if (gameId && row.status === 'final' && row.scoresUrl) {
-        try {
-          const fullUrl = `${NPB_BASE}${row.scoresUrl}`;
-          const detail = await fetchGameDetail(fullUrl);
-          if (detail) {
-            await scrapeNpbBoxScore(
-              fullUrl, detail.homeCode, detail.awayCode, gameId,
-              row.winPitcher ?? detail.winPitcher, row.lossPitcher ?? detail.lossPitcher, detail.savePitcher,
-            );
-          }
-        } catch { /* ignore */ }
-      }
+      // 二軍の成績（打者/投手成績・球種・速報）は Docomo API が唯一のソース。
+      // npb.jp の box score で上書きしない。
       await new Promise(r => setTimeout(r, 100));
     }
     const msg = `✅ 二軍 ${year}年${month}月：更新 ${updated} 場`;
@@ -535,44 +535,18 @@ export async function runNpbFarmScraper(days = 14, pastDays = 7): Promise<{ upda
         const gameId = await upsertFarmGameFromSchedule(row);
         if (gameId) updated++;
 
-        // For completed games with /scores/ URL: fetch box score
-        if (gameId && row.status === 'final' && row.scoresUrl) {
-          try {
-            const fullUrl = `${NPB_BASE}${row.scoresUrl}`;
-            const detail = await fetchGameDetail(fullUrl);
-            if (detail) {
-              await scrapeNpbBoxScore(
-                fullUrl,
-                detail.homeCode,
-                detail.awayCode,
-                gameId,
-                row.winPitcher ?? detail.winPitcher,
-                row.lossPitcher ?? detail.lossPitcher,
-                detail.savePitcher,
-              );
-            }
-          } catch { /* ignore box score failures */ }
-        }
+        // 成績（打者/投手/球種）は Docomo API が唯一のソース。npb.jp box score は使わない。
         await new Promise(r => setTimeout(r, 100));
       }
       await new Promise(r => setTimeout(r, 500));
     }
 
-    // Also check today's live games via main farm page
+    // 今日の試合リンクから試合レコードのみ確保（成績は Docomo API に任せる）
     if (!fullBackfill) {
       const liveLinks = await fetchFarmGameLinksToday();
       for (const link of liveLinks) {
-        const gameId = await upsertFarmGame(link);
-        if (!gameId) continue;
-        const detail = await fetchGameDetail(link);
-        if (detail && (detail.status === 'final' || detail.status === 'live')) {
-          await scrapeNpbBoxScore(
-            `${NPB_BASE}${detail.urlPath}`,
-            detail.homeCode, detail.awayCode, gameId,
-            detail.winPitcher, detail.lossPitcher, detail.savePitcher,
-          );
-        }
-        await new Promise(r => setTimeout(r, 600));
+        await upsertFarmGame(link);
+        await new Promise(r => setTimeout(r, 300));
       }
     }
 
@@ -633,19 +607,7 @@ export async function runFarmLiveUpdate(): Promise<void> {
         );
       }
 
-      // 剛終了 → box score 補抓
-      if (detail.status === 'final') {
-        await scrapeNpbBoxScore(
-          `${NPB_BASE}${detail.urlPath}`,
-          detail.homeCode,
-          detail.awayCode,
-          row.id,
-          detail.winPitcher,
-          detail.lossPitcher,
-          detail.savePitcher,
-        );
-      }
-
+      // 成績（打者/投手/球種）は Docomo API が唯一のソース。box score 補抓しない。
       await new Promise(r => setTimeout(r, 500));
     }
   } catch (err) {

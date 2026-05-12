@@ -1,4 +1,7 @@
+import path from 'path';
+import fs from 'fs';
 import { Router, Request, Response } from 'express';
+import multer from 'multer';
 import pool from '../db/pool';
 import { verifyToken, requireRole } from '../middleware/auth';
 
@@ -14,6 +17,26 @@ function generateSlug(title: string): string {
     .substring(0, 60);
   return `${base}-${timestamp}`;
 }
+
+// ─── 圖片上傳設定 ─────────────────────────────────────────────────────────────
+const imgUploadDir = path.join(__dirname, '../../uploads/articles');
+if (!fs.existsSync(imgUploadDir)) fs.mkdirSync(imgUploadDir, { recursive: true });
+
+const imgStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, imgUploadDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+  },
+});
+const imgUpload = multer({
+  storage: imgStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('只允許上傳圖片'));
+  },
+});
 
 // GET /api/v1/articles
 router.get('/', async (req: Request, res: Response): Promise<void> => {
@@ -58,7 +81,18 @@ router.get('/:slug', async (req: Request, res: Response): Promise<void> => {
       res.status(404).json({ message: '文章不存在' });
       return;
     }
-    res.json(result.rows[0]);
+    const article = result.rows[0];
+
+    // 附帶多圖
+    const imgs = await pool.query(
+      `SELECT id, image_url, caption, sort_order
+       FROM article_images WHERE article_id = $1
+       ORDER BY sort_order, id`,
+      [article.id]
+    );
+    article.images = imgs.rows;
+
+    res.json(article);
   } catch (err) {
     console.error('Get article error:', err);
     res.status(500).json({ message: '無法取得文章' });
@@ -83,9 +117,7 @@ router.post('/', verifyToken, requireRole('editor', 'admin'), async (req: Reques
       [title, slug, category, summary || '', content, image_url || '', req.user!.userId]
     );
 
-    // Mark other articles as not hot
     await pool.query('UPDATE articles SET is_hot = false WHERE id != $1', [result.rows[0].id]);
-
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Create article error:', err);
@@ -136,10 +168,106 @@ router.delete('/:id', verifyToken, requireRole('editor', 'admin'), async (req: R
   }
 });
 
+// ─── 多圖管理 ─────────────────────────────────────────────────────────────────
+
+// GET /api/v1/articles/:id/images
+router.get('/:id/images', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(
+      `SELECT id, image_url, caption, sort_order, created_at
+       FROM article_images WHERE article_id = $1 ORDER BY sort_order, id`,
+      [req.params.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ message: '無法取得圖片列表' });
+  }
+});
+
+// POST /api/v1/articles/:id/images/upload — 上傳圖片檔案 [editor+]
+router.post(
+  '/:id/images/upload',
+  verifyToken,
+  requireRole('editor', 'admin'),
+  imgUpload.array('images', 10),
+  async (req: Request, res: Response): Promise<void> => {
+    const files = req.files as Express.Multer.File[] | undefined;
+    if (!files || files.length === 0) {
+      res.status(400).json({ message: '未提供圖片' });
+      return;
+    }
+
+    try {
+      // 取目前最大 sort_order
+      const maxRes = await pool.query(
+        'SELECT COALESCE(MAX(sort_order), -1) AS mx FROM article_images WHERE article_id = $1',
+        [req.params.id]
+      );
+      let order = (maxRes.rows[0]?.mx ?? -1) + 1;
+
+      const inserted = [];
+      for (const file of files) {
+        const url = `/uploads/articles/${file.filename}`;
+        const r = await pool.query(
+          `INSERT INTO article_images (article_id, image_url, caption, sort_order)
+           VALUES ($1, $2, $3, $4) RETURNING *`,
+          [req.params.id, url, '', order++]
+        );
+        inserted.push(r.rows[0]);
+      }
+      res.status(201).json(inserted);
+    } catch (err) {
+      console.error('Upload images error:', err);
+      res.status(500).json({ message: '圖片上傳失敗' });
+    }
+  }
+);
+
+// POST /api/v1/articles/:id/images — 以 URL 新增圖片 [editor+]
+router.post('/:id/images', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const { image_url, caption = '' } = req.body;
+  if (!image_url) { res.status(400).json({ message: 'image_url 必填' }); return; }
+
+  try {
+    const maxRes = await pool.query(
+      'SELECT COALESCE(MAX(sort_order), -1) AS mx FROM article_images WHERE article_id = $1',
+      [req.params.id]
+    );
+    const order = (maxRes.rows[0]?.mx ?? -1) + 1;
+    const r = await pool.query(
+      `INSERT INTO article_images (article_id, image_url, caption, sort_order)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [req.params.id, image_url, caption, order]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    res.status(500).json({ message: '新增圖片失敗' });
+  }
+});
+
+// DELETE /api/v1/articles/:id/images/:imgId  [editor+]
+router.delete('/:id/images/:imgId', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const r = await pool.query(
+      'DELETE FROM article_images WHERE id=$1 AND article_id=$2 RETURNING image_url',
+      [req.params.imgId, req.params.id]
+    );
+    if (r.rows.length === 0) { res.status(404).json({ message: '圖片不存在' }); return; }
+    // 若為本地上傳檔案則刪除
+    const imgPath = r.rows[0].image_url as string;
+    if (imgPath.startsWith('/uploads/articles/')) {
+      const fullPath = path.join(__dirname, '../../', imgPath);
+      if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+    }
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ message: '刪除圖片失敗' });
+  }
+});
+
 // POST /api/v1/articles/fetch-external  [editor+]
 router.post('/fetch-external', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
   try {
-    // 模擬外部新聞 API（未來可替換為真實 API）
     const externalArticles = [
       {
         title: `外部新聞：${new Date().toLocaleDateString('zh-TW')} 體育快訊`,

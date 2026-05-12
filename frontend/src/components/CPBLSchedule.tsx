@@ -231,7 +231,7 @@ const CPBLSchedule: React.FC<Props> = () => {
   const [loading, setLoading] = useState(true);
   const [viewYear, setViewYear] = useState(2026);
   const [viewMonth, setViewMonth] = useState(new Date().getMonth() + 1);
-  const [leagueMode, setLeagueMode] = useState<'CPBL' | 'CPBL-W' | 'CPBL-B'>('CPBL-W');
+  const [leagueMode, setLeagueMode] = useState<'CPBL' | 'CPBL-W' | 'CPBL-B'>('CPBL');
   const [scheduleView, setScheduleView] = useState<'week' | 'month'>('week');
   const [selectedGame, setSelectedGame] = useState<CPBLGame | null>(null);
   const [selectedGameIdx, setSelectedGameIdx] = useState(0);

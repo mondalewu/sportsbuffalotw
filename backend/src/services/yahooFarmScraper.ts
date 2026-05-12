@@ -325,6 +325,9 @@ const TEAM_CODES: Record<string, string> = {
 // ─── 寫入 DB ──────────────────────────────────────────────────────────────────
 
 // allowScheduled = true 時允許建立 scheduled 狀態的比賽（賽程爬蟲用）
+// 獨立聯盟球隊（くふうハヤテ・オイシックス）：只有這兩隊才允許 Yahoo 新增場次
+const INDEPENDENT_TEAMS = new Set(['くふうハヤテ', 'オイシックス']);
+
 async function upsertFarmGame(data: YahooFarmGameData, allowScheduled = false): Promise<number | null> {
   const yahooPath = `/npb/game/${data.gameId}`;
 
@@ -352,6 +355,24 @@ async function upsertFarmGame(data: YahooFarmGameData, allowScheduled = false): 
     );
   } else {
     if (!allowScheduled && data.status === 'scheduled') return null;
+
+    // 防呆：若雙方都是 12 支一軍球隊（非獨立球隊），且當日已有 npb.jp 二軍場次（npb_url IS NULL 或 非 Yahoo URL），
+    // 代表 npb.jp 已抓到當日二軍賽事，Yahoo 的這場是多餘的（可能是一軍場次誤入），跳過
+    const isIndependent = INDEPENDENT_TEAMS.has(data.homeTeam) || INDEPENDENT_TEAMS.has(data.awayTeam);
+    if (!isIndependent) {
+      const farmExists = await pool.query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM games
+         WHERE league = 'NPB2'
+           AND (npb_url IS NULL OR npb_url NOT LIKE '/npb/game/%')
+           AND DATE(game_date AT TIME ZONE 'Asia/Tokyo') = $1::date
+           AND (team_home = $2 OR team_home = $3 OR team_away = $2 OR team_away = $3)`,
+        [data.gameDate, data.homeTeam, data.awayTeam],
+      );
+      if (parseInt(farmExists.rows[0].count, 10) > 0) {
+        // npb.jp 已有該球隊當日場次，跳過 Yahoo 版本
+        return null;
+      }
+    }
     const ins = await pool.query<{ id: number }>(
       `INSERT INTO games (league, team_away, team_home, score_away, score_home, status, game_date, venue, npb_url)
        VALUES ('NPB2', $1, $2, $3, $4, $5, $6::date, $7, $8)

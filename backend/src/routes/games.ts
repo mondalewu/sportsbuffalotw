@@ -179,12 +179,38 @@ router.get('/:id/stats', async (req: Request, res: Response): Promise<void> => {
 router.get('/:id/batters', async (req: Request, res: Response): Promise<void> => {
   try {
     const result = await pool.query(
-      `SELECT team_code, batting_order, position, player_name, at_bats, hits, rbi, runs,
-              home_runs, strikeouts, walks, hit_by_pitch, sacrifice_hits, stolen_bases,
-              at_bat_results,
-              CASE WHEN at_bats > 0 THEN ROUND(hits::numeric / at_bats, 3) ELSE 0 END as avg
-       FROM game_batter_stats WHERE game_id = $1
-       ORDER BY team_code, COALESCE(batting_order, 99), id`,
+      `SELECT gbs.team_code, gbs.player_name, gbs.position, gbs.at_bats, gbs.hits,
+              gbs.rbi, gbs.runs, gbs.home_runs, gbs.strikeouts, gbs.walks,
+              gbs.hit_by_pitch, gbs.sacrifice_hits, gbs.stolen_bases, gbs.at_bat_results,
+              -- 優先用先發名單棒次；代打/代走等先發名單無記錄者保留原始 batting_order
+              COALESCE(lu.batting_order, gbs.batting_order) AS batting_order,
+              CASE WHEN gbs.at_bats > 0 THEN ROUND(gbs.hits::numeric / gbs.at_bats, 3) ELSE 0 END as avg,
+              -- 賽季打率：僅用 cpbl_player_stats（≥10打數），不使用 box_avg（公式錯誤）
+              CASE WHEN cps.at_bats >= 10 THEN cps.avg ELSE NULL END AS season_avg,
+              cps.at_bats AS season_ab
+       FROM game_batter_stats gbs
+       LEFT JOIN LATERAL (
+         SELECT batting_order FROM game_lineups
+         WHERE game_id = $1 AND player_name = gbs.player_name
+         LIMIT 1
+       ) lu ON true
+       LEFT JOIN LATERAL (
+         SELECT acnt FROM cpbl_players
+         WHERE name = gbs.player_name AND team_code = gbs.team_code AND acnt IS NOT NULL
+         ORDER BY id ASC LIMIT 1
+       ) cp ON true
+       LEFT JOIN cpbl_player_stats cps
+         ON cps.acnt = cp.acnt
+        AND cps.year = EXTRACT(YEAR FROM NOW())::int
+        AND cps.kind_code = 'A'
+       WHERE gbs.game_id = $1
+       ORDER BY gbs.team_code,
+         CASE
+           WHEN COALESCE(lu.batting_order, gbs.batting_order) IS NULL THEN 999
+           WHEN COALESCE(lu.batting_order, gbs.batting_order) = 0 THEN 998
+           ELSE COALESCE(lu.batting_order, gbs.batting_order)
+         END,
+         gbs.id`,
       [req.params.id]
     );
     res.json(result.rows);
@@ -197,11 +223,29 @@ router.get('/:id/batters', async (req: Request, res: Response): Promise<void> =>
 router.get('/:id/pitchers', async (req: Request, res: Response): Promise<void> => {
   try {
     const result = await pool.query(
-      `SELECT team_code, pitcher_order, player_name, innings_pitched, hits_allowed,
-              runs_allowed, earned_runs, walks, strikeouts, pitch_count, batters_faced,
-              home_runs_allowed, hit_by_pitch, balk, result
-       FROM game_pitcher_stats WHERE game_id = $1
-       ORDER BY team_code, pitcher_order, id`,
+      `SELECT * FROM (
+         SELECT DISTINCT ON (gps.team_code, gps.player_name)
+              gps.team_code, gps.pitcher_order, gps.player_name, gps.innings_pitched,
+              gps.hits_allowed, gps.runs_allowed, gps.earned_runs, gps.walks,
+              gps.strikeouts, gps.pitch_count, gps.batters_faced,
+              gps.home_runs_allowed, gps.hit_by_pitch, gps.balk, gps.result,
+              -- 賽季防禦率：僅在投球局數≥3時才回傳（避免小樣本失真）
+              CASE WHEN cpts.innings_pitched_num >= 3 THEN cpts.era ELSE NULL END AS season_era,
+              cpts.innings_pitched_num AS season_ip
+       FROM game_pitcher_stats gps
+       LEFT JOIN LATERAL (
+         SELECT acnt FROM cpbl_players
+         WHERE name = gps.player_name AND team_code = gps.team_code AND acnt IS NOT NULL
+         ORDER BY id ASC LIMIT 1
+       ) cp ON true
+       LEFT JOIN cpbl_pitcher_stats cpts
+         ON cpts.acnt = cp.acnt
+        AND cpts.year = EXTRACT(YEAR FROM NOW())::int
+        AND cpts.kind_code = 'A'
+       WHERE gps.game_id = $1
+       ORDER BY gps.team_code, gps.player_name, gps.id DESC
+       ) sub
+       ORDER BY sub.team_code, COALESCE(sub.pitcher_order, 999)`,
       [req.params.id]
     );
     res.json(result.rows);
@@ -229,7 +273,7 @@ router.get('/:id/lineups', async (req: Request, res: Response): Promise<void> =>
 router.get('/:id/play-by-play', async (req: Request, res: Response): Promise<void> => {
   try {
     const result = await pool.query(
-      'SELECT * FROM play_by_play WHERE game_id = $1 ORDER BY sequence_num DESC',
+      'SELECT id, game_id, inning, is_top, batter_name, pitcher_name, situation, result_text, score_home, score_away, sequence_num, hitter_acnt, batting_order FROM play_by_play WHERE game_id = $1 ORDER BY sequence_num ASC',
       [req.params.id]
     );
     res.json(result.rows);
@@ -273,6 +317,23 @@ router.delete('/:id/play-by-play/:pbpId', verifyToken, requireRole('editor', 'ad
   } catch (err) {
     console.error('Delete play-by-play error:', err);
     res.status(500).json({ message: '刪除速報事件失敗' });
+  }
+});
+
+// GET /api/v1/games/:id/pitch-data — 逐球投球位置 + 球種
+router.get('/:id/pitch-data', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(
+      `SELECT at_bat_key, pitch_num, inning, is_top, pitcher_name, batter_name,
+              ball_kind, ball_kind_id, x, y, speed, result, result_id, is_strike
+       FROM game_pitch_data
+       WHERE game_id = $1
+       ORDER BY inning ASC, is_top DESC, at_bat_key ASC, pitch_num ASC`,
+      [req.params.id],
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ message: '無法取得投球資料' });
   }
 });
 

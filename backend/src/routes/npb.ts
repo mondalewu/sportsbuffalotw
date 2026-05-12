@@ -148,7 +148,7 @@ router.get('/games/:id/batters', async (req: Request, res: Response): Promise<vo
     const result = await pool.query(
       `SELECT team_code, batting_order, position, player_name,
               at_bats, hits, rbi, runs, home_runs, strikeouts, walks,
-              stolen_bases, hit_by_pitch, sacrifice_hits, at_bat_results
+              stolen_bases, hit_by_pitch, sacrifice_hits, at_bat_results, box_avg
        FROM game_batter_stats WHERE game_id = $1
        ORDER BY team_code, batting_order`,
       [req.params.id]
@@ -202,7 +202,9 @@ router.get('/standings', async (_req: Request, res: Response): Promise<void> => 
               win_rate::float AS win_rate,
               games_behind::float AS games_behind,
               rank,
-              (wins + losses + draws) AS games
+              (wins + losses + draws) AS games,
+              COALESCE(runs_scored, 0) AS runs_scored,
+              COALESCE(runs_allowed, 0) AS runs_allowed
        FROM standings
        WHERE league IN ('NPB-Central','NPB-Pacific') AND season = '2026'
        ORDER BY league, rank`,
@@ -374,6 +376,23 @@ router.get('/preseason-standings', async (_req: Request, res: Response): Promise
     });
   } catch (err) {
     res.status(500).json({ message: '無法計算熱身賽順位' });
+  }
+});
+
+// GET /api/v1/npb/games/:id/pitch-data — 逐球投球位置 + 球種（Docomo）
+router.get('/games/:id/pitch-data', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(
+      `SELECT at_bat_key, pitch_num, inning, is_top, pitcher_name, batter_name,
+              ball_kind, ball_kind_id, x, y, speed, result, result_id, is_strike
+       FROM game_pitch_data
+       WHERE game_id = $1
+       ORDER BY inning ASC, is_top DESC, at_bat_key ASC, pitch_num ASC`,
+      [req.params.id],
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ message: '無法取得投球資料' });
   }
 });
 

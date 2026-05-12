@@ -15,6 +15,14 @@ export interface SimpleScraperStatus {
   lastError: string | null;
 }
 
+export interface BatchYahooBackfillStatus {
+  isRunning: boolean;
+  total: number;
+  done: number;
+  failed: number;
+  message: string;
+}
+
 export interface AllScraperStatus {
   cpbl?: ScraperStatus;
   cpblSchedule?: SimpleScraperStatus;
@@ -31,6 +39,8 @@ export interface AllScraperStatus {
   npbFarmPbp?: SimpleScraperStatus;
   yahooFarm?: ScraperStatus;
   yahooFarmSchedule?: SimpleScraperStatus;
+  docomoFarm?: SimpleScraperStatus;
+  yahooBatchBackfill?: BatchYahooBackfillStatus;
   [key: string]: unknown;
 }
 
@@ -102,5 +112,25 @@ export interface ImportGameItem {
 
 export const importGames = async (games: ImportGameItem[]): Promise<{ message: string; inserted: number; skipped: number; errors: string[] }> => {
   const res = await apiClient.post('/scraper/import-games', { games });
+  return res.data;
+};
+
+export const backfillDocomoPitch = async (docomoGameId: number, dbGameId: number): Promise<{ success: boolean; message: string; saved: number }> => {
+  const res = await apiClient.post('/scraper/backfill-docomo-pitch', { docomoGameId, dbGameId });
+  return res.data;
+};
+
+export const backfillYahooBatterStats = async (yahooGameId: string, dbGameId: number): Promise<{ success: boolean; message: string; updated: number }> => {
+  const res = await apiClient.post('/scraper/backfill-yahoo-batter-stats', { yahooGameId, dbGameId });
+  return res.data;
+};
+
+export const triggerBatchYahooBackfill = async (): Promise<{ message: string; status: BatchYahooBackfillStatus }> => {
+  const res = await apiClient.post('/scraper/batch-backfill-yahoo-batter-stats');
+  return res.data;
+};
+
+export const getBatchYahooBackfillStatus = async (): Promise<{ status: BatchYahooBackfillStatus }> => {
+  const res = await apiClient.get('/scraper/batch-backfill-yahoo-batter-stats');
   return res.data;
 };

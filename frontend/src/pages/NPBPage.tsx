@@ -61,6 +61,7 @@ export default function NPBPage() {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   const statusLabel = (g: FarmGame) => {
+    if (g.status === 'final' && g.game_detail === '雨天延賽') return { text: '🌧 雨天延賽', cls: 'text-blue-500 font-bold' };
     if (g.status === 'final') return { text: '終了', cls: 'text-gray-400' };
     if (g.status === 'live')  return { text: g.game_detail ?? '進行中', cls: 'text-green-600 font-bold animate-pulse' };
     return { text: '預定', cls: 'text-blue-500' };
@@ -271,16 +272,24 @@ export default function NPBPage() {
                   <tbody>
                     {dayGames.map(g => {
                       const { text, cls } = statusLabel(g);
+                      const isRainout = g.status === 'final' && g.game_detail === '雨天延賽';
+                      const isClickable = (g.status === 'final' || g.status === 'live') && !isRainout;
                       return (
-                        <tr key={g.id} className="border-t border-gray-50 hover:bg-gray-50">
+                        <tr
+                          key={g.id}
+                          className={`border-t border-gray-50 hover:bg-gray-50 ${isClickable ? 'cursor-pointer' : ''} ${isRainout ? 'bg-blue-50/40' : ''}`}
+                          onClick={() => isClickable && navigate(`/npb/game/${g.id}`)}
+                        >
                           <td className="px-4 py-2.5 text-gray-400 font-mono text-xs">{formatTime(g.game_date)}</td>
                           <td className="px-4 py-2.5 font-bold text-gray-800 text-xs">
                             {g.team_away} <span className="text-gray-300 font-normal mx-1">@</span> {g.team_home}
                           </td>
                           <td className="px-4 py-2.5 text-center font-mono font-black text-gray-800 text-sm">
-                            {g.score_away !== null
-                              ? `${g.score_away} - ${g.score_home}`
-                              : <span className="text-gray-300 font-normal text-xs">vs</span>}
+                            {isRainout
+                              ? <span className="text-gray-300 font-normal text-xs">—</span>
+                              : g.score_away !== null
+                                ? `${g.score_away} - ${g.score_home}`
+                                : <span className="text-gray-300 font-normal text-xs">vs</span>}
                           </td>
                           <td className={`px-4 py-2.5 text-center text-xs ${cls}`}>{text}</td>
                           <td className="px-4 py-2.5 text-gray-400 text-xs hidden sm:table-cell">{g.venue ?? '-'}</td>

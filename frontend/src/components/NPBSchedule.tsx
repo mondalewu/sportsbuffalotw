@@ -18,6 +18,7 @@ const FARM_DIVISION_COLOR: Record<string, string> = {
   '東地区': 'text-blue-700 bg-blue-50 border-blue-200',
   '中地区': 'text-green-700 bg-green-50 border-green-200',
   '西地区': 'text-orange-700 bg-orange-50 border-orange-200',
+  '交流戦': 'text-purple-700 bg-purple-50 border-purple-200',
 };
 
 const NPB_LOGO_BASE = 'https://p.npb.jp/img/common/logo/2026';
@@ -35,16 +36,6 @@ interface NPBGame {
   game_date: string;
 }
 
-interface StandingRow {
-  team_name: string;
-  wins: number;
-  losses: number;
-  draws: number;
-  win_rate: number;
-  games_behind: number | null;
-  games: number;
-  rank: number;
-}
 
 const NAME_TO_CODE: Record<string, string> = {
   '巨人': 'g', 'DeNA': 'db', '阪神': 't', '広島': 'c',
@@ -112,6 +103,7 @@ function TeamLogo({ name, size = 28 }: { name: string; size?: number }) {
 function ScoreCard({ game, onSelect }: { game: NPBGame; onSelect: () => void }) {
   const isLive = game.status === 'live';
   const isFinal = game.status === 'final';
+  const isRainout = isFinal && game.game_detail === '雨天延賽';
   const time = new Date(game.game_date).toLocaleTimeString('ja-JP', {
     hour: '2-digit', minute: '2-digit', hour12: false,
   });
@@ -119,7 +111,7 @@ function ScoreCard({ game, onSelect }: { game: NPBGame; onSelect: () => void }) 
     <button
       onClick={onSelect}
       className={`w-full text-left bg-white rounded-2xl border p-4 shadow-sm transition hover:shadow-md ${
-        isLive ? 'border-red-300 shadow-red-100' : 'border-gray-100'
+        isLive ? 'border-red-300 shadow-red-100' : isRainout ? 'border-blue-200 bg-blue-50/40' : 'border-gray-100'
       }`}
     >
       <div className="flex items-center justify-between mb-3">
@@ -129,7 +121,10 @@ function ScoreCard({ game, onSelect }: { game: NPBGame; onSelect: () => void }) 
             ● LIVE {game.game_detail || ''}
           </span>
         )}
-        {isFinal && <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">試合終了</span>}
+        {isRainout && (
+          <span className="text-xs font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">🌧 雨天延賽</span>
+        )}
+        {isFinal && !isRainout && <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">試合終了</span>}
         {!isLive && !isFinal && (
           <span className="text-xs text-gray-400">
             {game.game_detail && game.game_detail !== '試合開始前' ? game.game_detail : '試合開始前'}
@@ -141,8 +136,8 @@ function ScoreCard({ game, onSelect }: { game: NPBGame; onSelect: () => void }) 
           <TeamLogo name={game.team_away} size={28} />
           <span className="font-bold text-sm text-gray-800">{game.team_away}</span>
         </div>
-        <span className={`text-2xl font-black tabular-nums ${isFinal || isLive ? 'text-gray-900' : 'text-gray-300'}`}>
-          {isFinal || isLive ? (game.score_away ?? '–') : '–'}
+        <span className={`text-2xl font-black tabular-nums ${isFinal && !isRainout || isLive ? 'text-gray-900' : 'text-gray-300'}`}>
+          {isFinal && !isRainout || isLive ? (game.score_away ?? '–') : '–'}
         </span>
       </div>
       <div className="flex items-center justify-between">
@@ -150,8 +145,8 @@ function ScoreCard({ game, onSelect }: { game: NPBGame; onSelect: () => void }) 
           <TeamLogo name={game.team_home} size={28} />
           <span className="font-bold text-sm text-gray-800">{game.team_home}</span>
         </div>
-        <span className={`text-2xl font-black tabular-nums ${isFinal || isLive ? 'text-gray-900' : 'text-gray-300'}`}>
-          {isFinal || isLive ? (game.score_home ?? '–') : '–'}
+        <span className={`text-2xl font-black tabular-nums ${isFinal && !isRainout || isLive ? 'text-gray-900' : 'text-gray-300'}`}>
+          {isFinal && !isRainout || isLive ? (game.score_home ?? '–') : '–'}
         </span>
       </div>
       {game.venue && <div className="mt-2 text-[10px] text-gray-400 text-right">{game.venue}</div>}
@@ -275,8 +270,6 @@ const NPBSchedule: React.FC = () => {
   const [rosterTeam, setRosterTeam] = useState<NpbTeam | null>(null);
   const [leagueTab, setLeagueTab] = useState<'NPB' | 'NPB2'>('NPB');
   const [selectedMonth, setSelectedMonth] = useState<number>(today.getMonth() + 1);
-  const [standings, setStandings] = useState<{ central: StandingRow[]; pacific: StandingRow[] }>({ central: [], pacific: [] });
-  const [showStandings, setShowStandings] = useState(true);
   const [scrapingMonth, setScrapingMonth] = useState(false);
 
   const fetchGames = (league: 'NPB' | 'NPB2' = leagueTab, month: number = selectedMonth) => {
@@ -291,13 +284,6 @@ const NPBSchedule: React.FC = () => {
       .catch(() => { setAllGames([]); setLoading(false); });
   };
 
-  const fetchStandings = () => {
-    fetch('/api/v1/npb/standings')
-      .then(r => r.json())
-      .then(data => setStandings(data))
-      .catch(() => {});
-  };
-
   useEffect(() => {
     const firstDate = `${today.getFullYear()}-${String(selectedMonth).padStart(2, '0')}-01`;
     setSelectedDate(todayStr);
@@ -310,10 +296,6 @@ const NPBSchedule: React.FC = () => {
     }
     fetchGames(leagueTab, selectedMonth);
   }, [leagueTab, selectedMonth]);
-
-  useEffect(() => {
-    fetchStandings();
-  }, []);
 
   useEffect(() => {
     getNpbTeams().then(setTeams).catch(() => {});
@@ -355,15 +337,22 @@ const NPBSchedule: React.FC = () => {
     .filter(g => toJSTDate(g.game_date) === selectedDate)
     .sort((a, b) => new Date(a.game_date).getTime() - new Date(b.game_date).getTime());
 
-  // NPB2: 按分區分組
+  // NPB2: 按分區分組（同地区 → 各地区；跨地区 → 交流戦）
   const farmGamesByDivision = useMemo(() => {
     if (leagueTab !== 'NPB2') return null;
+    const ALL_SECTIONS = [...FARM_DIVISION_ORDER, '交流戦'];
     const map: Record<string, NPBGame[]> = {};
-    for (const div of FARM_DIVISION_ORDER) map[div] = [];
+    for (const s of ALL_SECTIONS) map[s] = [];
     for (const g of selectedGames) {
-      const div = FARM_DIVISION[g.team_home] ?? FARM_DIVISION[g.team_away] ?? '其他';
-      if (!map[div]) map[div] = [];
-      map[div].push(g);
+      const divHome = FARM_DIVISION[g.team_home];
+      const divAway = FARM_DIVISION[g.team_away];
+      if (divHome && divAway && divHome === divAway) {
+        // 同地区
+        map[divHome].push(g);
+      } else {
+        // 跨地区交流戦
+        map['交流戦'].push(g);
+      }
     }
     return map;
   }, [selectedGames, leagueTab]);
@@ -485,57 +474,6 @@ const NPBSchedule: React.FC = () => {
         </div>
       )}
 
-      {/* 一軍積分榜 */}
-      {leagueTab === 'NPB' && (standings.central.length > 0 || standings.pacific.length > 0) && (
-        <div className="mb-5">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">2026 順位表</p>
-            <button onClick={() => setShowStandings(v => !v)} className="text-[10px] font-bold text-gray-400 hover:text-gray-700 transition">
-              {showStandings ? '▲ 收起' : '▼ 展開'}
-            </button>
-          </div>
-          {showStandings && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {[
-                { label: 'セントラル', rows: standings.central },
-                { label: 'パシフィック', rows: standings.pacific },
-              ].map(({ label, rows }) => rows.length === 0 ? null : (
-                <div key={label} className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-                  <div className="bg-gray-800 text-white text-[10px] font-black px-3 py-1.5 uppercase tracking-widest">{label}</div>
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-100">
-                        <th className="text-left px-3 py-1.5 font-black text-gray-500">#</th>
-                        <th className="text-left px-2 py-1.5 font-black text-gray-500">球隊</th>
-                        <th className="px-2 py-1.5 font-bold text-gray-400 text-center">試</th>
-                        <th className="px-2 py-1.5 font-bold text-gray-400 text-center">勝</th>
-                        <th className="px-2 py-1.5 font-bold text-gray-400 text-center">敗</th>
-                        <th className="px-2 py-1.5 font-bold text-gray-400 text-center">分</th>
-                        <th className="px-2 py-1.5 font-bold text-gray-400 text-center">率</th>
-                        <th className="px-2 py-1.5 font-bold text-gray-400 text-center">差</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((r, i) => (
-                        <tr key={r.team_name} className={`border-b border-gray-50 ${i === 0 ? 'bg-yellow-50' : ''}`}>
-                          <td className="px-3 py-1.5 font-black text-gray-500">{r.rank}</td>
-                          <td className="px-2 py-1.5 font-bold text-gray-800">{r.team_name}</td>
-                          <td className="px-2 py-1.5 text-center text-gray-600">{r.games}</td>
-                          <td className="px-2 py-1.5 text-center font-bold text-gray-800">{r.wins}</td>
-                          <td className="px-2 py-1.5 text-center text-gray-600">{r.losses}</td>
-                          <td className="px-2 py-1.5 text-center text-gray-500">{r.draws}</td>
-                          <td className="px-2 py-1.5 text-center text-gray-600">{r.win_rate.toFixed(3)}</td>
-                          <td className="px-2 py-1.5 text-center text-gray-500">{r.games_behind ?? '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* 二軍：依分區顯示球隊名冊 */}
       {teams.length > 0 && leagueTab === 'NPB2' && (
@@ -629,7 +567,7 @@ const NPBSchedule: React.FC = () => {
       ) : leagueTab === 'NPB2' && farmGamesByDivision ? (
         /* ── 二軍：依分區顯示 ── */
         <div className="space-y-5">
-          {FARM_DIVISION_ORDER.map(div => {
+          {[...FARM_DIVISION_ORDER, '交流戦'].map(div => {
             const games = farmGamesByDivision[div] ?? [];
             if (games.length === 0) return null;
             return (

@@ -53,7 +53,11 @@ export default function NpbRosterModal({ team, onClose }: Props) {
             />
             <div>
               <h2 className="font-black text-lg">{team.name_full}</h2>
-              <p className="text-xs text-gray-500">{team.npb_league === 'Central' ? 'セントラル・リーグ（中央聯盟）' : 'パシフィック・リーグ（太平洋聯盟）'}</p>
+              <p className="text-xs text-gray-500">{
+                team.npb_league === 'Central' ? 'セントラル・リーグ（中央聯盟）' :
+                team.npb_league === 'Pacific' ? 'パシフィック・リーグ（太平洋聯盟）' :
+                '二軍独立球団'
+              }</p>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 transition">

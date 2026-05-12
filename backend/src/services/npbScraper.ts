@@ -285,7 +285,10 @@ export async function fetchGameDetail(gameUrl: string): Promise<GameDetail | nul
     let status: 'scheduled' | 'live' | 'final' = 'scheduled';
     let gameDetail = '試合開始前';
 
-    if (gameInfoText.includes('試合終了') || gameInfoText.includes('終了')) {
+    if (gameInfoText.includes('雨天中止') || gameInfoText.includes('降雨中止') || gameInfoText.includes('天候中止') || gameInfoText.includes('中止')) {
+      status = 'final';
+      gameDetail = '雨天延賽';
+    } else if (gameInfoText.includes('試合終了') || gameInfoText.includes('終了')) {
       status = 'final';
       gameDetail = '試合終了';
     } else if (gameInfoText.includes('試合開始前') || gameInfoText.includes('開始前')) {

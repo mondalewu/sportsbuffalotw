@@ -57,6 +57,7 @@ export interface BatterStat {
   hit_by_pitch: number;
   sacrifice_hits: number;
   at_bat_results: string[];
+  box_avg?: string | number | null;  // 今季打率（Docomo 提供）
 }
 
 export interface PitcherStat {
@@ -116,6 +117,28 @@ export const getGamePitchers = async (gameId: number): Promise<PitcherStat[]> =>
 
 export const getGamePlayByPlay = async (gameId: number): Promise<PlayByPlayEvent[]> => {
   const res = await apiClient.get(`/npb/games/${gameId}/playbyplay`);
+  return res.data;
+};
+
+export interface PitchData {
+  at_bat_key: string;
+  pitch_num: number;
+  inning: number;
+  is_top: boolean;
+  pitcher_name: string;
+  batter_name: string;
+  ball_kind: string;
+  ball_kind_id: string;
+  x: number;
+  y: number;
+  speed: number | null;
+  result: string;
+  result_id: string;
+  is_strike: boolean;
+}
+
+export const getGamePitchData = async (gameId: number): Promise<PitchData[]> => {
+  const res = await apiClient.get(`/npb/games/${gameId}/pitch-data`);
   return res.data;
 };
 

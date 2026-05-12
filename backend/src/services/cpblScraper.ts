@@ -122,18 +122,24 @@ interface BatterStatItem {
   HitterName: string;
   HitterUniformNo: string;
   VisitingHomeType: string;   // "1"=away "2"=home
-  PlateAppearances: number;
-  HittingCnt: number;         // at_bats
-  HitCnt: number;
-  OneBaseHitCnt: number;
-  TwoBaseHitCnt: number;
-  ThreeBaseHitCnt: number;
-  HomeRunCnt: number;
+  PlateAppearances: number;   // 本場打席數
+  HittingCnt: number;         // 本場打數 (at_bats)
+  HitCnt: number;             // 累計賽季安打 (season hits)
+  TotalHittingCnt: number;    // 累計賽季打數 (season at_bats)
+  TotalHitCnt: number;        // 累計賽季安打 (season total hits - same as HitCnt)
+  TotalHomeRunCnt: number;    // 累計賽季全壘打
+  OneBaseHitCnt: number;      // 本場一壘安打
+  TwoBaseHitCnt: number;      // 本場二壘安打
+  ThreeBaseHitCnt: number;    // 本場三壘安打
+  HomeRunCnt: number;         // 本場全壘打
   RunBattedINCnt: number;
   ScoreCnt: number;
   BasesONBallsCnt: number;
   StrikeOutCnt: number;
   StealBaseOKCnt: number;
+  HitBYPitchCnt: number;
+  SacrificeHitCnt: number;
+  SacrificeFlyCnt: number;
 }
 
 interface LiveLogItem {
@@ -164,6 +170,30 @@ interface FirstSnoItem {
   CHName: string;
   Acnt: string;
   MainEventNoS: string;       // "0000000000" = started from game beginning
+}
+
+interface PitcherStatItem {
+  VisitingHomeType: string;   // "1"=away "2"=home
+  PitcherAcnt: string;
+  PitcherName: string;
+  PitcherUniformNo: string;
+  RoleType: string;           // "先發" | "救援"
+  GameResult: string;         // "W" | "L" | "S" | ""
+  InningPitchedCnt: number;
+  InningPitchedDiv3Cnt: number;
+  PlateAppearances: number;
+  PitchCnt: number;
+  HittingCnt: number;         // hits allowed
+  HomeRunCnt: number;
+  BasesONBallsCnt: number;
+  HitBYPitchCnt: number;
+  StrikeOutCnt: number;
+  WildPitchCnt: number;
+  BalkCnt: number;
+  RunCnt: number;
+  EarnedRunCnt: number;
+  IsSaveOK: string;
+  Seq: string;                // "0000000001", "0000000002" → pitcher order
 }
 
 // ─── Step 1: 取得當日比賽列表 ─────────────────────────────────────────────────
@@ -199,6 +229,7 @@ async function fetchDailyGames(date: Date, kindCode: string): Promise<GameApiIte
 interface BoxLiveResponse {
   Success: boolean;
   BattingJson: string | null;     // 打者成績，key=打順 "0"-"26"，value=BatterStatItem[]
+  PitchingJson: string | null;    // 投手成績，PitcherStatItem[]
   LiveLogJson: string | null;     // 逐球紀錄，LiveLogItem[]
   FirstSnoJson: string | null;    // 先發名單，FirstSnoItem[]
 }
@@ -242,7 +273,7 @@ async function getBoxSession(year: number, kindCode: string, gameSno: number): P
 
 async function fetchBoxLive(
   year: number, kindCode: string, gameSno: number,
-): Promise<{ batters: BatterStatItem[]; liveLog: LiveLogItem[]; firstSno: FirstSnoItem[] }> {
+): Promise<{ batters: BatterStatItem[]; liveLog: LiveLogItem[]; firstSno: FirstSnoItem[]; pitchers: PitcherStatItem[] }> {
   const pageRef = `${CPBL_BASE}/box/live?year=${year}&kindCode=${kindCode}&gameSno=${gameSno}`;
   const cookie  = await getBoxSession(year, kindCode, gameSno);
 
@@ -260,7 +291,7 @@ async function fetchBoxLive(
   const data = res.data as BoxLiveResponse;
   if (!data.Success) {
     console.warn(`[CPBL box] getlive 回傳 Success=false (gameSno=${gameSno})`);
-    return { batters: [], liveLog: [], firstSno: [] };
+    return { batters: [], liveLog: [], firstSno: [], pitchers: [] };
   }
 
   // BattingJson: { "0": BatterStatItem[], "1": BatterStatItem[], ... } (indexed by batting order)
@@ -288,7 +319,12 @@ async function fetchBoxLive(
     try { firstSno = JSON.parse(data.FirstSnoJson) as FirstSnoItem[]; } catch { /* 略 */ }
   }
 
-  return { batters, liveLog, firstSno };
+  let pitchers: PitcherStatItem[] = [];
+  if (data.PitchingJson) {
+    try { pitchers = JSON.parse(data.PitchingJson) as PitcherStatItem[]; } catch { /* 略 */ }
+  }
+
+  return { batters, liveLog, firstSno, pitchers };
 }
 
 // ─── Step 2b-1: 從 liveLog 推導局分並儲存 game_innings ───────────────────────
@@ -351,8 +387,9 @@ async function saveLiveLog(gameId: number, liveLog: LiveLogItem[]): Promise<void
   const dbMaxInning = existingInnRes.rows[0]?.max_inning ?? 0;
 
   // 只有當 liveLog 覆蓋的局數 ≥ DB 已知最大局時，才整批替換
+  // dbMaxInning=0 表示 DB 尚無資料，直接寫入
   // （避免 API 只回傳最後幾局、刪掉進行中逐筆累積的完整資料）
-  if (liveLogMaxInning >= dbMaxInning && dbMaxInning > 0) {
+  if (dbMaxInning === 0 || liveLogMaxInning >= dbMaxInning) {
     await pool.query('DELETE FROM play_by_play WHERE game_id = $1', [gameId]);
   } else {
     console.log(`[CPBL PBP] liveLog 僅含至 ${liveLogMaxInning}局，DB 有至 ${dbMaxInning}局 — 保留既有 PBP 資料`);
@@ -366,12 +403,14 @@ async function saveLiveLog(gameId: number, liveLog: LiveLogItem[]): Promise<void
     const situation = `${entry.OutCnt}出 ${bases || '無人'}壘 ${entry.BallCnt}B${entry.StrikeCnt}S`;
     await pool.query(
       `INSERT INTO play_by_play
-         (game_id, inning, is_top, batter_name, pitcher_name, situation, result_text, score_home, score_away)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+         (game_id, inning, is_top, batter_name, pitcher_name, situation, result_text, score_home, score_away, hitter_acnt, batting_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [gameId, entry.InningSeq, isTop,
        entry.HitterName, entry.PitcherName,
        situation, entry.Content.trim(),
-       entry.HomeScore, entry.VisitingScore],
+       entry.HomeScore, entry.VisitingScore,
+       entry.HitterAcnt || null,
+       entry.BattingOrder || null],
     );
   }
 }
@@ -564,20 +603,45 @@ async function updateGame(gameId: number, item: GameApiItem): Promise<boolean> {
   }
 
   // 即時打席 → play_by_play (僅 live 且有內容)
+  // 只有在內容與上一筆不同時才插入，避免重複累積
   const cb = item.CurtBatting;
   if (cb && item.GameStatus === 2 && cb.Content) {
     const isTop = cb.VisitingHomeType === '1';
-    await pool.query(
-      `INSERT INTO play_by_play
-         (game_id, inning, is_top, batter_name, pitcher_name, situation, result_text, score_home, score_away)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [gameId, cb.InningSeq, isTop,
-       cb.HitterName,
-       cb.PitcherName,
-       `${cb.OutCnt}出 ${cb.FirstBase ? '一' : ''}${cb.SecondBase ? '二' : ''}${cb.ThirdBase ? '三' : ''}壘 ${cb.BallCnt}B${cb.StrikeCnt}S`,
-       cb.Content.trim(),
-       cb.HomeScore, cb.VisitingScore]
+    const situation = `${cb.OutCnt}出 ${cb.FirstBase ? '一' : ''}${cb.SecondBase ? '二' : ''}${cb.ThirdBase ? '三' : ''}壘 ${cb.BallCnt}B${cb.StrikeCnt}S`;
+    const content = cb.Content.trim();
+
+    // 查詢最後一筆 PBP（同局同半局同打者）
+    const lastRes = await pool.query<{
+      result_text: string; batter_name: string; inning: number; is_top: boolean; situation: string;
+    }>(
+      `SELECT result_text, batter_name, inning, is_top, situation
+       FROM play_by_play WHERE game_id = $1
+       ORDER BY sequence_num DESC LIMIT 1`,
+      [gameId],
     );
+    const last = lastRes.rows[0];
+    const isDuplicate = last &&
+      last.result_text  === content &&
+      last.batter_name  === cb.HitterName &&
+      last.inning       === cb.InningSeq &&
+      last.is_top       === isTop &&
+      last.situation    === situation;
+
+    if (!isDuplicate) {
+      await pool.query(
+        `INSERT INTO play_by_play
+           (game_id, inning, is_top, batter_name, pitcher_name, situation, result_text, score_home, score_away, hitter_acnt, batting_order)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [gameId, cb.InningSeq, isTop,
+         cb.HitterName,
+         cb.PitcherName,
+         situation,
+         content,
+         cb.HomeScore, cb.VisitingScore,
+         cb.HitterAcnt || null,
+         cb.BattingOrder || null],
+      );
+    }
   }
 
   return true;
@@ -599,33 +663,46 @@ async function saveBatterStats(gameId: number, batters: Array<BatterStatItem & {
     const teamCode = isHome ? item.HomeTeamCode : item.VisitingTeamCode;
     const teamName = isHome ? home : away;
 
-    // HitCnt from CPBL API may represent plate appearances; calculate hits from base hit counts
+    // 安打 = 一壘安 + 二壘安 + 三壘安 + 全壘打
     const actualHits = (b.OneBaseHitCnt ?? 0) + (b.TwoBaseHitCnt ?? 0) + (b.ThreeBaseHitCnt ?? 0) + (b.HomeRunCnt ?? 0);
+    // 打數 = 打席 - 四球 - 死球 - 犧牲打 - 犧牲飛球（HittingCnt 實為安打，不可直接用）
+    const actualAtBats = Math.max(0,
+      (b.PlateAppearances ?? 0) - (b.BasesONBallsCnt ?? 0) - (b.HitBYPitchCnt ?? 0)
+      - (b.SacrificeHitCnt ?? 0) - (b.SacrificeFlyCnt ?? 0)
+    );
     await pool.query(
       `INSERT INTO game_batter_stats
          (game_id, team_code, batting_order, position, player_name,
-          at_bats, hits, rbi, runs, home_runs, strikeouts, walks)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          at_bats, hits, rbi, runs, home_runs, strikeouts, walks,
+          hit_by_pitch, sacrifice_hits, stolen_bases)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        ON CONFLICT (game_id, team_code, player_name) DO UPDATE
-         SET batting_order = EXCLUDED.batting_order,
-             at_bats   = EXCLUDED.at_bats,
-             hits      = EXCLUDED.hits,
-             rbi       = EXCLUDED.rbi,
-             runs      = EXCLUDED.runs,
-             home_runs = EXCLUDED.home_runs,
-             strikeouts = EXCLUDED.strikeouts,
-             walks     = EXCLUDED.walks`,
+         SET batting_order  = EXCLUDED.batting_order,
+             at_bats        = EXCLUDED.at_bats,
+             hits           = EXCLUDED.hits,
+             rbi            = EXCLUDED.rbi,
+             runs           = EXCLUDED.runs,
+             home_runs      = EXCLUDED.home_runs,
+             strikeouts     = EXCLUDED.strikeouts,
+             walks          = EXCLUDED.walks,
+             hit_by_pitch   = EXCLUDED.hit_by_pitch,
+             sacrifice_hits = EXCLUDED.sacrifice_hits,
+             stolen_bases   = EXCLUDED.stolen_bases,
+             box_avg        = NULL`,
       [gameId, teamCode || teamName,
        b._battingOrder ?? null,
        null,
        b.HitterName,
-       b.HittingCnt ?? 0,
+       actualAtBats,
        actualHits,
        b.RunBattedINCnt ?? 0,
        b.ScoreCnt ?? 0,
        b.HomeRunCnt ?? 0,
        b.StrikeOutCnt ?? 0,
-       b.BasesONBallsCnt ?? 0]
+       b.BasesONBallsCnt ?? 0,
+       b.HitBYPitchCnt ?? 0,
+       (b.SacrificeHitCnt ?? 0) + (b.SacrificeFlyCnt ?? 0),
+       b.StealBaseOKCnt ?? 0]
     );
 
     // 同步更新 cpbl_players 基本資料
@@ -641,6 +718,143 @@ async function saveBatterStats(gameId: number, batters: Array<BatterStatItem & {
                updated_at = NOW()`,
         [b.HitterAcnt, teamCode, teamName, b.HitterUniformNo, b.HitterName]
       ).catch(() => {/* 略過 */});
+    }
+  }
+}
+
+// ─── 從 game_batter_stats 聚合賽季成績到 cpbl_player_stats ───────────────────
+
+export async function aggregateCpblSeasonStats(year = 2026): Promise<{ updated: number; message: string }> {
+  try {
+    const result = await pool.query<{ count: string }>(
+      `INSERT INTO cpbl_player_stats (acnt, year, kind_code, games, at_bats, hits, home_runs, rbi, runs, walks, strikeouts, stolen_bases, avg, updated_at)
+       SELECT
+         cp.acnt,
+         EXTRACT(YEAR FROM g.game_date)::int AS year,
+         CASE WHEN g.league = 'CPBL' THEN 'A' WHEN g.league = 'CPBL-W' THEN 'G' ELSE 'A' END AS kind_code,
+         COUNT(DISTINCT gbs.game_id)::int AS games,
+         SUM(gbs.at_bats)::int AS at_bats,
+         SUM(gbs.hits)::int AS hits,
+         SUM(gbs.home_runs)::int AS home_runs,
+         SUM(gbs.rbi)::int AS rbi,
+         SUM(gbs.runs)::int AS runs,
+         SUM(gbs.walks)::int AS walks,
+         SUM(gbs.strikeouts)::int AS strikeouts,
+         SUM(gbs.stolen_bases)::int AS stolen_bases,
+         CASE WHEN SUM(gbs.at_bats) > 0
+           THEN ROUND(SUM(gbs.hits)::numeric / SUM(gbs.at_bats), 3)
+           ELSE 0 END AS avg,
+         NOW()
+       FROM game_batter_stats gbs
+       JOIN games g ON g.id = gbs.game_id
+         AND g.status = 'final'
+         AND g.league IN ('CPBL','CPBL-W')
+         AND EXTRACT(YEAR FROM g.game_date) = $1
+       JOIN cpbl_players cp ON cp.name = gbs.player_name
+         AND cp.team_code = gbs.team_code
+         AND cp.acnt IS NOT NULL
+       GROUP BY cp.acnt, EXTRACT(YEAR FROM g.game_date), g.league
+       ON CONFLICT (acnt, year, kind_code) DO UPDATE
+         SET games        = EXCLUDED.games,
+             at_bats      = EXCLUDED.at_bats,
+             hits         = EXCLUDED.hits,
+             home_runs    = EXCLUDED.home_runs,
+             rbi          = EXCLUDED.rbi,
+             runs         = EXCLUDED.runs,
+             walks        = EXCLUDED.walks,
+             strikeouts   = EXCLUDED.strikeouts,
+             stolen_bases = EXCLUDED.stolen_bases,
+             avg          = EXCLUDED.avg,
+             updated_at   = NOW()`,
+      [year],
+    );
+    const updated = result.rowCount ?? 0;
+    return { updated, message: `✅ CPBL 賽季成績聚合完成：${updated} 筆` };
+  } catch (e) {
+    return { updated: 0, message: `❌ 聚合失敗: ${(e as Error).message}` };
+  }
+}
+
+// ─── Step 6: 儲存投手成績 ─────────────────────────────────────────────────────
+
+async function savePitcherStats(gameId: number, pitchers: PitcherStatItem[], item: GameApiItem): Promise<void> {
+  if (!pitchers.length) return;
+  const home = normTeam(item.HomeTeamName);
+  const away = normTeam(item.VisitingTeamName);
+
+  // 終場才全部清除重寫（進行中保持累積）
+  if (item.GameStatus === 3) {
+    await pool.query('DELETE FROM game_pitcher_stats WHERE game_id = $1', [gameId]);
+  }
+
+  // 依各隊在陣列中的出現順序計算登板順序（先發=1, 第一後援=2, 依此類推）
+  const teamPitcherCount: Record<string, number> = {};
+
+  for (const p of pitchers) {
+    const isHome = p.VisitingHomeType === '2';
+    const teamCode = isHome ? item.HomeTeamCode : item.VisitingTeamCode;
+    const teamName = isHome ? home : away;
+
+    // 投球局數：InningPitchedCnt 整局 + InningPitchedDiv3Cnt 個1/3
+    const ipStr = p.InningPitchedDiv3Cnt > 0
+      ? `${p.InningPitchedCnt}.${p.InningPitchedDiv3Cnt}`
+      : `${p.InningPitchedCnt}`;
+
+    // 投手順序：依各隊在陣列中的出現順序（先發=1）
+    const key = teamCode || teamName;
+    teamPitcherCount[key] = (teamPitcherCount[key] ?? 0) + 1;
+    const pitcherOrder = teamPitcherCount[key];
+
+    // 勝敗救
+    let result: string | null = null;
+    if (p.GameResult === 'W') result = '勝';
+    else if (p.GameResult === 'L') result = '敗';
+    else if (p.IsSaveOK === '1') result = '救';
+
+    await pool.query(
+      `INSERT INTO game_pitcher_stats
+         (game_id, team_code, pitcher_order, player_name, innings_pitched,
+          hits_allowed, runs_allowed, earned_runs, walks, strikeouts,
+          pitch_count, batters_faced, home_runs_allowed, hit_by_pitch, balk, result)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       ON CONFLICT (game_id, team_code, player_name) DO UPDATE
+         SET pitcher_order     = EXCLUDED.pitcher_order,
+             innings_pitched   = EXCLUDED.innings_pitched,
+             hits_allowed      = EXCLUDED.hits_allowed,
+             runs_allowed      = EXCLUDED.runs_allowed,
+             earned_runs       = EXCLUDED.earned_runs,
+             walks             = EXCLUDED.walks,
+             strikeouts        = EXCLUDED.strikeouts,
+             pitch_count       = EXCLUDED.pitch_count,
+             batters_faced     = EXCLUDED.batters_faced,
+             home_runs_allowed = EXCLUDED.home_runs_allowed,
+             hit_by_pitch      = EXCLUDED.hit_by_pitch,
+             balk              = EXCLUDED.balk,
+             result            = EXCLUDED.result`,
+      [gameId, teamCode || teamName, pitcherOrder, p.PitcherName, ipStr,
+       p.HittingCnt ?? 0,
+       p.RunCnt ?? 0,
+       p.EarnedRunCnt ?? 0,
+       p.BasesONBallsCnt ?? 0,
+       p.StrikeOutCnt ?? 0,
+       p.PitchCnt ?? 0,
+       p.PlateAppearances ?? 0,
+       p.HomeRunCnt ?? 0,
+       p.HitBYPitchCnt ?? 0,
+       p.BalkCnt ?? 0,
+       result]
+    );
+
+    // 同步更新 cpbl_players
+    if (p.PitcherAcnt) {
+      await pool.query(
+        `INSERT INTO cpbl_players (acnt, team_code, team_name, uniform_no, name)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (acnt) DO UPDATE
+           SET team_code=EXCLUDED.team_code, team_name=EXCLUDED.team_name,
+               uniform_no=EXCLUDED.uniform_no, name=EXCLUDED.name, updated_at=NOW()`,
+        [p.PitcherAcnt, teamCode, teamName, p.PitcherUniformNo, p.PitcherName]
+      ).catch(() => {});
     }
   }
 }
@@ -704,6 +918,330 @@ export async function runCpblStandingsScraper(year = 2026): Promise<{ updated: n
     console.log(`[CPBL Standings] ${league} 更新 ${items.length} 支球隊`);
   }
   return { updated, message: updated > 0 ? `✅ CPBL 積分榜更新 ${updated} 條` : '⚠ CPBL 積分榜無資料（API 可能尚未開放）' };
+}
+
+// ─── CPBL 打者賽季成績爬蟲 ────────────────────────────────────────────────────
+
+interface BattingStatApiItem {
+  Acnt: string;
+  Name: string;
+  TeamCode: string;
+  TeamName: string;
+  GameCnt: number;
+  PlateAppearances: number;
+  HittingCnt: number;       // at_bats
+  HitCnt: number;
+  TwoBaseHitCnt: number;
+  ThreeBaseHitCnt: number;
+  HomeRunCnt: number;
+  RunBattedINCnt: number;
+  ScoreCnt: number;
+  BasesONBallsCnt: number;
+  StrikeOutCnt: number;
+  StealBaseOKCnt: number;
+  BattingAvg: number;       // 打擊率
+  OnBasePercentage: number; // 上壘率
+  SluggingPercentage: number; // 長打率
+  OPS: number;
+}
+
+async function fetchCpblBattingStats(year: number, kindCode: string): Promise<BattingStatApiItem[]> {
+  const params = new URLSearchParams({ Year: String(year), KindCode: kindCode });
+  try {
+    const res = await axios.post(`${CPBL_BASE}/stats/getbatting`, params.toString(), {
+      timeout: 20000,
+      headers: COMMON_HEADERS,
+    });
+    const data = res.data;
+    if (Array.isArray(data)) return data as BattingStatApiItem[];
+    if (data?.Success === false) return [];
+    if (typeof data === 'string') return JSON.parse(data) as BattingStatApiItem[];
+  } catch (e) {
+    console.warn(`[CPBL Stats] 打者成績 API 失敗 (${kindCode}):`, (e as Error).message);
+  }
+  return [];
+}
+
+export async function runCpblPlayerStatsScraper(year = 2026): Promise<{ updated: number; message: string }> {
+  let updated = 0;
+  for (const kindCode of ['A', 'G']) {
+    const items = await fetchCpblBattingStats(year, kindCode);
+    if (!items.length) {
+      console.warn(`[CPBL Stats] KindCode=${kindCode} 無打者成績資料`);
+      continue;
+    }
+    console.log(`[CPBL Stats] KindCode=${kindCode} 取得 ${items.length} 筆打者成績`);
+    for (const s of items) {
+      if (!s.Acnt) continue;
+      try {
+        // Ensure player exists in cpbl_players
+        const teamName = normTeam(s.TeamName);
+        await pool.query(
+          `INSERT INTO cpbl_players (acnt, team_code, team_name, name)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (acnt) DO UPDATE
+             SET team_code = EXCLUDED.team_code,
+                 team_name = EXCLUDED.team_name,
+                 name      = EXCLUDED.name,
+                 updated_at = NOW()`,
+          [s.Acnt, s.TeamCode, teamName, s.Name],
+        );
+        // Save season stats
+        await pool.query(
+          `INSERT INTO cpbl_player_stats
+             (acnt, year, kind_code, games, plate_appearances, at_bats, hits,
+              doubles, triples, home_runs, rbi, runs, walks, strikeouts, stolen_bases,
+              avg, obp, slg, ops, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW())
+           ON CONFLICT (acnt, year, kind_code) DO UPDATE
+             SET games = EXCLUDED.games,
+                 plate_appearances = EXCLUDED.plate_appearances,
+                 at_bats = EXCLUDED.at_bats,
+                 hits    = EXCLUDED.hits,
+                 doubles = EXCLUDED.doubles,
+                 triples = EXCLUDED.triples,
+                 home_runs = EXCLUDED.home_runs,
+                 rbi     = EXCLUDED.rbi,
+                 runs    = EXCLUDED.runs,
+                 walks   = EXCLUDED.walks,
+                 strikeouts = EXCLUDED.strikeouts,
+                 stolen_bases = EXCLUDED.stolen_bases,
+                 avg = EXCLUDED.avg,
+                 obp = EXCLUDED.obp,
+                 slg = EXCLUDED.slg,
+                 ops = EXCLUDED.ops,
+                 updated_at = NOW()`,
+          [s.Acnt, year, kindCode,
+           s.GameCnt ?? 0, s.PlateAppearances ?? 0, s.HittingCnt ?? 0, s.HitCnt ?? 0,
+           s.TwoBaseHitCnt ?? 0, s.ThreeBaseHitCnt ?? 0, s.HomeRunCnt ?? 0,
+           s.RunBattedINCnt ?? 0, s.ScoreCnt ?? 0, s.BasesONBallsCnt ?? 0,
+           s.StrikeOutCnt ?? 0, s.StealBaseOKCnt ?? 0,
+           s.BattingAvg ?? 0, s.OnBasePercentage ?? 0, s.SluggingPercentage ?? 0, s.OPS ?? 0],
+        );
+        updated++;
+      } catch (e) {
+        console.warn('[CPBL Stats] 打者儲存失敗:', s.Name, (e as Error).message);
+      }
+    }
+    console.log(`[CPBL Stats] KindCode=${kindCode} 儲存 ${updated} 筆`);
+  }
+  return {
+    updated,
+    message: updated > 0 ? `✅ CPBL 打者賽季成績更新 ${updated} 筆` : '⚠ CPBL 打者成績無資料（API 可能尚未開放）',
+  };
+}
+
+// ─── 從 game_pitcher_stats 聚合賽季投手成績到 cpbl_pitcher_stats ─────────────
+
+export async function aggregateCpblPitcherSeasonStats(year = 2026): Promise<{ updated: number; message: string }> {
+  try {
+    // innings_pitched 格式 "5.2" = 5又2/3局，需換算成小數
+    const result = await pool.query<{ count: string }>(
+      `INSERT INTO cpbl_pitcher_stats
+         (acnt, year, kind_code, games, wins, losses, saves,
+          innings_pitched_num, hits_allowed, home_runs_allowed,
+          walks, strikeouts, earned_runs, era, updated_at)
+       SELECT
+         cp.acnt,
+         EXTRACT(YEAR FROM g.game_date)::int AS year,
+         CASE WHEN g.league = 'CPBL' THEN 'A' WHEN g.league = 'CPBL-W' THEN 'G' ELSE 'A' END AS kind_code,
+         COUNT(DISTINCT gps.game_id)::int AS games,
+         SUM(CASE WHEN gps.result = '勝' THEN 1 ELSE 0 END)::int AS wins,
+         SUM(CASE WHEN gps.result = '敗' THEN 1 ELSE 0 END)::int AS losses,
+         SUM(CASE WHEN gps.result = '救' THEN 1 ELSE 0 END)::int AS saves,
+         SUM(
+           CASE WHEN gps.innings_pitched ~ '^[0-9]+(\.[0-9]+)?$' THEN
+             SPLIT_PART(gps.innings_pitched, '.', 1)::numeric
+             + COALESCE(NULLIF(SPLIT_PART(gps.innings_pitched, '.', 2), ''), '0')::numeric / 3.0
+           ELSE 0 END
+         ) AS innings_pitched_num,
+         SUM(gps.hits_allowed)::int AS hits_allowed,
+         SUM(gps.home_runs_allowed)::int AS home_runs_allowed,
+         SUM(gps.walks)::int AS walks,
+         SUM(gps.strikeouts)::int AS strikeouts,
+         SUM(gps.earned_runs)::int AS earned_runs,
+         CASE WHEN SUM(
+           CASE WHEN gps.innings_pitched ~ '^[0-9]+(\.[0-9]+)?$' THEN
+             SPLIT_PART(gps.innings_pitched, '.', 1)::numeric
+             + COALESCE(NULLIF(SPLIT_PART(gps.innings_pitched, '.', 2), ''), '0')::numeric / 3.0
+           ELSE 0 END
+         ) > 0
+           THEN ROUND(SUM(gps.earned_runs)::numeric / SUM(
+             CASE WHEN gps.innings_pitched ~ '^[0-9]+(\.[0-9]+)?$' THEN
+               SPLIT_PART(gps.innings_pitched, '.', 1)::numeric
+               + COALESCE(NULLIF(SPLIT_PART(gps.innings_pitched, '.', 2), ''), '0')::numeric / 3.0
+             ELSE 0 END
+           ) * 27, 2)
+           ELSE 0 END AS era,
+         NOW()
+       FROM game_pitcher_stats gps
+       JOIN games g ON g.id = gps.game_id
+         AND g.status = 'final'
+         AND g.league IN ('CPBL','CPBL-W')
+         AND EXTRACT(YEAR FROM g.game_date) = $1
+       JOIN cpbl_players cp ON cp.name = gps.player_name
+         AND cp.team_code = gps.team_code
+         AND cp.acnt IS NOT NULL
+       GROUP BY cp.acnt, EXTRACT(YEAR FROM g.game_date), g.league
+       ON CONFLICT (acnt, year, kind_code) DO UPDATE
+         SET games              = EXCLUDED.games,
+             wins               = EXCLUDED.wins,
+             losses             = EXCLUDED.losses,
+             saves              = EXCLUDED.saves,
+             innings_pitched_num= EXCLUDED.innings_pitched_num,
+             hits_allowed       = EXCLUDED.hits_allowed,
+             home_runs_allowed  = EXCLUDED.home_runs_allowed,
+             walks              = EXCLUDED.walks,
+             strikeouts         = EXCLUDED.strikeouts,
+             earned_runs        = EXCLUDED.earned_runs,
+             era                = EXCLUDED.era,
+             updated_at         = NOW()`,
+      [year],
+    );
+    const updated = result.rowCount ?? 0;
+    return { updated, message: `✅ CPBL 投手賽季成績聚合完成：${updated} 筆` };
+  } catch (e) {
+    return { updated: 0, message: `❌ 投手聚合失敗: ${(e as Error).message}` };
+  }
+}
+
+// ─── CPBL 投手賽季成績 API 爬蟲（優先）+ 聚合備援 ─────────────────────────────
+
+interface PitchingStatApiItem {
+  Acnt: string;
+  Name: string;
+  TeamCode: string;
+  TeamName: string;
+  GameCnt: number;
+  WinCnt: number;
+  LoseCnt: number;
+  SaveCnt: number;
+  InningPitchedCnt: number;
+  InningPitchedDiv3Cnt: number;
+  HittingCnt: number;       // hits allowed
+  HomeRunCnt: number;
+  BasesONBallsCnt: number;
+  StrikeOutCnt: number;
+  EarnedRunCnt: number;
+  ERA: number;
+}
+
+async function fetchCpblPitchingStats(year: number, kindCode: string): Promise<PitchingStatApiItem[]> {
+  const params = new URLSearchParams({ Year: String(year), KindCode: kindCode });
+  try {
+    const res = await axios.post(`${CPBL_BASE}/stats/getpitching`, params.toString(), {
+      timeout: 20000,
+      headers: COMMON_HEADERS,
+    });
+    const data = res.data;
+    if (Array.isArray(data)) return data as PitchingStatApiItem[];
+    if (data?.Success === false) return [];
+    if (typeof data === 'string') return JSON.parse(data) as PitchingStatApiItem[];
+  } catch (e) {
+    console.warn(`[CPBL Stats] 投手成績 API 失敗 (${kindCode}):`, (e as Error).message);
+  }
+  return [];
+}
+
+export async function runCpblPitcherStatsScraper(year = 2026): Promise<{ updated: number; message: string }> {
+  let updated = 0;
+  let apiSuccess = false;
+
+  for (const kindCode of ['A', 'G']) {
+    const items = await fetchCpblPitchingStats(year, kindCode);
+    if (!items.length) {
+      console.warn(`[CPBL Stats] KindCode=${kindCode} 投手 API 無資料，改用聚合`);
+      continue;
+    }
+    apiSuccess = true;
+    console.log(`[CPBL Stats] KindCode=${kindCode} 投手 API 取得 ${items.length} 筆`);
+    for (const s of items) {
+      if (!s.Acnt) continue;
+      try {
+        const teamName = normTeam(s.TeamName);
+        await pool.query(
+          `INSERT INTO cpbl_players (acnt, team_code, team_name, name)
+           VALUES ($1,$2,$3,$4)
+           ON CONFLICT (acnt) DO UPDATE
+             SET team_code=EXCLUDED.team_code, team_name=EXCLUDED.team_name,
+                 name=EXCLUDED.name, updated_at=NOW()`,
+          [s.Acnt, s.TeamCode, teamName, s.Name],
+        );
+        const ipNum = (s.InningPitchedCnt ?? 0) + (s.InningPitchedDiv3Cnt ?? 0) / 3;
+        await pool.query(
+          `INSERT INTO cpbl_pitcher_stats
+             (acnt, year, kind_code, games, wins, losses, saves,
+              innings_pitched_num, hits_allowed, home_runs_allowed,
+              walks, strikeouts, earned_runs, era, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
+           ON CONFLICT (acnt, year, kind_code) DO UPDATE
+             SET games=EXCLUDED.games, wins=EXCLUDED.wins, losses=EXCLUDED.losses,
+                 saves=EXCLUDED.saves, innings_pitched_num=EXCLUDED.innings_pitched_num,
+                 hits_allowed=EXCLUDED.hits_allowed, home_runs_allowed=EXCLUDED.home_runs_allowed,
+                 walks=EXCLUDED.walks, strikeouts=EXCLUDED.strikeouts,
+                 earned_runs=EXCLUDED.earned_runs, era=EXCLUDED.era, updated_at=NOW()`,
+          [s.Acnt, year, kindCode,
+           s.GameCnt ?? 0, s.WinCnt ?? 0, s.LoseCnt ?? 0, s.SaveCnt ?? 0,
+           ipNum, s.HittingCnt ?? 0, s.HomeRunCnt ?? 0,
+           s.BasesONBallsCnt ?? 0, s.StrikeOutCnt ?? 0, s.EarnedRunCnt ?? 0,
+           s.ERA ?? 0],
+        );
+        updated++;
+      } catch (e) {
+        console.warn('[CPBL Stats] 投手儲存失敗:', s.Name, (e as Error).message);
+      }
+    }
+  }
+
+  // API 無資料時改用聚合
+  if (!apiSuccess) {
+    console.log('[CPBL Stats] 投手 API 無資料，改用 game_pitcher_stats 聚合');
+    return aggregateCpblPitcherSeasonStats(year);
+  }
+
+  return {
+    updated,
+    message: updated > 0 ? `✅ CPBL 投手賽季成績更新 ${updated} 筆` : '⚠ CPBL 投手成績無資料',
+  };
+}
+
+// ─── 單場比賽重新爬蟲 ─────────────────────────────────────────────────────────
+
+export async function rescrapeGameByGameSno(
+  gameId: number, gameSno: number, kindCode: string, year: number, gameDate?: Date,
+): Promise<{ message: string }> {
+  try {
+    const { batters, liveLog, firstSno, pitchers } = await fetchBoxLive(year, kindCode, gameSno);
+
+    // 從 DB 取得比賽隊名，建立 mock item 避免重新呼叫 fetchDailyGames
+    const gameRow = await pool.query<{ team_home: string; team_away: string }>(
+      'SELECT team_home, team_away FROM games WHERE id = $1', [gameId]
+    );
+    const { team_home, team_away } = gameRow.rows[0] ?? { team_home: '', team_away: '' };
+
+    const mockItem = {
+      HomeTeamName: team_home,
+      VisitingTeamName: team_away,
+      HomeTeamCode: team_home,
+      VisitingTeamCode: team_away,
+      GameStatus: 3,  // final — 觸發 DELETE + re-insert
+    } as GameApiItem;
+
+    if (batters.length > 0) await saveBatterStats(gameId, batters, mockItem);
+    if (pitchers.length > 0) await savePitcherStats(gameId, pitchers, mockItem);
+    if (firstSno.length > 0) await saveLineups(gameId, firstSno, mockItem);
+    if (liveLog.length > 0) {
+      await saveInningsFromLiveLog(gameId, liveLog);
+      await saveLiveLog(gameId, liveLog);
+    }
+
+    if (batters.length === 0 && liveLog.length === 0) {
+      return { message: `⚠ GameSno=${gameSno} 無資料` };
+    }
+    return { message: `✅ 重新爬蟲 GameSno=${gameSno} 完成 (${batters.length} 打者, ${pitchers.length} 投手, ${liveLog.length} PBP)` };
+  } catch (e) {
+    return { message: `❌ 重新爬蟲失敗: ${(e as Error).message}` };
+  }
 }
 
 // ─── 整季賽程補抓 ─────────────────────────────────────────────────────────────
@@ -781,6 +1319,26 @@ export async function runCpblFullScheduleScraper(
             const gameId = existing.rows[0]?.id ?? (await ensureGameInDB(item));
             if (gameId && item.GameStatus === 3) {
               await updateGame(gameId, item);
+              // 補抓 box score（打者、投手、PBP）— 僅在缺少資料時才抓
+              const hasPitcher = await pool.query(
+                'SELECT 1 FROM game_pitcher_stats WHERE game_id=$1 LIMIT 1', [gameId]
+              );
+              if (!hasPitcher.rows.length) {
+                try {
+                  const year = new Date(item.GameDate).getFullYear();
+                  const { batters, liveLog, firstSno, pitchers } = await fetchBoxLive(year, item.KindCode, item.GameSno);
+                  if (firstSno.length > 0) await saveLineups(gameId, firstSno, item);
+                  if (batters.length > 0) await saveBatterStats(gameId, batters, item);
+                  if (pitchers.length > 0) await savePitcherStats(gameId, pitchers, item);
+                  if (liveLog.length > 0) {
+                    await saveInningsFromLiveLog(gameId, liveLog);
+                    await saveLiveLog(gameId, liveLog);
+                  }
+                  await new Promise(r => setTimeout(r, 600));
+                } catch (e) {
+                  console.warn(`[CPBL Schedule] fetchBoxLive(${item.GameSno}) 失敗:`, (e as Error).message);
+                }
+              }
             }
           } catch (e) {
             console.warn(`[CPBL Schedule] ${dateStr} 儲存失敗:`, (e as Error).message);
@@ -859,10 +1417,10 @@ export async function runScraper(): Promise<{ updated: number; message: string }
           await updateGame(gameId, item);
           updated++;
 
-          // 進行中 or 終場：抓完整箱型資料（打者成績、逐球、先發名單）
+          // 進行中 or 終場：抓完整箱型資料（打者成績、投手成績、逐球、先發名單）
           if (item.GameStatus === 2 || item.GameStatus === 3) {
             try {
-              const { batters, liveLog, firstSno } = await fetchBoxLive(year, kindCode, item.GameSno);
+              const { batters, liveLog, firstSno, pitchers } = await fetchBoxLive(year, kindCode, item.GameSno);
 
               // 先發名單：進行中只在尚未儲存時抓一次；終場強制覆寫
               if (firstSno.length > 0) {
@@ -878,6 +1436,9 @@ export async function runScraper(): Promise<{ updated: number; message: string }
 
               // 打者成績：每次都更新（即時累計）
               if (batters.length > 0) await saveBatterStats(gameId, batters, item);
+
+              // 投手成績：每次都更新
+              if (pitchers.length > 0) await savePitcherStats(gameId, pitchers, item);
 
               // 局分：從 liveLog 推導（主 API 直播中不回傳 Scoreboards）
               if (liveLog.length > 0) await saveInningsFromLiveLog(gameId, liveLog);
@@ -899,6 +1460,13 @@ export async function runScraper(): Promise<{ updated: number; message: string }
     scraperStatus.gamesUpdated = updated;
     scraperStatus.lastResult = `✅ CPBL 更新 ${updated} 場`;
     scraperStatus.isRunning = false;
+
+    // 有更新場次時，重新聚合賽季成績（打者＋投手）
+    if (updated > 0) {
+      aggregateCpblSeasonStats(year).catch(e => console.warn('[CPBL] 打者賽季聚合失敗:', e.message));
+      aggregateCpblPitcherSeasonStats(year).catch(e => console.warn('[CPBL] 投手賽季聚合失敗:', e.message));
+    }
+
     return { updated, message: scraperStatus.lastResult };
 
   } catch (err) {

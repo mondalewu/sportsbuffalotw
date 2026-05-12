@@ -4,14 +4,15 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import ScraperStatusCard from '../components/ScraperStatusCard';
-import { getArticles, createArticle, updateArticle, deleteArticle, fetchExternalNews } from '../api/articles';
+import { getArticles, createArticle, updateArticle, deleteArticle, fetchExternalNews, uploadArticleImages, deleteArticleImage } from '../api/articles';
 import { getGames, updateGame, addPlayByPlay } from '../api/games';
 import { getAllPolls, createPoll, updatePoll, deletePoll, addPollOption, deletePollOption, getAdminAnalytics } from '../api/polls';
 import type { Poll, AdminAnalytics } from '../api/polls';
-import { getScraperStatus, triggerScraper, triggerNpbScraper, triggerPbpBackfill, importGames, triggerYahooFarmScraper, triggerYahooFarmScheduleScraper } from '../api/scraper';
+import { getScraperStatus, triggerScraper, triggerNpbScraper, triggerPbpBackfill, importGames, triggerYahooFarmScraper, triggerYahooFarmScheduleScraper, backfillDocomoPitch, backfillYahooBatterStats, triggerBatchYahooBackfill, getBatchYahooBackfillStatus } from '../api/scraper';
+import type { BatchYahooBackfillStatus } from '../api/scraper';
 import type { AllScraperStatus, ImportGameItem } from '../api/scraper';
 import { getAds, createAd, updateAd } from '../api/ads';
-import type { Article, Game, AdPlacement } from '../types';
+import type { Article, ArticleImage, Game, AdPlacement } from '../types';
 
 export default function AdminPage() {
   const { currentUser, setAuthModal } = useApp();
@@ -52,6 +53,8 @@ export default function AdminPage() {
   const [expandedArticleId, setExpandedArticleId] = useState<number | null>(null);
   const [expandedContent, setExpandedContent] = useState('');
   const [isFetchingNews, setIsFetchingNews] = useState(false);
+  const [articleImages, setArticleImages] = useState<ArticleImage[]>([]);
+  const [imgUploading, setImgUploading] = useState(false);
 
   // Game state
   const [adminGames, setAdminGames] = useState<Game[]>([]);
@@ -80,6 +83,16 @@ export default function AdminPage() {
   const [showImportPanel, setShowImportPanel] = useState(false);
   const [importJson, setImportJson] = useState('');
   const [importLoading, setImportLoading] = useState(false);
+  const [showBackfillDocomo, setShowBackfillDocomo] = useState(false);
+  const [backfillDocomoForm, setBackfillDocomoForm] = useState({ docomoGameId: '', dbGameId: '' });
+  const [backfillDocomoLoading, setBackfillDocomoLoading] = useState(false);
+  const [showBackfillYahoo, setShowBackfillYahoo] = useState(false);
+  const [backfillYahooForm, setBackfillYahooForm] = useState({ yahooGameId: '', dbGameId: '' });
+  const [backfillYahooLoading, setBackfillYahooLoading] = useState(false);
+  const [batchYahooLoading, setBatchYahooLoading] = useState(false);
+  const [batchYahooStatus, setBatchYahooStatus] = useState<BatchYahooBackfillStatus | null>(null);
+  const [gameSearchQuery, setGameSearchQuery] = useState('');
+  const [gameSearchResults, setGameSearchResults] = useState<Array<{ id: number; team_home: string; team_away: string; game_date: string; yahoo_game_id: string | null }>>([]);
 
   // Ad state
   const [ads, setAds] = useState<AdPlacement[]>([]);
@@ -313,7 +326,7 @@ export default function AdminPage() {
                 <h2 className="text-2xl font-black">{editingAdminArticle ? '✏️ 編輯文章' : '發布新文章'}</h2>
                 <div className="flex items-center gap-3">
                   {editingAdminArticle && (
-                    <button onClick={() => { setEditingAdminArticle(null); setNewArticle({ title: '', category: 'CPBL', imageUrl: '', summary: '', content: '' }); }}
+                    <button onClick={() => { setEditingAdminArticle(null); setNewArticle({ title: '', category: 'CPBL', imageUrl: '', summary: '', content: '' }); setArticleImages([]); }}
                       className="text-sm font-bold text-gray-400 hover:text-red-600 transition">✕ 取消編輯</button>
                   )}
                   {!editingAdminArticle && (
@@ -351,6 +364,62 @@ export default function AdminPage() {
                   {editingAdminArticle ? '儲存更新' : '發布文章'}
                 </button>
               </form>
+
+              {/* ─── 多圖管理（僅編輯現有文章時顯示）─────────────── */}
+              {editingAdminArticle && (
+                <div className="mt-6 pt-6 border-t border-gray-100">
+                  <h3 className="font-black text-gray-700 mb-3">相關圖片管理</h3>
+
+                  {/* 已上傳圖片預覽 */}
+                  {articleImages.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2 mb-4">
+                      {articleImages.map(img => (
+                        <div key={img.id} className="relative group aspect-video bg-gray-100 rounded-xl overflow-hidden">
+                          <img src={img.image_url} alt={img.caption || ''} className="w-full h-full object-cover" />
+                          <button
+                            onClick={async () => {
+                              if (!confirm('刪除此圖片？')) return;
+                              try {
+                                await deleteArticleImage(editingAdminArticle.id, img.id);
+                                setArticleImages(prev => prev.filter(i => i.id !== img.id));
+                                showMsg('✅ 圖片已刪除');
+                              } catch { showMsg('❌ 刪除失敗'); }
+                            }}
+                            className="absolute top-1 right-1 bg-red-600/80 hover:bg-red-700 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition"
+                          >
+                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 上傳按鈕 */}
+                  <label className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl border-2 border-dashed cursor-pointer transition
+                    ${imgUploading ? 'border-gray-200 text-gray-300' : 'border-gray-300 text-gray-500 hover:border-red-400 hover:text-red-500'}`}>
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                    <span className="text-sm font-bold">{imgUploading ? '上傳中...' : '選擇圖片上傳（最多 10 張）'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      disabled={imgUploading}
+                      className="hidden"
+                      onChange={async e => {
+                        const files = Array.from(e.target.files ?? []);
+                        if (!files.length) return;
+                        setImgUploading(true);
+                        try {
+                          const newImgs = await uploadArticleImages(editingAdminArticle.id, files);
+                          setArticleImages(prev => [...prev, ...newImgs]);
+                          showMsg(`✅ 上傳 ${newImgs.length} 張圖片成功`);
+                        } catch { showMsg('❌ 圖片上傳失敗'); }
+                        finally { setImgUploading(false); e.target.value = ''; }
+                      }}
+                    />
+                  </label>
+                </div>
+              )}
             </div>
 
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
@@ -390,9 +459,15 @@ export default function AdminPage() {
                         {a.summary && <p className="text-xs text-gray-400 truncate mt-0.5">{a.summary}</p>}
                       </div>
                       <div className="flex flex-col gap-1 shrink-0" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => {
+                        <button onClick={async () => {
                           setEditingAdminArticle(a);
                           setNewArticle({ title: a.title, category: a.category, imageUrl: a.image_url || '', summary: a.summary || '', content: a.content || '' });
+                          // load existing images
+                          try {
+                            const res = await fetch(`/api/v1/articles/${a.id}/images`, { credentials: 'include' });
+                            const imgs = await res.json();
+                            setArticleImages(Array.isArray(imgs) ? imgs : []);
+                          } catch { setArticleImages([]); }
                           window.scrollTo({ top: 0, behavior: 'smooth' });
                         }} className="text-xs font-bold px-3 py-1 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 transition">✏️ 編輯</button>
                         <button onClick={async () => {
@@ -867,6 +942,76 @@ export default function AdminPage() {
                   </button>
                 </div>
 
+                {/* CPBL 打者賽季成績 */}
+                <div className="flex items-center gap-4 px-6 py-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0 bg-gray-300" />
+                      <span className="font-bold text-sm text-gray-800">打者賽季成績</span>
+                    </div>
+                    <p className="text-xs text-gray-400 ml-4 mt-0.5">爬取 CPBL 全體打者當季打擊率、OBP、SLG、OPS</p>
+                  </div>
+                  <button onClick={async () => {
+                    addLog('▶ CPBL 打者賽季成績更新', 'warn');
+                    try {
+                      const res = await fetch('/api/v1/scraper/trigger-cpbl-player-stats', {
+                        method: 'POST', credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ year: 2026 }),
+                      });
+                      const data = await res.json(); addLog(data.message, 'success');
+                    } catch { addLog('✗ CPBL 打者賽季成績更新失敗', 'error'); }
+                  }} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-xl text-xs font-bold hover:bg-green-700 transition flex-shrink-0">
+                    <RefreshCw className="w-3.5 h-3.5" /> 更新成績
+                  </button>
+                </div>
+
+                {/* CPBL 歷史打者成績重刷 */}
+                <div className="flex items-center gap-4 px-6 py-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0 bg-orange-400" />
+                      <span className="font-bold text-sm text-gray-800">重刷所有 CPBL 歷史打者成績</span>
+                    </div>
+                    <p className="text-xs text-gray-400 ml-4 mt-0.5">重新從 CPBL API 抓取所有已結束場次的打者資料（修正打率錯誤用）</p>
+                  </div>
+                  <button onClick={async () => {
+                    addLog('▶ CPBL 歷史打者成績重刷中...', 'warn');
+                    try {
+                      const res = await fetch('/api/v1/scraper/rescrape-cpbl-all', {
+                        method: 'POST', credentials: 'include',
+                      });
+                      const data = await res.json(); addLog(data.message, 'success');
+                    } catch { addLog('✗ 重刷失敗', 'error'); }
+                  }} className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-xl text-xs font-bold hover:bg-orange-600 transition flex-shrink-0">
+                    <RefreshCw className="w-3.5 h-3.5" /> 重刷全部
+                  </button>
+                </div>
+
+                {/* CPBL 投手賽季成績 */}
+                <div className="flex items-center gap-4 px-6 py-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0 bg-gray-300" />
+                      <span className="font-bold text-sm text-gray-800">投手賽季成績</span>
+                    </div>
+                    <p className="text-xs text-gray-400 ml-4 mt-0.5">爬取/聚合 CPBL 全體投手當季防禦率、勝敗救、局數</p>
+                  </div>
+                  <button onClick={async () => {
+                    addLog('▶ CPBL 投手賽季成績更新', 'warn');
+                    try {
+                      const res = await fetch('/api/v1/scraper/trigger-cpbl-pitcher-stats', {
+                        method: 'POST', credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ year: 2026 }),
+                      });
+                      const data = await res.json(); addLog(data.message, 'success');
+                    } catch { addLog('✗ CPBL 投手賽季成績更新失敗', 'error'); }
+                  }} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition flex-shrink-0">
+                    <RefreshCw className="w-3.5 h-3.5" /> 更新成績
+                  </button>
+                </div>
+
                 {/* CPBL 球員名冊 */}
                 <div className="flex items-center gap-4 px-6 py-4">
                   <div className="flex-1 min-w-0">
@@ -1085,6 +1230,213 @@ export default function AdminPage() {
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-500 text-white rounded-xl text-xs font-bold hover:bg-sky-600 transition flex-shrink-0 disabled:opacity-50">
                     <RefreshCw className={`w-3.5 h-3.5 ${scraperStatus?.npbFarmRoster?.isRunning ? 'animate-spin' : ''}`} /> 更新名冊
                   </button>
+                </div>
+
+                {/* Docomo 二軍爬蟲（投球位置 + 打投成績）*/}
+                <div className="flex items-center gap-4 px-6 py-4 bg-teal-50/40">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${scraperStatus?.docomoFarm?.isRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-300'}`} />
+                      <span className="font-bold text-sm text-gray-800">Docomo 二軍（今日比分 + 投球位置）</span>
+                    </div>
+                    <p className="text-xs text-gray-400 ml-4 mt-0.5">抓取今日二軍比賽比分、打投成績、投球位置圖資料</p>
+                    {scraperStatus?.docomoFarm?.lastResult && <p className="text-xs text-gray-500 ml-4 truncate">{scraperStatus.docomoFarm.lastResult}</p>}
+                    {scraperStatus?.docomoFarm?.lastError && <p className="text-xs text-red-500 ml-4 truncate">{scraperStatus.docomoFarm.lastError}</p>}
+                  </div>
+                  <button disabled={!!scraperStatus?.docomoFarm?.isRunning} onClick={async () => {
+                    addLog('▶ Docomo 二軍爬蟲啟動', 'warn');
+                    try {
+                      const res = await fetch('/api/v1/scraper/trigger-docomo-farm', { method: 'POST', credentials: 'include' });
+                      const data = await res.json(); addLog(data.message, 'success');
+                    } catch { addLog('✗ Docomo 爬蟲失敗', 'error'); }
+                  }} className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white rounded-xl text-xs font-bold hover:bg-teal-700 transition flex-shrink-0 disabled:opacity-50">
+                    <RefreshCw className={`w-3.5 h-3.5 ${scraperStatus?.docomoFarm?.isRunning ? 'animate-spin' : ''}`} /> 更新今日
+                  </button>
+                </div>
+
+                {/* Docomo 二軍逐球補完 */}
+                <div className="px-6 py-4 bg-teal-50/60">
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0 bg-gray-300" />
+                        <span className="font-bold text-sm text-gray-800">Docomo 二軍逐球補完</span>
+                      </div>
+                      <p className="text-xs text-gray-400 ml-4 mt-0.5">指定場次補抓全場每個打席的逐球資料（需 Docomo game_id 與 DB game_id）</p>
+                    </div>
+                    <button onClick={() => setShowBackfillDocomo(v => !v)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-700 text-white rounded-xl text-xs font-bold hover:bg-teal-800 transition flex-shrink-0">
+                      {showBackfillDocomo ? '關閉' : '補完逐球'}
+                    </button>
+                  </div>
+                  {showBackfillDocomo && (
+                    <div className="mt-3 ml-4 space-y-2">
+                      <div className="flex flex-wrap gap-2 items-end">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-xs text-gray-500 font-bold">Docomo game_id</label>
+                          <input
+                            type="number"
+                            placeholder="例：2021040364"
+                            value={backfillDocomoForm.docomoGameId}
+                            onChange={e => setBackfillDocomoForm(f => ({ ...f, docomoGameId: e.target.value }))}
+                            className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs w-36 focus:outline-none focus:ring-2 focus:ring-teal-400"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-xs text-gray-500 font-bold">DB game_id</label>
+                          <input
+                            type="number"
+                            placeholder="例：123"
+                            value={backfillDocomoForm.dbGameId}
+                            onChange={e => setBackfillDocomoForm(f => ({ ...f, dbGameId: e.target.value }))}
+                            className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs w-28 focus:outline-none focus:ring-2 focus:ring-teal-400"
+                          />
+                        </div>
+                        <button
+                          disabled={backfillDocomoLoading || !backfillDocomoForm.docomoGameId || !backfillDocomoForm.dbGameId}
+                          onClick={async () => {
+                            const dId = parseInt(backfillDocomoForm.docomoGameId, 10);
+                            const dbId = parseInt(backfillDocomoForm.dbGameId, 10);
+                            if (!dId || !dbId) return;
+                            setBackfillDocomoLoading(true);
+                            addLog(`▶ Docomo 逐球補完 (docomoId=${dId}, dbId=${dbId})`, 'warn');
+                            try {
+                              const res = await backfillDocomoPitch(dId, dbId);
+                              addLog(`${res.success ? '✓' : '✗'} ${res.message}（共 ${res.saved} 筆）`, res.success ? 'success' : 'error');
+                            } catch { addLog('✗ 逐球補完失敗', 'error'); }
+                            finally { setBackfillDocomoLoading(false); }
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white rounded-xl text-xs font-bold hover:bg-teal-700 transition disabled:opacity-50">
+                          <RefreshCw className={`w-3.5 h-3.5 ${backfillDocomoLoading ? 'animate-spin' : ''}`} />
+                          {backfillDocomoLoading ? '補完中...' : '執行補完'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-400">Docomo game_id 從 URL <code className="bg-gray-100 px-1 rounded">game_id=XXXXXXX</code> 取得；DB game_id 是我們資料庫的 farm_games.id</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Yahoo 二軍打者逐回成績補完 */}
+                <div className="border-t border-gray-100 px-6 py-4">
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0 bg-orange-400" />
+                        <span className="font-bold text-sm text-gray-800">Yahoo 二軍打者逐回成績補完</span>
+                      </div>
+                      <p className="text-xs text-gray-400 ml-4 mt-0.5">從 baseball.yahoo.co.jp 補抓指定比賽的打者逐回打席結果（at_bat_results）</p>
+                    </div>
+                    <button onClick={() => setShowBackfillYahoo(v => !v)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 text-white rounded-xl text-xs font-bold hover:bg-orange-700 transition flex-shrink-0">
+                      {showBackfillYahoo ? '關閉' : '補完逐回'}
+                    </button>
+                  </div>
+                  {showBackfillYahoo && (
+                    <div className="mt-3 ml-4 space-y-2">
+                      <div className="flex flex-wrap gap-2 items-end">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-gray-500 uppercase">Yahoo Game ID</label>
+                          <input
+                            type="text"
+                            placeholder="例：2021040475"
+                            value={backfillYahooForm.yahooGameId}
+                            onChange={e => setBackfillYahooForm(f => ({ ...f, yahooGameId: e.target.value }))}
+                            className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs w-36 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-gray-500 uppercase">DB Game ID</label>
+                          <input
+                            type="number"
+                            placeholder="例：123"
+                            value={backfillYahooForm.dbGameId}
+                            onChange={e => setBackfillYahooForm(f => ({ ...f, dbGameId: e.target.value }))}
+                            className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs w-28 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                          />
+                        </div>
+                        <button
+                          disabled={backfillYahooLoading || !backfillYahooForm.yahooGameId || !backfillYahooForm.dbGameId}
+                          onClick={async () => {
+                            const dbId = parseInt(backfillYahooForm.dbGameId, 10);
+                            if (!backfillYahooForm.yahooGameId || !dbId) return;
+                            setBackfillYahooLoading(true);
+                            addLog(`▶ Yahoo 逐回成績補完 (yahooId=${backfillYahooForm.yahooGameId}, dbId=${dbId})`, 'warn');
+                            try {
+                              const res = await backfillYahooBatterStats(backfillYahooForm.yahooGameId, dbId);
+                              addLog(`${res.success ? '✓' : '✗'} ${res.message}`, res.success ? 'success' : 'error');
+                            } catch { addLog('✗ Yahoo 逐回成績補完失敗', 'error'); }
+                            finally { setBackfillYahooLoading(false); }
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 text-white rounded-xl text-xs font-bold hover:bg-orange-700 transition disabled:opacity-50">
+                          <RefreshCw className={`w-3.5 h-3.5 ${backfillYahooLoading ? 'animate-spin' : ''}`} />
+                          {backfillYahooLoading ? '補完中...' : '執行補完'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-400">Yahoo Game ID 可從 <code className="bg-gray-100 px-1 rounded">baseball.yahoo.co.jp/npb/game/XXXXXXX/stats</code> URL 取得（與 Docomo game_id 相同）</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Yahoo 二軍逐回成績批量補完 */}
+                <div className="border-t border-gray-100 px-6 py-4">
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0 bg-red-400" />
+                        <span className="font-bold text-sm text-gray-800">Yahoo 二軍逐回成績批量補完</span>
+                      </div>
+                      <p className="text-xs text-gray-400 ml-4 mt-0.5">一鍵補完所有過去缺少 at_bat_results 的已完賽二軍比賽（2026年 3~5 月）</p>
+                      <p className="text-xs text-red-500 ml-4 font-bold">⚠ 背景執行（約 10~20 分鐘，可隨時查詢進度）</p>
+                    </div>
+                    <button
+                      disabled={batchYahooLoading || batchYahooStatus?.isRunning}
+                      onClick={async () => {
+                        setBatchYahooLoading(true);
+                        addLog('▶ 開始批量補完 Yahoo 二軍逐回成績', 'warn');
+                        try {
+                          const res = await triggerBatchYahooBackfill();
+                          setBatchYahooStatus(res.status);
+                          addLog(res.message, 'success');
+                        } catch { addLog('✗ 批量補完啟動失敗', 'error'); }
+                        finally { setBatchYahooLoading(false); }
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition disabled:opacity-50 flex-shrink-0">
+                      <RefreshCw className={`w-3.5 h-3.5 ${batchYahooLoading || batchYahooStatus?.isRunning ? 'animate-spin' : ''}`} />
+                      {batchYahooStatus?.isRunning ? '補完中...' : '一鍵補完所有'}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await getBatchYahooBackfillStatus();
+                          setBatchYahooStatus(res.status);
+                          addLog(`進度：${res.status.done}/${res.status.total} — ${res.status.message}`, 'success');
+                        } catch { addLog('✗ 查詢進度失敗', 'error'); }
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-xl text-xs font-bold hover:bg-gray-300 transition flex-shrink-0">
+                      查詢進度
+                    </button>
+                  </div>
+                  {batchYahooStatus && (
+                    <div className="mt-3 ml-4 bg-gray-50 rounded-lg px-3 py-2 text-xs space-y-1">
+                      <div className="flex gap-4">
+                        <span>總計：<strong>{batchYahooStatus.total}</strong></span>
+                        <span>已完成：<strong className="text-green-600">{batchYahooStatus.done}</strong></span>
+                        <span>失敗：<strong className="text-red-500">{batchYahooStatus.failed}</strong></span>
+                        <span className={`font-bold ${batchYahooStatus.isRunning ? 'text-orange-500' : 'text-gray-500'}`}>
+                          {batchYahooStatus.isRunning ? '執行中' : '已停止'}
+                        </span>
+                      </div>
+                      <p className="text-gray-500">{batchYahooStatus.message}</p>
+                      {batchYahooStatus.total > 0 && (
+                        <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                          <div
+                            className="bg-red-500 h-1.5 rounded-full transition-all"
+                            style={{ width: `${Math.round((batchYahooStatus.done / batchYahooStatus.total) * 100)}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* NPB 二軍全季賽程補抓 */}

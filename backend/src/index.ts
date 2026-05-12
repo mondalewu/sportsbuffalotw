@@ -20,8 +20,9 @@ import storiesRoutes from './routes/stories';
 import videosRoutes from './routes/videos';
 import { runScraper, runCpblFullScheduleScraper, runCpblFarmScheduleScraper, runFarmScoreScraper, runCpblStandingsScraper } from './services/cpblScraper';
 import { runNpbScraper, runLiveBoxScoreUpdate, populateNpbUrls } from './services/npbScraper';
-import { runNpbFarmScraper, runFarmLiveUpdate } from './services/npbFarmScraper';
+import { runNpbFarmScraperMonth } from './services/npbFarmScraper';
 import { runYahooFarmScraper, runYahooFarmScheduleScraper } from './services/yahooFarmScraper';
+import { runDocomoFarmScraper, runDocomoLiveUpdate } from './services/docomoFarmScraper';
 import { initNpbTeams } from './services/npbRosterScraper';
 import { runCpblWikiRosterScraper } from './services/cpblRosterScraper';
 import { verifyToken, requireRole } from './middleware/auth';
@@ -162,11 +163,10 @@ function startScraperCron() {
       await runNpbScraper();
     }
 
-    // NPB 二軍：日本時間 11:00–22:00（UTC 02:00–13:00，含農場夜間賽事）
+    // NPB 二軍：日本時間 11:00–22:00（UTC 02:00–13:00，使用 Docomo API）
     if (utcHour >= 2 && utcHour <= 13) {
-      console.log('[Cron] 執行 NPB 二軍比分更新...');
-      await runNpbFarmScraper();
-      await runYahooFarmScraper();
+      console.log('[Cron] 執行 NPB 二軍比分更新（Docomo）...');
+      await runDocomoFarmScraper();
     }
 
     // NPB URL 同步（NPB 比賽時段 UTC 04:00–14:00）
@@ -178,7 +178,7 @@ function startScraperCron() {
 
   // ── 每 30 秒：NPB 進行中試合即時更新（含防重入旗標）────────────────────
   let isLiveUpdating = false;
-  let isFarmLiveUpdating = false;
+  let isDocomoLiveUpdating = false;
   setInterval(async () => {
     const utcHour = new Date().getUTCHours();
     if (utcHour >= 4 && utcHour <= 15) {
@@ -188,9 +188,9 @@ function startScraperCron() {
       }
     }
     if (utcHour >= 2 && utcHour <= 10) {
-      if (!isFarmLiveUpdating) {
-        isFarmLiveUpdating = true;
-        try { await runFarmLiveUpdate(); } finally { isFarmLiveUpdating = false; }
+      if (!isDocomoLiveUpdating) {
+        isDocomoLiveUpdating = true;
+        try { await runDocomoLiveUpdate(); } finally { isDocomoLiveUpdating = false; }
       }
     }
   }, 30 * 1000);
@@ -207,9 +207,9 @@ function startScraperCron() {
     if (nextYear === year) await runCpblFullScheduleScraper(year, nextMonth, nextMonth);
     await runCpblFarmScheduleScraper(year, month, month);
     if (nextYear === year) await runCpblFarmScheduleScraper(year, nextMonth, nextMonth);
-    // Yahoo NPB 二軍賽程（當月 + 下月）
-    await runYahooFarmScheduleScraper(year, month);
-    if (nextYear === year) await runYahooFarmScheduleScraper(year, nextMonth);
+    // NPB 二軍賽程（當月 + 下月）— 使用 npb.jp 正確來源
+    await runNpbFarmScraperMonth(year, month);
+    if (nextYear === year) await runNpbFarmScraperMonth(year, nextMonth);
     // CPBL 例行賽 + 熱身賽順位表
     console.log('[Cron] 更新 CPBL 順位表...');
     await runCpblStandingsScraper(year);
