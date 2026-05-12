@@ -57,6 +57,7 @@ export interface BatterStat {
   hit_by_pitch: number;
   sacrifice_hits: number;
   at_bat_results: string[];
+  box_avg?: string | number | null;  // 今季打率（Docomo 提供）
 }
 
 export interface PitcherStat {

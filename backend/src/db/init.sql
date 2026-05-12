@@ -437,6 +437,10 @@ CREATE INDEX IF NOT EXISTS idx_pitch_data_game ON game_pitch_data(game_id, innin
 -- 補欄位遷移（舊 DB 上線時需 ALTER TABLE）
 ALTER TABLE game_batter_stats ADD COLUMN IF NOT EXISTS box_avg NUMERIC(5,3);
 
+-- game_batter_stats 唯一性索引（支援 Docomo 先插先發再 UPSERT 實績的流程）
+CREATE UNIQUE INDEX IF NOT EXISTS uq_batter_stats_game_team_player
+  ON game_batter_stats (game_id, team_code, player_name);
+
 -- 確保賽程唯一性索引（用 expression index，支援 ON CONFLICT 子句）
 CREATE UNIQUE INDEX IF NOT EXISTS uq_games_league_teams_date
   ON games (league, team_home, team_away, DATE(game_date AT TIME ZONE 'Asia/Tokyo'));

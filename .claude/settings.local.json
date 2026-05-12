@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npx tsc:*)",
-      "Bash(docker exec cloudecode-backend-1 node -e \":*)"
+      "Bash(docker exec cloudecode-backend-1 node -e \":*)",
+      "Bash(docker-compose up *)"
     ]
   }
 }

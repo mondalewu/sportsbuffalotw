@@ -9,7 +9,7 @@ import { runNpbFarmScraper, npbFarmScraperStatus, runNpbFarmScraperMonth } from 
 import { runYahooFarmScraper, yahooFarmScraperStatus, runYahooFarmScheduleScraper, yahooFarmScheduleStatus, scrapeYahooGameById } from '../services/yahooFarmScraper';
 import { runYahooFarmRosterScraper, farmRosterScraperStatus } from '../services/npbYahooFarmRosterScraper';
 import { runNpbStandingsScraper, npbStandingsScraperStatus } from '../services/npbStandingsScraper';
-import { runDocomoFarmScraper, docomoScraperStatus } from '../services/docomoFarmScraper';
+import { runDocomoFarmScraper, docomoScraperStatus, rescrapeDocomoByDbGameId, backfillPitchDataByDocomoId, backfillYahooBatterStats, previewYahooBatterStats, runBatchYahooBackfill, batchYahooBackfillStatus } from '../services/docomoFarmScraper';
 import pool from '../db/pool';
 
 const router = Router();
@@ -33,6 +33,7 @@ router.get('/status', verifyToken, requireRole('editor', 'admin'), (_req: Reques
     npbFarmPbp: farmPbpBackfillStatus,
     yahooFarm: yahooFarmScraperStatus,
     yahooFarmSchedule: yahooFarmScheduleStatus,
+    yahooBatchBackfill: batchYahooBackfillStatus,
   });
 });
 
@@ -368,6 +369,67 @@ router.post('/trigger-docomo-farm', verifyToken, requireRole('editor', 'admin'),
 // GET /api/v1/scraper/trigger-docomo-farm — 查詢進度
 router.get('/trigger-docomo-farm', verifyToken, requireRole('editor', 'admin'), (_req: Request, res: Response): void => {
   res.json({ status: docomoScraperStatus });
+});
+
+// POST /api/v1/scraper/rescrape-docomo-game — 指定 DB game_id 強制重新爬蟲 Docomo 二軍資料
+router.post('/rescrape-docomo-game', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const dbGameId = parseInt(req.body?.dbGameId, 10);
+  if (!dbGameId || isNaN(dbGameId)) {
+    res.status(400).json({ message: '請提供 dbGameId（DB 中的比賽 ID）' });
+    return;
+  }
+  const result = await rescrapeDocomoByDbGameId(dbGameId);
+  res.json(result);
+});
+
+// POST /api/v1/scraper/backfill-docomo-pitch — 補完指定比賽的全場逐球資料（Docomo game_id + DB game_id）
+router.post('/backfill-docomo-pitch', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const docomoGameId = parseInt(req.body?.docomoGameId, 10);
+  const dbGameId = parseInt(req.body?.dbGameId, 10);
+  if (!docomoGameId || !dbGameId || isNaN(docomoGameId) || isNaN(dbGameId)) {
+    res.status(400).json({ message: '請提供 docomoGameId（Docomo URL 的 game_id）與 dbGameId（DB 中的比賽 ID）' });
+    return;
+  }
+  const result = await backfillPitchDataByDocomoId(docomoGameId, dbGameId);
+  res.json(result);
+});
+
+// GET /api/v1/scraper/preview-yahoo-batter-stats?gameId=XXXX — 診斷 Yahoo 解析結果（不存 DB）
+router.get('/preview-yahoo-batter-stats', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const gameId = req.query?.gameId as string;
+  if (!gameId) {
+    res.status(400).json({ message: '請提供 gameId 查詢參數' });
+    return;
+  }
+  const result = await previewYahooBatterStats(gameId);
+  res.json(result);
+});
+
+// POST /api/v1/scraper/backfill-yahoo-batter-stats — 補完指定比賽的 Yahoo 打者逐回成績
+router.post('/backfill-yahoo-batter-stats', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const yahooGameId = req.body?.yahooGameId as string;
+  const dbGameId = parseInt(req.body?.dbGameId, 10);
+  if (!yahooGameId || !dbGameId || isNaN(dbGameId)) {
+    res.status(400).json({ message: '請提供 yahooGameId（Yahoo URL 的 game_id）與 dbGameId（DB 中的比賽 ID）' });
+    return;
+  }
+  const result = await backfillYahooBatterStats(yahooGameId, dbGameId);
+  res.json(result);
+});
+
+// POST /api/v1/scraper/batch-backfill-yahoo-batter-stats — 一鍵補完所有缺少 Yahoo 逐回成績的二軍比賽
+router.post('/batch-backfill-yahoo-batter-stats', verifyToken, requireRole('editor', 'admin'), (_req: Request, res: Response): void => {
+  if (batchYahooBackfillStatus.isRunning) {
+    res.json({ message: '批量補完已在執行中', status: batchYahooBackfillStatus });
+    return;
+  }
+  runBatchYahooBackfill().catch(console.error);
+  res.status(202).json({ message: '已開始批量補完 Yahoo 二軍打者逐回成績，背景執行中', status: batchYahooBackfillStatus });
+});
+
+// GET /api/v1/scraper/batch-backfill-yahoo-batter-stats — 查詢批量補完進度
+router.get('/batch-backfill-yahoo-batter-stats', verifyToken, requireRole('editor', 'admin'), (_req: Request, res: Response): void => {
+  res.json({ status: batchYahooBackfillStatus });
 });
 
 // POST /api/v1/scraper/import-games — 手動匯入比賽資料（用於無法爬取的聯盟，如 CPBL 二軍）

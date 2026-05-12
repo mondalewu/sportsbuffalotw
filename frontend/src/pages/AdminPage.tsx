@@ -8,7 +8,8 @@ import { getArticles, createArticle, updateArticle, deleteArticle, fetchExternal
 import { getGames, updateGame, addPlayByPlay } from '../api/games';
 import { getAllPolls, createPoll, updatePoll, deletePoll, addPollOption, deletePollOption, getAdminAnalytics } from '../api/polls';
 import type { Poll, AdminAnalytics } from '../api/polls';
-import { getScraperStatus, triggerScraper, triggerNpbScraper, triggerPbpBackfill, importGames, triggerYahooFarmScraper, triggerYahooFarmScheduleScraper } from '../api/scraper';
+import { getScraperStatus, triggerScraper, triggerNpbScraper, triggerPbpBackfill, importGames, triggerYahooFarmScraper, triggerYahooFarmScheduleScraper, backfillDocomoPitch, backfillYahooBatterStats, triggerBatchYahooBackfill, getBatchYahooBackfillStatus } from '../api/scraper';
+import type { BatchYahooBackfillStatus } from '../api/scraper';
 import type { AllScraperStatus, ImportGameItem } from '../api/scraper';
 import { getAds, createAd, updateAd } from '../api/ads';
 import type { Article, ArticleImage, Game, AdPlacement } from '../types';
@@ -82,6 +83,16 @@ export default function AdminPage() {
   const [showImportPanel, setShowImportPanel] = useState(false);
   const [importJson, setImportJson] = useState('');
   const [importLoading, setImportLoading] = useState(false);
+  const [showBackfillDocomo, setShowBackfillDocomo] = useState(false);
+  const [backfillDocomoForm, setBackfillDocomoForm] = useState({ docomoGameId: '', dbGameId: '' });
+  const [backfillDocomoLoading, setBackfillDocomoLoading] = useState(false);
+  const [showBackfillYahoo, setShowBackfillYahoo] = useState(false);
+  const [backfillYahooForm, setBackfillYahooForm] = useState({ yahooGameId: '', dbGameId: '' });
+  const [backfillYahooLoading, setBackfillYahooLoading] = useState(false);
+  const [batchYahooLoading, setBatchYahooLoading] = useState(false);
+  const [batchYahooStatus, setBatchYahooStatus] = useState<BatchYahooBackfillStatus | null>(null);
+  const [gameSearchQuery, setGameSearchQuery] = useState('');
+  const [gameSearchResults, setGameSearchResults] = useState<Array<{ id: number; team_home: string; team_away: string; game_date: string; yahoo_game_id: string | null }>>([]);
 
   // Ad state
   const [ads, setAds] = useState<AdPlacement[]>([]);
@@ -1241,6 +1252,191 @@ export default function AdminPage() {
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white rounded-xl text-xs font-bold hover:bg-teal-700 transition flex-shrink-0 disabled:opacity-50">
                     <RefreshCw className={`w-3.5 h-3.5 ${scraperStatus?.docomoFarm?.isRunning ? 'animate-spin' : ''}`} /> 更新今日
                   </button>
+                </div>
+
+                {/* Docomo 二軍逐球補完 */}
+                <div className="px-6 py-4 bg-teal-50/60">
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0 bg-gray-300" />
+                        <span className="font-bold text-sm text-gray-800">Docomo 二軍逐球補完</span>
+                      </div>
+                      <p className="text-xs text-gray-400 ml-4 mt-0.5">指定場次補抓全場每個打席的逐球資料（需 Docomo game_id 與 DB game_id）</p>
+                    </div>
+                    <button onClick={() => setShowBackfillDocomo(v => !v)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-700 text-white rounded-xl text-xs font-bold hover:bg-teal-800 transition flex-shrink-0">
+                      {showBackfillDocomo ? '關閉' : '補完逐球'}
+                    </button>
+                  </div>
+                  {showBackfillDocomo && (
+                    <div className="mt-3 ml-4 space-y-2">
+                      <div className="flex flex-wrap gap-2 items-end">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-xs text-gray-500 font-bold">Docomo game_id</label>
+                          <input
+                            type="number"
+                            placeholder="例：2021040364"
+                            value={backfillDocomoForm.docomoGameId}
+                            onChange={e => setBackfillDocomoForm(f => ({ ...f, docomoGameId: e.target.value }))}
+                            className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs w-36 focus:outline-none focus:ring-2 focus:ring-teal-400"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-xs text-gray-500 font-bold">DB game_id</label>
+                          <input
+                            type="number"
+                            placeholder="例：123"
+                            value={backfillDocomoForm.dbGameId}
+                            onChange={e => setBackfillDocomoForm(f => ({ ...f, dbGameId: e.target.value }))}
+                            className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs w-28 focus:outline-none focus:ring-2 focus:ring-teal-400"
+                          />
+                        </div>
+                        <button
+                          disabled={backfillDocomoLoading || !backfillDocomoForm.docomoGameId || !backfillDocomoForm.dbGameId}
+                          onClick={async () => {
+                            const dId = parseInt(backfillDocomoForm.docomoGameId, 10);
+                            const dbId = parseInt(backfillDocomoForm.dbGameId, 10);
+                            if (!dId || !dbId) return;
+                            setBackfillDocomoLoading(true);
+                            addLog(`▶ Docomo 逐球補完 (docomoId=${dId}, dbId=${dbId})`, 'warn');
+                            try {
+                              const res = await backfillDocomoPitch(dId, dbId);
+                              addLog(`${res.success ? '✓' : '✗'} ${res.message}（共 ${res.saved} 筆）`, res.success ? 'success' : 'error');
+                            } catch { addLog('✗ 逐球補完失敗', 'error'); }
+                            finally { setBackfillDocomoLoading(false); }
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white rounded-xl text-xs font-bold hover:bg-teal-700 transition disabled:opacity-50">
+                          <RefreshCw className={`w-3.5 h-3.5 ${backfillDocomoLoading ? 'animate-spin' : ''}`} />
+                          {backfillDocomoLoading ? '補完中...' : '執行補完'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-400">Docomo game_id 從 URL <code className="bg-gray-100 px-1 rounded">game_id=XXXXXXX</code> 取得；DB game_id 是我們資料庫的 farm_games.id</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Yahoo 二軍打者逐回成績補完 */}
+                <div className="border-t border-gray-100 px-6 py-4">
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0 bg-orange-400" />
+                        <span className="font-bold text-sm text-gray-800">Yahoo 二軍打者逐回成績補完</span>
+                      </div>
+                      <p className="text-xs text-gray-400 ml-4 mt-0.5">從 baseball.yahoo.co.jp 補抓指定比賽的打者逐回打席結果（at_bat_results）</p>
+                    </div>
+                    <button onClick={() => setShowBackfillYahoo(v => !v)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 text-white rounded-xl text-xs font-bold hover:bg-orange-700 transition flex-shrink-0">
+                      {showBackfillYahoo ? '關閉' : '補完逐回'}
+                    </button>
+                  </div>
+                  {showBackfillYahoo && (
+                    <div className="mt-3 ml-4 space-y-2">
+                      <div className="flex flex-wrap gap-2 items-end">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-gray-500 uppercase">Yahoo Game ID</label>
+                          <input
+                            type="text"
+                            placeholder="例：2021040475"
+                            value={backfillYahooForm.yahooGameId}
+                            onChange={e => setBackfillYahooForm(f => ({ ...f, yahooGameId: e.target.value }))}
+                            className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs w-36 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-gray-500 uppercase">DB Game ID</label>
+                          <input
+                            type="number"
+                            placeholder="例：123"
+                            value={backfillYahooForm.dbGameId}
+                            onChange={e => setBackfillYahooForm(f => ({ ...f, dbGameId: e.target.value }))}
+                            className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs w-28 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                          />
+                        </div>
+                        <button
+                          disabled={backfillYahooLoading || !backfillYahooForm.yahooGameId || !backfillYahooForm.dbGameId}
+                          onClick={async () => {
+                            const dbId = parseInt(backfillYahooForm.dbGameId, 10);
+                            if (!backfillYahooForm.yahooGameId || !dbId) return;
+                            setBackfillYahooLoading(true);
+                            addLog(`▶ Yahoo 逐回成績補完 (yahooId=${backfillYahooForm.yahooGameId}, dbId=${dbId})`, 'warn');
+                            try {
+                              const res = await backfillYahooBatterStats(backfillYahooForm.yahooGameId, dbId);
+                              addLog(`${res.success ? '✓' : '✗'} ${res.message}`, res.success ? 'success' : 'error');
+                            } catch { addLog('✗ Yahoo 逐回成績補完失敗', 'error'); }
+                            finally { setBackfillYahooLoading(false); }
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 text-white rounded-xl text-xs font-bold hover:bg-orange-700 transition disabled:opacity-50">
+                          <RefreshCw className={`w-3.5 h-3.5 ${backfillYahooLoading ? 'animate-spin' : ''}`} />
+                          {backfillYahooLoading ? '補完中...' : '執行補完'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-400">Yahoo Game ID 可從 <code className="bg-gray-100 px-1 rounded">baseball.yahoo.co.jp/npb/game/XXXXXXX/stats</code> URL 取得（與 Docomo game_id 相同）</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Yahoo 二軍逐回成績批量補完 */}
+                <div className="border-t border-gray-100 px-6 py-4">
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0 bg-red-400" />
+                        <span className="font-bold text-sm text-gray-800">Yahoo 二軍逐回成績批量補完</span>
+                      </div>
+                      <p className="text-xs text-gray-400 ml-4 mt-0.5">一鍵補完所有過去缺少 at_bat_results 的已完賽二軍比賽（2026年 3~5 月）</p>
+                      <p className="text-xs text-red-500 ml-4 font-bold">⚠ 背景執行（約 10~20 分鐘，可隨時查詢進度）</p>
+                    </div>
+                    <button
+                      disabled={batchYahooLoading || batchYahooStatus?.isRunning}
+                      onClick={async () => {
+                        setBatchYahooLoading(true);
+                        addLog('▶ 開始批量補完 Yahoo 二軍逐回成績', 'warn');
+                        try {
+                          const res = await triggerBatchYahooBackfill();
+                          setBatchYahooStatus(res.status);
+                          addLog(res.message, 'success');
+                        } catch { addLog('✗ 批量補完啟動失敗', 'error'); }
+                        finally { setBatchYahooLoading(false); }
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition disabled:opacity-50 flex-shrink-0">
+                      <RefreshCw className={`w-3.5 h-3.5 ${batchYahooLoading || batchYahooStatus?.isRunning ? 'animate-spin' : ''}`} />
+                      {batchYahooStatus?.isRunning ? '補完中...' : '一鍵補完所有'}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await getBatchYahooBackfillStatus();
+                          setBatchYahooStatus(res.status);
+                          addLog(`進度：${res.status.done}/${res.status.total} — ${res.status.message}`, 'success');
+                        } catch { addLog('✗ 查詢進度失敗', 'error'); }
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-xl text-xs font-bold hover:bg-gray-300 transition flex-shrink-0">
+                      查詢進度
+                    </button>
+                  </div>
+                  {batchYahooStatus && (
+                    <div className="mt-3 ml-4 bg-gray-50 rounded-lg px-3 py-2 text-xs space-y-1">
+                      <div className="flex gap-4">
+                        <span>總計：<strong>{batchYahooStatus.total}</strong></span>
+                        <span>已完成：<strong className="text-green-600">{batchYahooStatus.done}</strong></span>
+                        <span>失敗：<strong className="text-red-500">{batchYahooStatus.failed}</strong></span>
+                        <span className={`font-bold ${batchYahooStatus.isRunning ? 'text-orange-500' : 'text-gray-500'}`}>
+                          {batchYahooStatus.isRunning ? '執行中' : '已停止'}
+                        </span>
+                      </div>
+                      <p className="text-gray-500">{batchYahooStatus.message}</p>
+                      {batchYahooStatus.total > 0 && (
+                        <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                          <div
+                            className="bg-red-500 h-1.5 rounded-full transition-all"
+                            style={{ width: `${Math.round((batchYahooStatus.done / batchYahooStatus.total) * 100)}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* NPB 二軍全季賽程補抓 */}

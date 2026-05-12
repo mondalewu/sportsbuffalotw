@@ -148,7 +148,7 @@ router.get('/games/:id/batters', async (req: Request, res: Response): Promise<vo
     const result = await pool.query(
       `SELECT team_code, batting_order, position, player_name,
               at_bats, hits, rbi, runs, home_runs, strikeouts, walks,
-              stolen_bases, hit_by_pitch, sacrifice_hits, at_bat_results
+              stolen_bases, hit_by_pitch, sacrifice_hits, at_bat_results, box_avg
        FROM game_batter_stats WHERE game_id = $1
        ORDER BY team_code, batting_order`,
       [req.params.id]

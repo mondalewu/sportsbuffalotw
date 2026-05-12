@@ -858,7 +858,7 @@ export default function NpbGameDetail({ game, awayCode, homeCode, onClose, stand
             playByPlay.length === 0 ? (
               <div className="text-center py-8 text-gray-400 text-sm">速報資料尚未更新</div>
             ) : (
-              <PlayByPlayInline events={playByPlay} awayName={awayName} homeName={homeName} />
+              <NpbPlayByPlayCards events={playByPlay} awayName={awayName} homeName={homeName} batters={batters} innings={innings} />
             )
 
           ) : (
@@ -1041,6 +1041,201 @@ function translateJa(text: string): string {
   return result;
 }
 
+// ── NPB 一軍文字速報卡片（CPBL 風格）────────────────────────────────────────
+
+function parseNpbDesc(desc: string): {
+  outs: number; b1: boolean; b2: boolean; b3: boolean;
+  batterName: string; balls: number; strikes: number; result: string;
+} | null {
+  if (!desc.includes('より')) return null;
+  const outsM = desc.match(/^(\d+)アウト\s*/);
+  if (!outsM) return null;
+  const outs = parseInt(outsM[1]);
+  let rest = desc.slice(outsM[0].length);
+  let b1 = false, b2 = false, b3 = false;
+  const runnerPats: [RegExp, boolean, boolean, boolean][] = [
+    [/^満塁\s*/, true, true, true],
+    [/^1・2・3塁\s*/, true, true, true],
+    [/^1・2塁\s*/, true, true, false],
+    [/^1・3塁\s*/, true, false, true],
+    [/^2・3塁\s*/, false, true, true],
+    [/^1塁\s*/, true, false, false],
+    [/^2塁\s*/, false, true, false],
+    [/^3塁\s*/, false, false, true],
+  ];
+  for (const [pat, r1, r2, r3] of runnerPats) {
+    const m = rest.match(pat);
+    if (m) { b1 = r1; b2 = r2; b3 = r3; rest = rest.slice(m[0].length); break; }
+  }
+  const bsoM = rest.match(/^(.+?)\s+(\d+)-(\d+)より\s+(.+)$/);
+  if (!bsoM) return null;
+  return { outs, b1, b2, b3, batterName: bsoM[1].trim(), balls: parseInt(bsoM[2]), strikes: parseInt(bsoM[3]), result: bsoM[4].trim() };
+}
+
+function npbResultBadge(result: string): { label: string; color: string } | null {
+  if (/本塁打|ホームラン/.test(result)) return { label: '全打', color: 'bg-red-600 text-white' };
+  if (/三塁打/.test(result)) return { label: '三安', color: 'bg-orange-500 text-white' };
+  if (/二塁打/.test(result)) return { label: '二安', color: 'bg-green-600 text-white' };
+  if (/内野安打|安打|ヒット/.test(result)) return { label: '一安', color: 'bg-green-500 text-white' };
+  if (/フォアボール|四球|敬遠/.test(result)) return { label: '四壞', color: 'bg-green-500 text-white' };
+  if (/死球/.test(result)) return { label: '死球', color: 'bg-blue-500 text-white' };
+  if (/犠牲フライ|犠飛/.test(result)) return { label: '犠飛', color: 'bg-gray-500 text-white' };
+  if (/犠打|バント/.test(result)) return { label: '犠打', color: 'bg-gray-500 text-white' };
+  if (/三振/.test(result)) return { label: '三振', color: 'bg-gray-400 text-white' };
+  if (/併殺|ダブルプレー/.test(result)) return { label: '雙殺', color: 'bg-gray-500 text-white' };
+  if (/失策|野手選択/.test(result)) return { label: '失誤', color: 'bg-orange-400 text-white' };
+  if (/フライ/.test(result)) return { label: '飛出', color: 'bg-gray-400 text-white' };
+  if (/ゴロ|ライナー/.test(result)) return { label: '滾出', color: 'bg-gray-400 text-white' };
+  return null;
+}
+
+function NpbBSODots({ balls, strikes, outs }: { balls: number; strikes: number; outs: number }) {
+  return (
+    <div className="flex items-center gap-1.5 select-none">
+      <div className="flex gap-0.5">
+        {[0,1,2].map(i => <span key={i} className={`inline-block w-2.5 h-2.5 rounded-full border ${i < balls ? 'bg-green-400 border-green-500' : 'bg-gray-200 border-gray-300'}`} />)}
+      </div>
+      <div className="flex gap-0.5">
+        {[0,1].map(i => <span key={i} className={`inline-block w-2.5 h-2.5 rounded-full border ${i < strikes ? 'bg-yellow-400 border-yellow-500' : 'bg-gray-200 border-gray-300'}`} />)}
+      </div>
+      <div className="flex gap-0.5">
+        {[0,1].map(i => <span key={i} className={`inline-block w-2.5 h-2.5 rounded-full border ${i < outs ? 'bg-red-400 border-red-500' : 'bg-gray-200 border-gray-300'}`} />)}
+      </div>
+    </div>
+  );
+}
+
+function NpbBaseDiamond({ b1, b2, b3 }: { b1: boolean; b2: boolean; b3: boolean }) {
+  const size = 10, gap = 2, span = size + gap, svgSize = span * 2 + size;
+  return (
+    <svg width={svgSize} height={svgSize} viewBox={`0 0 ${svgSize} ${svgSize}`}>
+      <rect x={span} y={0} width={size} height={size} rx={1} transform={`rotate(45 ${span + size/2} ${size/2})`} fill={b2 ? '#f59e0b' : '#d1d5db'} />
+      <rect x={0} y={span} width={size} height={size} rx={1} transform={`rotate(45 ${size/2} ${span + size/2})`} fill={b3 ? '#f59e0b' : '#d1d5db'} />
+      <rect x={span*2} y={span} width={size} height={size} rx={1} transform={`rotate(45 ${span*2 + size/2} ${span + size/2})`} fill={b1 ? '#f59e0b' : '#d1d5db'} />
+      <rect x={span} y={span*2} width={size} height={size} rx={1} transform={`rotate(45 ${span + size/2} ${span*2 + size/2})`} fill="#d1d5db" />
+    </svg>
+  );
+}
+
+function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings }: {
+  events: PlayByPlayEvent[];
+  awayName: string;
+  homeName: string;
+  batters: BatterStat[];
+  innings: GameInning[];
+}) {
+  const batterOrderMap = new Map<string, number>();
+  const batterAvgMap   = new Map<string, string>();
+  for (const b of batters) {
+    if (b.batting_order >= 1 && b.batting_order <= 9) batterOrderMap.set(b.player_name, b.batting_order);
+    const avg = b.at_bats > 0 ? (b.hits / b.at_bats).toFixed(3).replace(/^0/, '') : '.000';
+    batterAvgMap.set(b.player_name, avg);
+  }
+
+  // 累積比分：halfScore[`${inning}-${is_top}`] = { away, home } 打席開始前的比分
+  const halfScore = new Map<string, { away: number; home: number }>();
+  let cumAway = 0, cumHome = 0;
+  const maxInning = Math.max(...innings.map(i => i.inning), 0);
+  for (let n = 1; n <= maxInning; n++) {
+    const inn = innings.find(i => i.inning === n);
+    halfScore.set(`${n}-true`,  { away: cumAway, home: cumHome });
+    cumAway += inn?.score_away ?? 0;
+    halfScore.set(`${n}-false`, { away: cumAway, home: cumHome });
+    cumHome += inn?.score_home ?? 0;
+  }
+
+  const grouped = new Map<string, PlayByPlayEvent[]>();
+  for (const e of events) {
+    const key = `${e.inning}-${e.is_top}`;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(e);
+  }
+
+  const sortedKeys = [...grouped.keys()].sort((a, b) => {
+    const [ai, at] = a.split('-');
+    const [bi, bt] = b.split('-');
+    const inningDiff = parseInt(ai) - parseInt(bi);
+    if (inningDiff !== 0) return inningDiff;
+    return (at === 'true' ? 1 : 0) - (bt === 'true' ? 1 : 0);
+  }).reverse();
+
+  return (
+    <div>
+      {sortedKeys.map(key => {
+        const [inningStr, isTopStr] = key.split('-');
+        const inning = parseInt(inningStr);
+        const isTop  = isTopStr === 'true';
+        const plays  = grouped.get(key)!;
+        const score  = halfScore.get(key);
+        return (
+          <div key={key} className="border-b border-gray-100 last:border-0">
+            <div className={`px-4 py-1.5 text-xs font-bold sticky top-0 z-10 ${
+              isTop ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'
+            }`}>
+              {inning}局{isTop ? '上' : '下'}（{isTop ? awayName : homeName}攻）
+            </div>
+            <div className="divide-y divide-gray-50">
+              {[...plays].reverse().map((ev, i) => {
+                const parsed = parseNpbDesc(ev.description);
+                if (!parsed) {
+                  return (
+                    <div key={i} className="px-4 py-1.5 text-xs text-gray-400 leading-relaxed">
+                      {translateJa(ev.description)}
+                    </div>
+                  );
+                }
+                const { outs, b1, b2, b3, batterName, balls, strikes, result } = parsed;
+                const order = batterOrderMap.get(batterName);
+                const avg   = batterAvgMap.get(batterName);
+                const badge = npbResultBadge(result);
+                return (
+                  <div key={i} className="px-4 py-3 flex gap-3 items-start">
+                    {/* 打者頭像佔位 */}
+                    <div className="w-9 h-10 rounded-md bg-gray-100 flex-shrink-0 flex items-center justify-center text-gray-400 text-xs font-bold">
+                      {order ? `#${order}` : '?'}
+                    </div>
+                    <div className="flex-1 min-w-0 space-y-1">
+                      {/* 第一行：打序 + 打者名 + 打率 */}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {order && <span className="text-xs font-bold text-gray-500">第{order}棒</span>}
+                        <span className="font-bold text-sm text-gray-800">{batterName}</span>
+                        {avg && (
+                          <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded">
+                            {avg}
+                          </span>
+                        )}
+                      </div>
+                      {/* 第二行：BSO + 結果徽章 + 壘包 + 比分 */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <NpbBSODots balls={balls} strikes={strikes} outs={outs} />
+                        {badge && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${badge.color}`}>
+                            {badge.label}
+                          </span>
+                        )}
+                        <NpbBaseDiamond b1={b1} b2={b2} b3={b3} />
+                        {score != null && (
+                          <span className="text-[10px] text-gray-500 font-bold ml-auto">
+                            客{score.away}:{score.home}主
+                          </span>
+                        )}
+                      </div>
+                      {/* 第三行：原文翻譯 */}
+                      <div className="text-xs text-gray-500 leading-relaxed">
+                        {translateJa(ev.description)}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PlayByPlayInline({ events, awayName, homeName }: {
   events: PlayByPlayEvent[];
   awayName: string;
@@ -1121,16 +1316,18 @@ function BatterTable({ title, batters }: { title: string; batters: BatterStat[] 
           <tbody>
             {batters.map((b, i) => {
               const avg = b.at_bats > 0 ? (b.hits / b.at_bats).toFixed(3) : '.000';
+              const isStarter = b.position?.startsWith('(') || b.position?.startsWith('（');
+              const orderDisplay = (isStarter && b.batting_order >= 1 && b.batting_order <= 9) ? b.batting_order : '';
               return (
                 <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                   <td className="px-1.5 py-1.5 text-center tabular-nums font-bold text-gray-400 sticky left-0 bg-inherit">
-                    {b.batting_order || ''}
+                    {orderDisplay}
                   </td>
                   <td className="px-2 py-1.5 font-bold text-gray-800 whitespace-nowrap sticky left-8 bg-inherit">
                     {b.position && <span className="text-gray-400 mr-1 font-normal">{b.position}</span>}
                     {b.player_name}
                   </td>
-                  <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-500">{avg}</td>
+                  <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-500">{avg.replace(/^0/, '')}</td>
                   <td className="px-1.5 py-1.5 text-center tabular-nums">{b.at_bats}</td>
                   <td className="px-1.5 py-1.5 text-center tabular-nums">{b.runs}</td>
                   <td className={`px-1.5 py-1.5 text-center tabular-nums font-bold ${b.hits > 0 ? 'text-red-600' : ''}`}>
