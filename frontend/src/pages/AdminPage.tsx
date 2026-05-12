@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import VideoUploadTrimmer from '../components/VideoUploadTrimmer';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
@@ -13,6 +13,8 @@ import type { BatchYahooBackfillStatus } from '../api/scraper';
 import type { AllScraperStatus, ImportGameItem } from '../api/scraper';
 import { getAds, createAd, updateAd } from '../api/ads';
 import type { Article, ArticleImage, Game, AdPlacement } from '../types';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 export default function AdminPage() {
   const { currentUser, setAuthModal } = useApp();
@@ -103,7 +105,7 @@ export default function AdminPage() {
 
   const loadStories = () => {
     setStoriesLoading(true);
-    fetch('/api/v1/stories/admin', { credentials: 'include' })
+    fetch(`${API_BASE}/api/v1/stories/admin`, { credentials: 'include' })
       .then(r => r.json()).then(d => setStories(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setStoriesLoading(false));
   };
 
@@ -113,20 +115,20 @@ export default function AdminPage() {
     try {
       let storyId = form.id;
       if (storyId) {
-        await fetch(`/api/v1/stories/${storyId}`, { method: 'PUT', headers, credentials: 'include', body: JSON.stringify(form) });
+        await fetch(`${API_BASE}/api/v1/stories/${storyId}`, { method: 'PUT', headers, credentials: 'include', body: JSON.stringify(form) });
       } else {
-        const r = await fetch('/api/v1/stories', { method: 'POST', headers, credentials: 'include', body: JSON.stringify(form) });
+        const r = await fetch(`${API_BASE}/api/v1/stories`, { method: 'POST', headers, credentials: 'include', body: JSON.stringify(form) });
         storyId = (await r.json()).id;
       }
       if (!storyId) throw new Error('無法取得 ID');
       const existing = (stories.find((s: StoryForm) => s.id === storyId)?.clips ?? []) as StoryClipForm[];
       for (const c of existing) {
-        if (c.id) await fetch(`/api/v1/stories/${storyId}/clips/${c.id}`, { method: 'DELETE', headers, credentials: 'include' });
+        if (c.id) await fetch(`${API_BASE}/api/v1/stories/${storyId}/clips/${c.id}`, { method: 'DELETE', headers, credentials: 'include' });
       }
       for (let i = 0; i < form.clips.length; i++) {
         const c = form.clips[i];
         if (!c.background_image_url.trim()) continue;
-        await fetch(`/api/v1/stories/${storyId}/clips`, { method: 'POST', headers, credentials: 'include', body: JSON.stringify({ ...c, clip_order: i }) });
+        await fetch(`${API_BASE}/api/v1/stories/${storyId}/clips`, { method: 'POST', headers, credentials: 'include', body: JSON.stringify({ ...c, clip_order: i }) });
       }
       showMsg('✅ Story 已儲存'); setShowStoryForm(false); setEditingStory(null); loadStories();
     } catch { showMsg('❌ 儲存失敗'); }
@@ -134,7 +136,7 @@ export default function AdminPage() {
 
   const deleteStory = async (id: number) => {
     if (!confirm('確定刪除？')) return;
-    await fetch(`/api/v1/stories/${id}`, { method: 'DELETE', credentials: 'include' });
+    await fetch(`${API_BASE}/api/v1/stories/${id}`, { method: 'DELETE', credentials: 'include' });
     showMsg('✅ 已刪除'); loadStories();
   };
 
@@ -144,7 +146,7 @@ export default function AdminPage() {
     try {
       const fd = new FormData();
       fd.append('video', file);
-      const r = await fetch('/api/v1/stories/upload', { method: 'POST', credentials: 'include', body: fd });
+      const r = await fetch(`${API_BASE}/api/v1/stories/upload`, { method: 'POST', credentials: 'include', body: fd });
       if (!r.ok) throw new Error('上傳失敗');
       const { url } = await r.json();
       setUploadedVideos(prev => [{ url, name: file.name, duration: 0 }, ...prev]);
@@ -914,7 +916,7 @@ export default function AdminPage() {
                   <button disabled={!!scraperStatus?.cpblSchedule?.isRunning} onClick={async () => {
                     addLog('▶ CPBL 整季賽程爬蟲啟動', 'warn');
                     try {
-                      const res = await fetch('/api/v1/scraper/trigger-cpbl-schedule', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
+                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-cpbl-schedule`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ CPBL 賽程爬蟲啟動失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-700 text-white rounded-xl text-xs font-bold hover:bg-red-800 transition flex-shrink-0 disabled:opacity-50">
@@ -934,7 +936,7 @@ export default function AdminPage() {
                   <button onClick={async () => {
                     addLog('▶ CPBL 積分榜更新', 'warn');
                     try {
-                      const res = await fetch('/api/v1/scraper/trigger-cpbl-standings', { method: 'POST', credentials: 'include' });
+                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-cpbl-standings`, { method: 'POST', credentials: 'include' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ CPBL 積分榜更新失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white rounded-xl text-xs font-bold hover:bg-red-600 transition flex-shrink-0">
@@ -954,7 +956,7 @@ export default function AdminPage() {
                   <button onClick={async () => {
                     addLog('▶ CPBL 打者賽季成績更新', 'warn');
                     try {
-                      const res = await fetch('/api/v1/scraper/trigger-cpbl-player-stats', {
+                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-cpbl-player-stats`, {
                         method: 'POST', credentials: 'include',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ year: 2026 }),
@@ -978,7 +980,7 @@ export default function AdminPage() {
                   <button onClick={async () => {
                     addLog('▶ CPBL 歷史打者成績重刷中...', 'warn');
                     try {
-                      const res = await fetch('/api/v1/scraper/rescrape-cpbl-all', {
+                      const res = await fetch(`${API_BASE}/api/v1/scraper/rescrape-cpbl-all`, {
                         method: 'POST', credentials: 'include',
                       });
                       const data = await res.json(); addLog(data.message, 'success');
@@ -1000,7 +1002,7 @@ export default function AdminPage() {
                   <button onClick={async () => {
                     addLog('▶ CPBL 投手賽季成績更新', 'warn');
                     try {
-                      const res = await fetch('/api/v1/scraper/trigger-cpbl-pitcher-stats', {
+                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-cpbl-pitcher-stats`, {
                         method: 'POST', credentials: 'include',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ year: 2026 }),
@@ -1028,7 +1030,7 @@ export default function AdminPage() {
                   <button disabled={!!scraperStatus?.cpblRoster?.isRunning} onClick={async () => {
                     addLog('▶ CPBL 球員名冊爬蟲啟動', 'warn');
                     try {
-                      const res = await fetch('/api/v1/scraper/trigger-cpbl-roster', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
+                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-cpbl-roster`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ CPBL 名冊爬蟲啟動失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700 transition flex-shrink-0 disabled:opacity-50">
@@ -1085,7 +1087,7 @@ export default function AdminPage() {
                   <button disabled={!!scraperStatus?.npbFarm?.isRunning} onClick={async () => {
                     addLog('▶ NPB 二軍比分爬蟲啟動', 'warn');
                     try {
-                      const res = await fetch('/api/v1/scraper/trigger-npb-farm', { method: 'POST', credentials: 'include' });
+                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-npb-farm`, { method: 'POST', credentials: 'include' });
                       const data = await res.json(); addLog(data.message, 'success'); getScraperStatus().then(setScraperStatus);
                     } catch { addLog('✗ 二軍爬蟲執行失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 text-white rounded-xl text-xs font-bold hover:bg-sky-700 transition flex-shrink-0 disabled:opacity-50">
@@ -1153,7 +1155,7 @@ export default function AdminPage() {
                   <button onClick={async () => {
                     addLog('▶ NPB 積分榜更新', 'warn');
                     try {
-                      const res = await fetch('/api/v1/scraper/trigger-npb-standings', { method: 'POST', credentials: 'include' });
+                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-npb-standings`, { method: 'POST', credentials: 'include' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ NPB 積分榜更新失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500 text-white rounded-xl text-xs font-bold hover:bg-blue-600 transition flex-shrink-0">
@@ -1177,7 +1179,7 @@ export default function AdminPage() {
                   <button disabled={!!scraperStatus?.npbSchedule?.isRunning} onClick={async () => {
                     addLog('▶ NPB 整季賽程爬蟲啟動', 'warn');
                     try {
-                      const res = await fetch('/api/v1/scraper/trigger-npb-schedule', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
+                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-npb-schedule`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ NPB 賽程爬蟲失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition flex-shrink-0 disabled:opacity-50">
@@ -1201,7 +1203,7 @@ export default function AdminPage() {
                   <button disabled={!!scraperStatus?.npbRoster?.isRunning} onClick={async () => {
                     addLog('▶ NPB 一軍名冊爬蟲啟動', 'warn');
                     try {
-                      const res = await fetch('/api/v1/scraper/trigger-npb-roster', { method: 'POST', credentials: 'include' });
+                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-npb-roster`, { method: 'POST', credentials: 'include' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ NPB 名冊爬蟲失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white rounded-xl text-xs font-bold hover:bg-teal-700 transition flex-shrink-0 disabled:opacity-50">
@@ -1224,7 +1226,7 @@ export default function AdminPage() {
                   <button disabled={!!scraperStatus?.npbFarmRoster?.isRunning} onClick={async () => {
                     addLog('▶ 二軍獨立球隊名冊爬蟲啟動', 'warn');
                     try {
-                      const res = await fetch('/api/v1/scraper/trigger-npb-farm-roster', { method: 'POST', credentials: 'include' });
+                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-npb-farm-roster`, { method: 'POST', credentials: 'include' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ 二軍名冊爬蟲失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-500 text-white rounded-xl text-xs font-bold hover:bg-sky-600 transition flex-shrink-0 disabled:opacity-50">
@@ -1246,7 +1248,7 @@ export default function AdminPage() {
                   <button disabled={!!scraperStatus?.docomoFarm?.isRunning} onClick={async () => {
                     addLog('▶ Docomo 二軍爬蟲啟動', 'warn');
                     try {
-                      const res = await fetch('/api/v1/scraper/trigger-docomo-farm', { method: 'POST', credentials: 'include' });
+                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-docomo-farm`, { method: 'POST', credentials: 'include' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ Docomo 爬蟲失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white rounded-xl text-xs font-bold hover:bg-teal-700 transition flex-shrink-0 disabled:opacity-50">
@@ -1452,7 +1454,7 @@ export default function AdminPage() {
                   <button onClick={async () => {
                     addLog('▶ NPB 二軍全季賽程補抓啟動', 'warn');
                     try {
-                      const res = await fetch('/api/v1/scraper/backfill-npb-farm', { method: 'POST', credentials: 'include' });
+                      const res = await fetch(`${API_BASE}/api/v1/scraper/backfill-npb-farm`, { method: 'POST', credentials: 'include' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ 二軍全季補抓啟動失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-700 text-white rounded-xl text-xs font-bold hover:bg-blue-800 transition flex-shrink-0">
@@ -1950,7 +1952,7 @@ function VideoManagerTab({ showMsg }: { showMsg: (m: string) => void }) {
   const [saving, setSaving] = useState(false);
 
   const load = () =>
-    fetch('/api/v1/videos/admin', { credentials: 'include' })
+    fetch(`${API_BASE}/api/v1/videos/admin`, { credentials: 'include' })
       .then(r => r.json()).then(d => Array.isArray(d) && setVideos(d)).catch(() => {});
 
   React.useEffect(() => { load(); }, []);
@@ -1959,7 +1961,7 @@ function VideoManagerTab({ showMsg }: { showMsg: (m: string) => void }) {
     if (!ytUrl.trim()) return;
     setSaving(true);
     try {
-      const r = await fetch('/api/v1/videos', {
+      const r = await fetch(`${API_BASE}/api/v1/videos`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: ytTitle, type: 'youtube', url: ytUrl, category: ytCategory }),
