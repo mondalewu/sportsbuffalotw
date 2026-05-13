@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import CPBLGameDetail from '../components/CPBLGameDetail';
+import { API_BASE } from '../api/client';
 
 interface CPBLGame {
   id: number;
@@ -22,7 +23,7 @@ export default function CpblGamePage() {
 
   useEffect(() => {
     if (!id) return;
-    fetch(`/api/v1/games/${id}`)
+    fetch(`${API_BASE}/api/v1/games/${id}`)
       .then(r => { if (!r.ok) throw new Error(); return r.json(); })
       .then(setGame)
       .catch(() => setError(true));

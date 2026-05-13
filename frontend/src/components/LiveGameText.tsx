@@ -1,6 +1,7 @@
-
+﻿
 import React, { useEffect, useState, useCallback } from 'react';
 import { RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { API_BASE } from '../api/client';
 
 interface PlayByPlayEvent {
   id: number;
@@ -184,7 +185,7 @@ const LiveGameText: React.FC<LiveGameTextProps> = ({ gameId, awayTeam, homeTeam,
 
   const fetchEvents = useCallback(async () => {
     try {
-      const response = await fetch(`/api/v1/games/${gameId}/play-by-play`);
+      const response = await fetch(`${API_BASE}/api/v1/games/${gameId}/play-by-play`);
       const data = await response.json();
       setEvents(Array.isArray(data) ? data : []);
       setLoading(false);

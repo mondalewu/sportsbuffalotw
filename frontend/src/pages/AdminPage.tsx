@@ -466,7 +466,7 @@ export default function AdminPage() {
                           setNewArticle({ title: a.title, category: a.category, imageUrl: a.image_url || '', summary: a.summary || '', content: a.content || '' });
                           // load existing images
                           try {
-                            const res = await fetch(`/api/v1/articles/${a.id}/images`, { credentials: 'include' });
+                            const res = await fetch(`${API_BASE}/api/v1/articles/${a.id}/images`, { credentials: 'include' });
                             const imgs = await res.json();
                             setArticleImages(Array.isArray(imgs) ? imgs : []);
                           } catch { setArticleImages([]); }
@@ -1975,12 +1975,12 @@ function VideoManagerTab({ showMsg }: { showMsg: (m: string) => void }) {
 
   const del = async (id: number) => {
     if (!confirm('確定刪除？')) return;
-    await fetch(`/api/v1/videos/${id}`, { method: 'DELETE', credentials: 'include' });
+    await fetch(`${API_BASE}/api/v1/videos/${id}`, { method: 'DELETE', credentials: 'include' });
     load(); showMsg('✅ 已刪除');
   };
 
   const toggle = async (id: number, is_active: boolean) => {
-    await fetch(`/api/v1/videos/${id}`, {
+    await fetch(`${API_BASE}/api/v1/videos/${id}`, {
       method: 'PUT', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ is_active }),

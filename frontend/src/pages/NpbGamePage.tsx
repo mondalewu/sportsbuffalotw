@@ -1,4 +1,4 @@
-/**
+﻿/**
  * NpbGamePage — /npb/game/:id
  * 取得比賽資料後，以 NpbGameDetail standalone 模式顯示（同 modal 版面，但為獨立頁）
  * NPB2 (farm) 比賽使用 FarmGameDetail
@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import NpbGameDetail from '../components/NpbGameDetail';
 import FarmGameDetail from '../components/FarmGameDetail';
+import { API_BASE } from '../api/client';
 
 // team name → code mapping (inverse of NpbGameDetail's CODE_TO_NAME)
 const NAME_TO_CODE: Record<string, string> = {
@@ -36,7 +37,7 @@ export default function NpbGamePage() {
 
   useEffect(() => {
     if (!id) return;
-    fetch(`/api/v1/games/${id}`)
+    fetch(`${API_BASE}/api/v1/games/${id}`)
       .then(r => { if (!r.ok) throw new Error(); return r.json(); })
       .then(setGame)
       .catch(() => setError(true));

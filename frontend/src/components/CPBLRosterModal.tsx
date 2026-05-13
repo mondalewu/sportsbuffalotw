@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { teamLogos } from '../data/staticData';
 
@@ -27,7 +27,7 @@ export default function CPBLRosterModal({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`/api/v1/cpbl/players?teamCode=${team.code}`)
+    fetch(`${API_BASE}/api/v1/cpbl/players?teamCode=${team.code}`)
       .then(r => r.json())
       .then(d => setPlayers(Array.isArray(d) ? d : []))
       .catch(() => {})

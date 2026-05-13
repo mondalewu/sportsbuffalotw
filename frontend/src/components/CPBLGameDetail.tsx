@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import LiveGameText from './LiveGameText';
 import { teamLogos } from '../data/staticData';
 
@@ -828,12 +828,12 @@ const CPBLGameDetail: React.FC<Props> = ({
 
   const loadData = async () => {
     const [inn, st, bat, lu, pit, pbp] = await Promise.all([
-      fetch(`/api/v1/games/${game.id}/innings`).then(r => r.json()).catch(() => []),
-      fetch(`/api/v1/games/${game.id}/stats`).then(r => r.json()).catch(() => null),
-      fetch(`/api/v1/games/${game.id}/batters`).then(r => r.json()).catch(() => []),
-      fetch(`/api/v1/games/${game.id}/lineups`).then(r => r.json()).catch(() => []),
-      fetch(`/api/v1/games/${game.id}/pitchers`).then(r => r.json()).catch(() => []),
-      fetch(`/api/v1/games/${game.id}/play-by-play`).then(r => r.json()).catch(() => []),
+      fetch(`${API_BASE}/api/v1/games/${game.id}/innings`).then(r => r.json()).catch(() => []),
+      fetch(`${API_BASE}/api/v1/games/${game.id}/stats`).then(r => r.json()).catch(() => null),
+      fetch(`${API_BASE}/api/v1/games/${game.id}/batters`).then(r => r.json()).catch(() => []),
+      fetch(`${API_BASE}/api/v1/games/${game.id}/lineups`).then(r => r.json()).catch(() => []),
+      fetch(`${API_BASE}/api/v1/games/${game.id}/pitchers`).then(r => r.json()).catch(() => []),
+      fetch(`${API_BASE}/api/v1/games/${game.id}/play-by-play`).then(r => r.json()).catch(() => []),
     ]);
     setInnings(Array.isArray(inn) ? inn : []);
     setStats(st);

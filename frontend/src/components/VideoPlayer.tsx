@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+﻿import { useState, useEffect, useRef, useMemo } from 'react';
 import { Play, Youtube } from 'lucide-react';
+import { API_BASE } from '../api/client';
 
 interface HomeVideo {
   id: number;
@@ -45,7 +46,7 @@ export default function VideoPlayer() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch('/api/v1/videos')
+    fetch(`${API_BASE}/api/v1/videos`)
       .then(r => r.json())
       .then(data => { if (Array.isArray(data) && data.length > 0) setVideos(data); })
       .catch(() => {});

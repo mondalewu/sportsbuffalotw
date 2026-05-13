@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+﻿import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Users, TrendingUp } from 'lucide-react';
 import CPBLGameDetail from './CPBLGameDetail';
 import CPBLRosterModal from './CPBLRosterModal';
@@ -248,7 +248,7 @@ const CPBLSchedule: React.FC<Props> = () => {
     setLoading(true);
     const from = new Date(today); from.setDate(from.getDate() - 60);
     const to = new Date(today); to.setDate(to.getDate() + 120);
-    fetch(`/api/v1/games?league=${leagueMode}&from=${toDateStr(from)}&to=${toDateStr(to)}`)
+    fetch(`${API_BASE}/api/v1/games?league=${leagueMode}&from=${toDateStr(from)}&to=${toDateStr(to)}`)
       .then(r => r.json())
       .then((data: CPBLGame[]) => { setGames(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(() => setLoading(false));
@@ -257,7 +257,7 @@ const CPBLSchedule: React.FC<Props> = () => {
   // 順位表：只有例行賽模式才顯示（CPBL API 不提供熱身賽/二軍積分榜）
   useEffect(() => {
     if (leagueMode !== 'CPBL') { setStandings([]); return; }
-    fetch(`/api/v1/cpbl/standings?year=2026&kindCode=A`)
+    fetch(`${API_BASE}/api/v1/cpbl/standings?year=2026&kindCode=A`)
       .then(r => r.json())
       .then((data: CpblStanding[]) => setStandings(Array.isArray(data) ? data : []))
       .catch(() => setStandings([]));
@@ -274,7 +274,7 @@ const CPBLSchedule: React.FC<Props> = () => {
     clearInterval(liveTimerRef.current);
     if (!hasLiveGame) return;
     liveTimerRef.current = setInterval(() => {
-      fetch(`/api/v1/games?league=${leagueMode}&date=${selectedDate}`)
+      fetch(`${API_BASE}/api/v1/games?league=${leagueMode}&date=${selectedDate}`)
         .then(r => r.json())
         .then((fresh: CPBLGame[]) => {
           if (!Array.isArray(fresh) || fresh.length === 0) return;

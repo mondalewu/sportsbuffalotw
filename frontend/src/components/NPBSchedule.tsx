@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+﻿import React, { useEffect, useState, useMemo } from 'react';
 import { RefreshCw, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import NpbGameDetail from './NpbGameDetail';
 import { triggerNpbScraper } from '../api/scraper';
@@ -6,6 +6,7 @@ import { getNpbTeams, NpbTeam } from '../api/npb';
 import type { Article } from '../types';
 import NpbRosterModal from './NpbRosterModal';
 import FarmGameDetail from './FarmGameDetail';
+import { API_BASE } from '../api/client';
 
 // 二軍分區對應表
 const FARM_DIVISION: Record<string, string> = {
@@ -278,7 +279,7 @@ const NPBSchedule: React.FC = () => {
     const from = `${year}-${String(month).padStart(2, '0')}-01`;
     const lastDay = new Date(year, month, 0).getDate();
     const to = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
-    fetch(`/api/v1/games?league=${league}&from=${from}&to=${to}`)
+    fetch(`${API_BASE}/api/v1/games?league=${league}&from=${from}&to=${to}`)
       .then(r => r.json())
       .then((data: NPBGame[]) => { setAllGames(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(() => { setAllGames([]); setLoading(false); });
@@ -425,7 +426,7 @@ const NPBSchedule: React.FC = () => {
             onClick={async () => {
               setScrapingMonth(true);
               try {
-                await fetch('/api/v1/scraper/trigger-npb-farm-month', {
+                await fetch(`${API_BASE}/api/v1/scraper/trigger-npb-farm-month`, {
                   method: 'POST', credentials: 'include',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ year: today.getFullYear(), month: selectedMonth }),

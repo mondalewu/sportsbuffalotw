@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+﻿import { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Sparkles, ChevronLeft } from 'lucide-react';
+import { API_BASE } from '../api/client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -471,7 +472,7 @@ export default function LiveStories() {
   // 從 API 載入，每 60 秒自動更新
   useEffect(() => {
     const load = () => {
-      fetch('/api/v1/stories')
+      fetch(`${API_BASE}/api/v1/stories`)
         .then(r => r.json())
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .then((data: any[]) => Array.isArray(data) ? setStories(data.map(mapApiStory)) : null)

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { getMe, login, logout } from '../api/auth';
 import { getArticles, createArticle, updateArticle, deleteArticle } from '../api/articles';
 import { getGames, createGame, updateGame, deleteGame, addPlayByPlay, deletePlayByPlay } from '../api/games';
@@ -7,6 +7,7 @@ import { getScraperStatus, triggerScraper } from '../api/scraper';
 import type { Article, Game, User } from '../types';
 import type { Poll, AdminAnalytics } from '../api/polls';
 import type { ScraperStatus } from '../api/scraper';
+import { API_BASE } from '../../api/client';
 
 type AdminTab = 'article' | 'game' | 'pbp' | 'scraper' | 'poll' | 'analytics' | 'stories';
 
@@ -177,7 +178,7 @@ export default function AdminApp() {
 
   const loadStories = () => {
     setStoriesLoading(true);
-    fetch('/api/v1/stories/admin', {
+    fetch(`${API_BASE}/api/v1/stories/admin`, {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token') ?? ''}` },
       credentials: 'include',
     })
@@ -196,7 +197,7 @@ export default function AdminApp() {
 
       // Upsert story
       if (storyId) {
-        await fetch(`/api/v1/stories/${storyId}`, {
+        await fetch(`${API_BASE}/api/v1/stories/${storyId}`, {
           method: 'PUT', headers, credentials: 'include',
           body: JSON.stringify({
             home_team: form.home_team, away_team: form.away_team,
@@ -207,7 +208,7 @@ export default function AdminApp() {
           }),
         });
       } else {
-        const r = await fetch('/api/v1/stories', {
+        const r = await fetch(`${API_BASE}/api/v1/stories`, {
           method: 'POST', headers, credentials: 'include',
           body: JSON.stringify({
             home_team: form.home_team, away_team: form.away_team,
@@ -224,20 +225,20 @@ export default function AdminApp() {
       if (!storyId) throw new Error('無法取得 Story ID');
 
       // 刪除舊 clips，重新建立（簡單直觀）
-      const existingClips = await fetch(`/api/v1/stories/admin`, { headers, credentials: 'include' })
+      const existingClips = await fetch(`${API_BASE}/api/v1/stories/admin`, { headers, credentials: 'include' })
         .then(r => r.json())
         .then((arr: StoryForm[]) => arr.find(s => s.id === storyId)?.clips ?? []);
 
       for (const c of existingClips) {
         if (c.id) {
-          await fetch(`/api/v1/stories/${storyId}/clips/${c.id}`, { method: 'DELETE', headers, credentials: 'include' });
+          await fetch(`${API_BASE}/api/v1/stories/${storyId}/clips/${c.id}`, { method: 'DELETE', headers, credentials: 'include' });
         }
       }
 
       for (let i = 0; i < form.clips.length; i++) {
         const c = form.clips[i];
         if (!c.background_image_url.trim()) continue;
-        await fetch(`/api/v1/stories/${storyId}/clips`, {
+        await fetch(`${API_BASE}/api/v1/stories/${storyId}/clips`, {
           method: 'POST', headers, credentials: 'include',
           body: JSON.stringify({ ...c, clip_order: i }),
         });
@@ -254,7 +255,7 @@ export default function AdminApp() {
 
   const deleteStory = async (id: number) => {
     if (!confirm('確定刪除此 Story？')) return;
-    await fetch(`/api/v1/stories/${id}`, {
+    await fetch(`${API_BASE}/api/v1/stories/${id}`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token') ?? ''}` },
       credentials: 'include',

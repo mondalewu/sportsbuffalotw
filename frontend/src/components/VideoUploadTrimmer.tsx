@@ -1,4 +1,5 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+﻿import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { API_BASE } from '../api/client';
 
 interface UploadedVideo {
   url: string;
@@ -111,7 +112,7 @@ function TrimPanel({ video, onDone, onClose, showMsg }: TrimPanelProps) {
     setTrimming(true);
     try {
       const filename = video.url.split('/').pop()!;
-      const r = await fetch('/api/v1/stories/trim', {
+      const r = await fetch(`${API_BASE}/api/v1/stories/trim`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -275,7 +276,7 @@ export default function VideoUploadTrimmer({
     setUploadingVideo(true);
     const fd = new FormData();
     fd.append('video', file);
-    fetch('/api/v1/stories/upload', { method: 'POST', credentials: 'include', body: fd })
+    fetch(`${API_BASE}/api/v1/stories/upload`, { method: 'POST', credentials: 'include', body: fd })
       .then(r => r.json())
       .then(({ url, duration }) => {
         setUploadedVideos(prev => [{ url, name: file.name, duration: duration ?? 0 }, ...prev]);
