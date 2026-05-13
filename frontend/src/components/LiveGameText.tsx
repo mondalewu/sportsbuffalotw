@@ -218,20 +218,22 @@ const LiveGameText: React.FC<LiveGameTextProps> = ({ gameId, awayTeam, homeTeam,
     return <div className="p-10 text-center text-gray-400">目前尚無比賽事件紀錄</div>;
   }
 
-  // Group at-bats by inning-half
+  // Group at-bats by inning-half using Map (handles non-consecutive entries for same half-inning)
   interface HalfInning { key: string; inning: number; is_top: boolean; atBats: AtBat[] }
-  const halves: HalfInning[] = [];
+  const halvesMap = new Map<string, HalfInning>();
+  const halvesOrder: string[] = [];
   for (const ab of atBats) {
     const key = `${ab.inning}-${ab.is_top ? 'top' : 'bot'}`;
-    const last = halves[halves.length - 1];
-    if (last && last.key === key) {
-      last.atBats.push(ab);
-    } else {
-      halves.push({ key, inning: ab.inning, is_top: ab.is_top, atBats: [ab] });
+    if (!halvesMap.has(key)) {
+      halvesMap.set(key, { key, inning: ab.inning, is_top: ab.is_top, atBats: [] });
+      halvesOrder.push(key);
     }
+    halvesMap.get(key)!.atBats.push(ab);
   }
-  // Show latest inning first
-  const sortedHalves = [...halves].reverse();
+  // Show latest inning first (sort by inning desc, then bottom before top within same inning)
+  const sortedHalves = halvesOrder
+    .map(k => halvesMap.get(k)!)
+    .sort((a, b) => b.inning - a.inning || (a.is_top === b.is_top ? 0 : a.is_top ? 1 : -1));
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -334,35 +336,39 @@ const LiveGameText: React.FC<LiveGameTextProps> = ({ gameId, awayTeam, homeTeam,
                       </div>
 
                       {/* Pitcher line + toggle */}
-                      {ab.pitches.length > 0 ? (
-                        <button
-                          onClick={() => toggleAtBat(abKey)}
-                          className="mt-2 mb-1.5 w-full flex items-center gap-2 pl-0.5 text-left hover:bg-gray-50 rounded-md py-0.5 transition-colors"
-                        >
-                          <span className="text-[11px] text-gray-400">投手：{ab.pitcher_name}</span>
-                          {pitStats && (
-                            <span className="text-[11px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">
-                              {pitStats.pitch_count}球 ERA {pitStats.era}
+                      {(() => {
+                        const isAnnouncement = (t: string) => /更換投手|更換選手|更換守備|代打|代跑/.test(t);
+                        const realPitchCount = ab.pitches.filter(p => !isAnnouncement(p.result_text)).length;
+                        return realPitchCount > 0 ? (
+                          <button
+                            onClick={() => toggleAtBat(abKey)}
+                            className="mt-2 mb-1.5 w-full flex items-center gap-2 pl-0.5 text-left hover:bg-gray-50 rounded-md py-0.5 transition-colors"
+                          >
+                            <span className="text-[11px] text-gray-400">投手：{ab.pitcher_name}</span>
+                            {pitStats && (
+                              <span className="text-[11px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">
+                                {pitStats.pitch_count}球 ERA {pitStats.era}
+                              </span>
+                            )}
+                            <span className="ml-auto flex items-center gap-1 text-[11px] font-bold text-gray-400 shrink-0">
+                              {realPitchCount}球
+                              {isExpanded
+                                ? <ChevronUp className="w-3.5 h-3.5" />
+                                : <ChevronDown className="w-3.5 h-3.5" />
+                              }
                             </span>
-                          )}
-                          <span className="ml-auto flex items-center gap-1 text-[11px] font-bold text-gray-400 shrink-0">
-                            {ab.pitches.filter(p => !/更換投手|更換選手|更換守備|代打|代跑/.test(p.result_text)).length}球
-                            {isExpanded
-                              ? <ChevronUp className="w-3.5 h-3.5" />
-                              : <ChevronDown className="w-3.5 h-3.5" />
-                            }
-                          </span>
-                        </button>
-                      ) : (
-                        <div className="mt-2 mb-1.5 flex items-center gap-2 pl-0.5">
-                          <span className="text-[11px] text-gray-400">投手：{ab.pitcher_name}</span>
-                          {pitStats && (
-                            <span className="text-[11px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">
-                              {pitStats.pitch_count}球 ERA {pitStats.era}
-                            </span>
-                          )}
-                        </div>
-                      )}
+                          </button>
+                        ) : (
+                          <div className="mt-2 mb-1.5 flex items-center gap-2 pl-0.5">
+                            <span className="text-[11px] text-gray-400">投手：{ab.pitcher_name}</span>
+                            {pitStats && (
+                              <span className="text-[11px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">
+                                {pitStats.pitch_count}球 ERA {pitStats.era}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Per-pitch list (collapsible) — announcements always visible, real pitches collapsible */}
                       {ab.pitches.length > 0 && (() => {
