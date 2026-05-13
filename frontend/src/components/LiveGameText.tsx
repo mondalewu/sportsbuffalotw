@@ -140,8 +140,17 @@ interface AtBat {
 }
 
 function groupIntoAtBats(events: PlayByPlayEvent[]): AtBat[] {
+  // First deduplicate events: same batter+inning+half+situation+result_text → keep one
+  const seen = new Set<string>();
+  const deduped = events.filter(ev => {
+    const key = `${ev.inning}-${ev.is_top}-${ev.batter_name}-${ev.situation}-${ev.result_text}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
   const atBats: AtBat[] = [];
-  for (const ev of events) {
+  for (const ev of deduped) {
     const last = atBats[atBats.length - 1];
     if (
       last &&

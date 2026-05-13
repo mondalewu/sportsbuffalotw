@@ -621,22 +621,14 @@ async function updateGame(gameId: number, item: GameApiItem): Promise<boolean> {
     const situation = `${cb.OutCnt}出 ${cb.FirstBase ? '一' : ''}${cb.SecondBase ? '二' : ''}${cb.ThirdBase ? '三' : ''}壘 ${cb.BallCnt}B${cb.StrikeCnt}S`;
     const content = cb.Content.trim();
 
-    // 查詢最後一筆 PBP（同局同半局同打者）
-    const lastRes = await pool.query<{
-      result_text: string; batter_name: string; inning: number; is_top: boolean; situation: string;
-    }>(
-      `SELECT result_text, batter_name, inning, is_top, situation
-       FROM play_by_play WHERE game_id = $1
-       ORDER BY sequence_num DESC LIMIT 1`,
-      [gameId],
+    // 查詢同局同半局中是否已有完全相同的事件（打者 + 情境 + 內容），避免重複累積
+    const dupRes = await pool.query<{ cnt: string }>(
+      `SELECT COUNT(*) AS cnt FROM play_by_play
+       WHERE game_id = $1 AND inning = $2 AND is_top = $3
+         AND batter_name = $4 AND situation = $5 AND result_text = $6`,
+      [gameId, cb.InningSeq, isTop, cb.HitterName, situation, content],
     );
-    const last = lastRes.rows[0];
-    const isDuplicate = last &&
-      last.result_text  === content &&
-      last.batter_name  === cb.HitterName &&
-      last.inning       === cb.InningSeq &&
-      last.is_top       === isTop &&
-      last.situation    === situation;
+    const isDuplicate = parseInt(dupRes.rows[0]?.cnt ?? '0', 10) > 0;
 
     if (!isDuplicate) {
       await pool.query(
