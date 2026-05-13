@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { teamLogos } from '../data/staticData';
+import { API_BASE } from '../api/client';
 
 interface Player {
   acnt: string;

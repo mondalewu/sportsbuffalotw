@@ -1,6 +1,7 @@
 ﻿import { useEffect, useRef, useState } from 'react';
 import LiveGameText from './LiveGameText';
 import { teamLogos } from '../data/staticData';
+import { API_BASE } from '../api/client';
 
 // ── 球隊設定 ──────────────────────────────────────────────────────────────────
 

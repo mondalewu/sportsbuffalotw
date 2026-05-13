@@ -7,7 +7,7 @@ import { getScraperStatus, triggerScraper } from '../api/scraper';
 import type { Article, Game, User } from '../types';
 import type { Poll, AdminAnalytics } from '../api/polls';
 import type { ScraperStatus } from '../api/scraper';
-import { API_BASE } from '../../api/client';
+import { API_BASE } from '../api/client';
 
 type AdminTab = 'article' | 'game' | 'pbp' | 'scraper' | 'poll' | 'analytics' | 'stories';
 

@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Users, TrendingUp } from 'lucide-react';
 import CPBLGameDetail from './CPBLGameDetail';
 import CPBLRosterModal from './CPBLRosterModal';
 import { teamLogos } from '../data/staticData';
+import { API_BASE } from '../api/client';
 
 interface CPBLGame {
   id: number;
