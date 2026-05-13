@@ -1466,8 +1466,8 @@ export async function runScraper(): Promise<{ updated: number; message: string }
                 }
               }
 
-              // 逐球紀錄：終場才完整儲存（進行中由 CurtBatting 逐筆累積）
-              if (item.GameStatus === 3 && liveLog.length > 0) await saveLiveLog(gameId, liveLog);
+              // 逐球紀錄：liveLog 是完整逐球資料，直播中也儲存（比 CurtBatting 更完整）
+              if (liveLog.length > 0) await saveLiveLog(gameId, liveLog);
 
             } catch (e) {
               console.warn(`[CPBL] fetchBoxLive(${item.GameSno}) 失敗:`, (e as Error).message);
