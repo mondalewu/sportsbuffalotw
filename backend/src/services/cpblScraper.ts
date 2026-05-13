@@ -232,8 +232,7 @@ interface BoxLiveResponse {
   PitchingJson: string | null;
   LiveLogJson: string | null;
   FirstSnoJson: string | null;
-  VisitingScoreboards: InningBoard[] | null;
-  HomeScoreboards: InningBoard[] | null;
+  ScoreboardJson: string | null;   // 直播時的局分資料（混合客/主，以 VisitingHomeType 區分）
 }
 
 // ─── Cookie session cache (避免每次都重新 GET 頁面) ─────────────────────────
@@ -326,8 +325,15 @@ async function fetchBoxLive(
     try { pitchers = JSON.parse(data.PitchingJson) as PitcherStatItem[]; } catch { /* 略 */ }
   }
 
-  const visitingScoreboards: InningBoard[] = data.VisitingScoreboards ?? [];
-  const homeScoreboards: InningBoard[] = data.HomeScoreboards ?? [];
+  let visitingScoreboards: InningBoard[] = [];
+  let homeScoreboards: InningBoard[] = [];
+  if (data.ScoreboardJson) {
+    try {
+      const all = JSON.parse(data.ScoreboardJson) as InningBoard[];
+      visitingScoreboards = all.filter(b => b.VisitingHomeType === '1');
+      homeScoreboards     = all.filter(b => b.VisitingHomeType === '2');
+    } catch { /* 略 */ }
+  }
 
   return { batters, liveLog, firstSno, pitchers, visitingScoreboards, homeScoreboards };
 }
