@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS standings (
   win_rate DECIMAL(5,3) DEFAULT 0,
   games_behind DECIMAL(5,1) DEFAULT 0,
   rank INT NOT NULL,
+  runs_scored INT DEFAULT 0,
+  runs_allowed INT DEFAULT 0,
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(league, season, team_name)
 );
@@ -137,7 +139,7 @@ CREATE TABLE IF NOT EXISTS npb_teams (
   name VARCHAR(50) NOT NULL,
   name_full VARCHAR(100),
   code VARCHAR(5) NOT NULL UNIQUE,
-  npb_league VARCHAR(20) NOT NULL CHECK (npb_league IN ('Central','Pacific')),
+  npb_league VARCHAR(20) NOT NULL CHECK (npb_league IN ('Central','Pacific','Farm')),
   logo_url VARCHAR(500),
   official_url VARCHAR(500),
   created_at TIMESTAMPTZ DEFAULT NOW()
