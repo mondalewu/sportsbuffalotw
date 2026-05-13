@@ -6,7 +6,8 @@ import { verifyToken } from '../middleware/auth';
 
 const router = Router();
 
-const isProd = process.env.NODE_ENV === 'production';
+// Railway 自動注入 RAILWAY_ENVIRONMENT；本機開發沒有此變數
+const isProd = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT;
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: isProd,
