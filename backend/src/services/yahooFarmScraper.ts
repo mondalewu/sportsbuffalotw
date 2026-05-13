@@ -356,29 +356,40 @@ async function upsertFarmGame(data: YahooFarmGameData, allowScheduled = false): 
   } else {
     if (!allowScheduled && data.status === 'scheduled') return null;
 
-    // 防呆：若雙方都是 12 支一軍球隊（非獨立球隊），且當日已有 npb.jp 二軍場次（npb_url IS NULL 或 非 Yahoo URL），
-    // 代表 npb.jp 已抓到當日二軍賽事，Yahoo 的這場是多餘的（可能是一軍場次誤入），跳過
     const isIndependent = INDEPENDENT_TEAMS.has(data.homeTeam) || INDEPENDENT_TEAMS.has(data.awayTeam);
     if (!isIndependent) {
+      // 若這兩支球隊當天在 NPB 一軍對戰（league='NPB'），代表 Yahoo 抓到的是一軍比賽，跳過
+      const npbMatch = await pool.query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM games
+         WHERE league = 'NPB'
+           AND DATE(game_date AT TIME ZONE 'Asia/Tokyo') = $1::date
+           AND ((team_home = $2 AND team_away = $3) OR (team_home = $3 AND team_away = $2))`,
+        [data.gameDate, data.homeTeam, data.awayTeam],
+      );
+      if (parseInt(npbMatch.rows[0].count, 10) > 0) {
+        console.log(`[Yahoo Farm] 跳過一軍重複場次: ${data.awayTeam}@${data.homeTeam} ${data.gameDate}`);
+        return null;
+      }
+
+      // 若該球隊當日已有非 Yahoo 來源的二軍場次（npb.jp），也跳過
       const farmExists = await pool.query<{ count: string }>(
         `SELECT COUNT(*) as count FROM games
          WHERE league = 'NPB2'
-           AND (npb_url IS NULL OR npb_url NOT LIKE '/npb/game/%')
+           AND npb_url NOT LIKE '/npb/game/%'
            AND DATE(game_date AT TIME ZONE 'Asia/Tokyo') = $1::date
            AND (team_home = $2 OR team_home = $3 OR team_away = $2 OR team_away = $3)`,
         [data.gameDate, data.homeTeam, data.awayTeam],
       );
       if (parseInt(farmExists.rows[0].count, 10) > 0) {
-        // npb.jp 已有該球隊當日場次，跳過 Yahoo 版本
         return null;
       }
     }
     const ins = await pool.query<{ id: number }>(
       `INSERT INTO games (league, team_away, team_home, score_away, score_home, status, game_date, venue, npb_url)
-       VALUES ('NPB2', $1, $2, $3, $4, $5, $6::date, $7, $8)
+       VALUES ('NPB2', $1, $2, $3, $4, $5, ($6 || 'T' || $9 || ':00+09:00')::timestamptz, $7, $8)
        RETURNING id`,
       [data.awayTeam, data.homeTeam, data.totalAway, data.totalHome, data.status,
-       data.gameDate, data.venue, yahooPath],
+       data.gameDate, data.venue, yahooPath, data.startTime ?? '12:00'],
     );
     gameId = ins.rows[0].id;
   }
