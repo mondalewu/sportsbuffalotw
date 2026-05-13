@@ -228,10 +228,12 @@ async function fetchDailyGames(date: Date, kindCode: string): Promise<GameApiIte
 
 interface BoxLiveResponse {
   Success: boolean;
-  BattingJson: string | null;     // 打者成績，key=打順 "0"-"26"，value=BatterStatItem[]
-  PitchingJson: string | null;    // 投手成績，PitcherStatItem[]
-  LiveLogJson: string | null;     // 逐球紀錄，LiveLogItem[]
-  FirstSnoJson: string | null;    // 先發名單，FirstSnoItem[]
+  BattingJson: string | null;
+  PitchingJson: string | null;
+  LiveLogJson: string | null;
+  FirstSnoJson: string | null;
+  VisitingScoreboards: InningBoard[] | null;
+  HomeScoreboards: InningBoard[] | null;
 }
 
 // ─── Cookie session cache (避免每次都重新 GET 頁面) ─────────────────────────
@@ -273,7 +275,7 @@ async function getBoxSession(year: number, kindCode: string, gameSno: number): P
 
 async function fetchBoxLive(
   year: number, kindCode: string, gameSno: number,
-): Promise<{ batters: BatterStatItem[]; liveLog: LiveLogItem[]; firstSno: FirstSnoItem[]; pitchers: PitcherStatItem[] }> {
+): Promise<{ batters: BatterStatItem[]; liveLog: LiveLogItem[]; firstSno: FirstSnoItem[]; pitchers: PitcherStatItem[]; visitingScoreboards: InningBoard[]; homeScoreboards: InningBoard[] }> {
   const pageRef = `${CPBL_BASE}/box/live?year=${year}&kindCode=${kindCode}&gameSno=${gameSno}`;
   const cookie  = await getBoxSession(year, kindCode, gameSno);
 
@@ -291,7 +293,7 @@ async function fetchBoxLive(
   const data = res.data as BoxLiveResponse;
   if (!data.Success) {
     console.warn(`[CPBL box] getlive 回傳 Success=false (gameSno=${gameSno})`);
-    return { batters: [], liveLog: [], firstSno: [], pitchers: [] };
+    return { batters: [], liveLog: [], firstSno: [], pitchers: [], visitingScoreboards: [], homeScoreboards: [] };
   }
 
   // BattingJson: { "0": BatterStatItem[], "1": BatterStatItem[], ... } (indexed by batting order)
@@ -324,7 +326,10 @@ async function fetchBoxLive(
     try { pitchers = JSON.parse(data.PitchingJson) as PitcherStatItem[]; } catch { /* 略 */ }
   }
 
-  return { batters, liveLog, firstSno, pitchers };
+  const visitingScoreboards: InningBoard[] = data.VisitingScoreboards ?? [];
+  const homeScoreboards: InningBoard[] = data.HomeScoreboards ?? [];
+
+  return { batters, liveLog, firstSno, pitchers, visitingScoreboards, homeScoreboards };
 }
 
 // ─── Step 2b-1: 從 liveLog 推導局分並儲存 game_innings ───────────────────────
@@ -1420,7 +1425,7 @@ export async function runScraper(): Promise<{ updated: number; message: string }
           // 進行中 or 終場：抓完整箱型資料（打者成績、投手成績、逐球、先發名單）
           if (item.GameStatus === 2 || item.GameStatus === 3) {
             try {
-              const { batters, liveLog, firstSno, pitchers } = await fetchBoxLive(year, kindCode, item.GameSno);
+              const { batters, liveLog, firstSno, pitchers, visitingScoreboards, homeScoreboards } = await fetchBoxLive(year, kindCode, item.GameSno);
 
               // 先發名單：進行中只在尚未儲存時抓一次；終場強制覆寫
               if (firstSno.length > 0) {
@@ -1440,8 +1445,28 @@ export async function runScraper(): Promise<{ updated: number; message: string }
               // 投手成績：每次都更新
               if (pitchers.length > 0) await savePitcherStats(gameId, pitchers, item);
 
-              // 局分：從 liveLog 推導（主 API 直播中不回傳 Scoreboards）
-              if (liveLog.length > 0) await saveInningsFromLiveLog(gameId, liveLog);
+              // 局分：優先從 liveLog 推導；若 liveLog 為空但 getlive 回傳 Scoreboards 則直接用
+              if (liveLog.length > 0) {
+                await saveInningsFromLiveLog(gameId, liveLog);
+              } else if (visitingScoreboards.length > 0 || homeScoreboards.length > 0) {
+                // getlive API 直接回傳 Scoreboards（終場或部分直播）
+                for (const inn of visitingScoreboards) {
+                  await pool.query(
+                    `INSERT INTO game_innings (game_id, inning, score_away, score_home)
+                     VALUES ($1, $2, $3, NULL)
+                     ON CONFLICT (game_id, inning) DO UPDATE SET score_away = EXCLUDED.score_away`,
+                    [gameId, inn.InningSeq, inn.ScoreCnt],
+                  );
+                }
+                for (const inn of homeScoreboards) {
+                  await pool.query(
+                    `INSERT INTO game_innings (game_id, inning, score_away, score_home)
+                     VALUES ($1, $2, NULL, $3)
+                     ON CONFLICT (game_id, inning) DO UPDATE SET score_home = EXCLUDED.score_home`,
+                    [gameId, inn.InningSeq, inn.ScoreCnt],
+                  );
+                }
+              }
 
               // 逐球紀錄：終場才完整儲存（進行中由 CurtBatting 逐筆累積）
               if (item.GameStatus === 3 && liveLog.length > 0) await saveLiveLog(gameId, liveLog);

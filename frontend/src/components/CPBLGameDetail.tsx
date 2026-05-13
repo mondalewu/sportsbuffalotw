@@ -737,14 +737,20 @@ function PitcherTable({ title, pitchers, stats }: { title: string; pitchers: Pit
 
 // ── 各局得分表 ────────────────────────────────────────────────────────────────
 
-function InningScoreTable({ innings, stats, awayName, homeName, totalAway, totalHome }: {
+function InningScoreTable({ innings, stats, awayName, homeName, totalAway, totalHome, gameStatus }: {
   innings: InningRow[];
   stats: GameStats | null;
   awayName: string; homeName: string;
   totalAway: number; totalHome: number;
+  gameStatus: string;
 }) {
   if (innings.length === 0 && !stats) {
-    return <p className="text-center py-4 text-gray-400 text-sm">比分資料尚未更新</p>;
+    // Live game with known score: show table with dashes (innings still loading)
+    if (gameStatus === 'live' && (totalAway > 0 || totalHome > 0)) {
+      // fall through to render table
+    } else {
+      return <p className="text-center py-4 text-gray-400 text-sm">比分資料尚未更新</p>;
+    }
   }
   const maxInning = Math.max(innings.length, 9);
   const cols = Array.from({ length: maxInning }, (_, i) => i + 1);
@@ -998,6 +1004,7 @@ const CPBLGameDetail: React.FC<Props> = ({
               innings={innings} stats={stats}
               awayName={game.team_away} homeName={game.team_home}
               totalAway={totalAway} totalHome={totalHome}
+              gameStatus={game.status}
             />
           </div>
         )}
