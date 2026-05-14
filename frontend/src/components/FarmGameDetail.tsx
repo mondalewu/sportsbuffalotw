@@ -276,16 +276,42 @@ function BaseballFieldPanel({
 
 // ── 球場回顧面板（比賽結束後可逐球回顧）────────────────────────────────────
 
-function ReplayFieldPanel({ pitchData, awayName, homeName, batters, pitchers, innings }: {
+// 根據前面的打席結果計算壘上跑者（回看模式用）
+function computeReplayRunners(atBats: AtBatEntry[], currentAbIdx: number): { base1: string|null; base2: string|null; base3: string|null } {
+  const currentAb = atBats[currentAbIdx];
+  if (!currentAb) return { base1: null, base2: null, base3: null };
+  const prevInHalf = atBats.filter((ab, i) =>
+    i < currentAbIdx && ab.inning === currentAb.inning && ab.is_top === currentAb.is_top
+  );
+  let b1: string|null = null, b2: string|null = null, b3: string|null = null;
+  for (const ab of prevInHalf) {
+    const result = ab.pitches[ab.pitches.length - 1]?.result ?? '';
+    const batter = ab.batterName;
+    if (/本塁打|ホームラン/.test(result)) { b1=null; b2=null; b3=null; }
+    else if (/三塁打/.test(result)) { b1=null; b2=null; b3=batter; }
+    else if (/二塁打/.test(result)) { b3=b2; b2=batter; b1=null; }
+    else if (/ヒット|安打|内野安打/.test(result)) { b3=b2; b2=b1; b1=batter; }
+    else if (/四球|死球/.test(result)) {
+      if (b1&&b2) { b3=b2; b2=b1; b1=batter; }
+      else if (b1) { b2=b1; b1=batter; }
+      else { b1=batter; }
+    }
+    else if (isOutResult(result)) { /* 出局不推進壘包（簡化處理）*/ }
+  }
+  return { base1: b1, base2: b2, base3: b3 };
+}
+
+function ReplayFieldPanel({ pitchData, awayName, homeName, batters, pitchers, innings, initialAbIdx = 0 }: {
   pitchData: PitchData[];
   awayName: string;
   homeName: string;
   batters?: BatterStat[];
   pitchers?: PitcherStat[];
   innings?: GameInning[];
+  initialAbIdx?: number;
 }) {
   const atBats = buildAtBatList(pitchData);
-  const [abIdx, setAbIdx] = useState(0);
+  const [abIdx, setAbIdx] = useState(initialAbIdx);
   const [pitchIdx, setPitchIdx] = useState(0);
 
   const total = atBats.length;
@@ -323,6 +349,9 @@ function ReplayFieldPanel({ pitchData, awayName, homeName, batters, pitchers, in
     }
   }
 
+  // 壘上跑者
+  const runners = computeReplayRunners(atBats, Math.min(abIdx, total - 1));
+
   const batterAvgMap = new Map<string, string>();
   if (batters) for (const b of batters) batterAvgMap.set(b.player_name, fmtBoxAvg(b.box_avg) || fmtAvg(b.hits, b.at_bats));
   const pitcherPitchMap = new Map<string, number>();
@@ -336,6 +365,20 @@ function ReplayFieldPanel({ pitchData, awayName, homeName, batters, pitchers, in
   function goNextPitch() { if (safeIdx < maxPitch) setPitchIdx(safeIdx + 1); else goNextAb(); }
   function goPrevPitch() { if (safeIdx > 0) setPitchIdx(safeIdx - 1); else goPrevAb(); }
 
+  const bp = { b1: { left: '85%', top: '45%' }, b2: { left: '50%', top: '33%' }, b3: { left: '15%', top: '45%' } };
+  const ReplayBase = ({ active, runner }: { active: boolean; runner?: string|null }) => (
+    <div className="flex flex-col items-center gap-0.5">
+      {active && runner && (
+        <div className="mb-0.5 bg-black/85 text-yellow-300 text-[10px] font-black px-2 py-0.5 rounded-full whitespace-nowrap shadow border border-yellow-400/30">{runner}</div>
+      )}
+      <div className={`w-5 h-5 rounded-sm border-2 shadow ${active ? 'bg-yellow-400 border-yellow-200 shadow-yellow-400/50' : 'bg-white/85 border-gray-300'}`}
+        style={{ transform: 'rotate(45deg)' }} />
+    </div>
+  );
+
+  const SZ_W_R = Math.round(SZ_W * 1.2);
+  const SZ_H_R = Math.round((SZ_H + 14) * 1.2);
+
   return (
     <div className="flex flex-col select-none">
       {/* 球場背景 + 疊加資訊 */}
@@ -344,7 +387,12 @@ function ReplayFieldPanel({ pitchData, awayName, homeName, batters, pitchers, in
           onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
         <div className="absolute inset-0 bg-black/50" />
 
-        {/* 左上：局次 + リプレイ + BSO + 比分 */}
+        {/* 壘包 */}
+        <div className="absolute" style={{ left: bp.b2.left, top: bp.b2.top, transform: 'translate(-50%,-50%)' }}><ReplayBase active={!!runners.base2} runner={runners.base2} /></div>
+        <div className="absolute" style={{ left: bp.b3.left, top: bp.b3.top, transform: 'translate(-50%,-50%)' }}><ReplayBase active={!!runners.base3} runner={runners.base3} /></div>
+        <div className="absolute" style={{ left: bp.b1.left, top: bp.b1.top, transform: 'translate(-50%,-50%)' }}><ReplayBase active={!!runners.base1} runner={runners.base1} /></div>
+
+        {/* 左上：局次 + リプレイ + BSO */}
         <div className="absolute top-3 left-3 bg-black/85 rounded-xl px-3 py-2 shadow-xl min-w-[110px]">
           <div className="flex items-center gap-1.5 mb-1.5">
             <span className="text-white font-black text-xs">{ab.inning}回{ab.is_top ? '表' : '裏'}</span>
@@ -385,10 +433,10 @@ function ReplayFieldPanel({ pitchData, awayName, homeName, batters, pitchers, in
           )}
         </div>
 
-        {/* 右下：好球帶 + 球の歴史 */}
+        {/* 右下：好球帶（放大20%）+ 球の歴史 */}
         <div className="absolute bottom-3 right-3 bg-black/85 rounded-xl px-2 py-2 shadow-xl flex gap-2 items-start">
-          {/* 好球帯 */}
-          <svg width={SZ_W} height={SZ_H + 14} viewBox={`0 0 ${SZ_W} ${SZ_H + 14}`}>
+          {/* 好球帯（20% 放大） */}
+          <svg width={SZ_W_R} height={SZ_H_R} viewBox={`0 0 ${SZ_W} ${SZ_H + 14}`}>
             <rect x={SZ_LEFT} y={SZ_TOP} width={SZ_RIGHT - SZ_LEFT} height={SZ_BOTTOM - SZ_TOP}
               fill="rgba(255,255,255,0.08)" stroke="rgba(156,163,175,0.7)" strokeWidth="1" />
             {[1, 2].map(i => (
@@ -463,9 +511,10 @@ function ReplayFieldPanel({ pitchData, awayName, homeName, batters, pitchers, in
 
 // ── 局分表 ────────────────────────────────────────────────────────────────────
 
-function InningScoreTable({ innings, stats, awayName, homeName, totalAway, totalHome }: {
+function InningScoreTable({ innings, stats, awayName, homeName, totalAway, totalHome, onInningClick }: {
   innings: GameInning[]; stats: GameStats | null;
   awayName: string; homeName: string; totalAway: number; totalHome: number;
+  onInningClick?: (inning: number) => void;
 }) {
   if (innings.length === 0) return <p className="text-center py-4 text-gray-400 text-sm">比分資料尚未更新</p>;
   const maxInning = Math.max(innings.length, 9);
@@ -476,7 +525,13 @@ function InningScoreTable({ innings, stats, awayName, homeName, totalAway, total
         <thead>
           <tr className="bg-gray-50 text-gray-500">
             <th className="text-left px-3 py-2 font-bold w-20 text-gray-600">球隊</th>
-            {cols.map(n => <th key={n} className="px-2 py-2 font-bold min-w-[28px]">{n}</th>)}
+            {cols.map(n => (
+              <th key={n}
+                className={`px-2 py-2 font-bold min-w-[28px] ${onInningClick ? 'cursor-pointer hover:bg-blue-100 hover:text-blue-600 transition-colors' : ''}`}
+                onClick={() => onInningClick?.(n)}>
+                {n}
+              </th>
+            ))}
             <th className="px-3 py-2 font-black text-gray-800 border-l border-gray-200">R</th>
             {stats && <><th className="px-2 py-2 font-bold text-gray-500">H</th><th className="px-2 py-2 font-bold text-gray-500">E</th></>}
           </tr>
@@ -750,23 +805,38 @@ function BaseDiamondSmall({ base1, base2, base3 }: { base1: boolean; base2: bool
   );
 }
 
-/** 打擊結果徽章（中文結果文字） */
+/** 打擊結果徽章（含 Docomo 短格式：右安/右本/右２/右飛/遊ゴ 等） */
 function resultBadgeFarm(resultJa: string): { label: string; color: string } | null {
   const t = translateJa(resultJa);
-  if (/全壘打/.test(t)) return { label: '全打', color: 'bg-red-600 text-white' };
-  if (/三壘安打/.test(t)) return { label: '三安', color: 'bg-orange-500 text-white' };
-  if (/二壘安打/.test(t)) return { label: '二安', color: 'bg-green-600 text-white' };
-  if (/安打|ヒット/.test(resultJa)) return { label: '安打', color: 'bg-green-500 text-white' };
-  if (/四球|四壞/.test(t)) return { label: '四壞', color: 'bg-teal-500 text-white' };
-  if (/死球|觸身球/.test(t)) return { label: '死球', color: 'bg-blue-500 text-white' };
-  if (/犠飛|犧牲飛球/.test(t)) return { label: '犠飛', color: 'bg-gray-500 text-white' };
-  if (/犠打|犧打/.test(t)) return { label: '犠打', color: 'bg-gray-500 text-white' };
-  if (/三振/.test(t)) return { label: '三振', color: 'bg-gray-400 text-white' };
-  if (/雙殺|併殺/.test(t)) return { label: '雙殺', color: 'bg-gray-500 text-white' };
-  if (/飛球/.test(t)) return { label: '飛出', color: 'bg-gray-400 text-white' };
-  if (/平飛球/.test(t)) return { label: '直飛', color: 'bg-gray-400 text-white' };
-  if (/滾地球/.test(t)) return { label: '滾出', color: 'bg-gray-400 text-white' };
-  if (/失誤/.test(t)) return { label: '失誤', color: 'bg-yellow-500 text-white' };
+  // ── 長打（優先判斷）──
+  if (/全壘打|本塁打|ホームラン|本$/.test(resultJa) || /全壘打/.test(t))
+    return { label: '全打', color: 'bg-blue-600 text-white font-black' };
+  if (/三塁打|[３3]$/.test(resultJa) || /三壘安打/.test(t))
+    return { label: '三安', color: 'bg-blue-500 text-white' };
+  if (/二塁打|[２2]$/.test(resultJa) || /二壘安打/.test(t))
+    return { label: '二安', color: 'bg-blue-500 text-white' };
+  if (/安打|ヒット|内野安打|安$/.test(resultJa))
+    return { label: '安打', color: 'bg-blue-500 text-white' };
+  if (/四球/.test(resultJa) || /四壞/.test(t))
+    return { label: '四壞', color: 'bg-teal-500 text-white' };
+  if (/死球/.test(resultJa) || /觸身球/.test(t))
+    return { label: '死球', color: 'bg-cyan-500 text-white' };
+  if (/犠飛/.test(resultJa) || /犧牲飛球/.test(t))
+    return { label: '犠飛', color: 'bg-red-400 text-white' };
+  if (/犠打/.test(resultJa) || /犧打/.test(t))
+    return { label: '犠打', color: 'bg-red-400 text-white' };
+  if (/三振/.test(resultJa) || /三振/.test(t))
+    return { label: '三振', color: 'bg-gray-500 text-white' };
+  if (/併殺/.test(resultJa) || /雙殺/.test(t))
+    return { label: '雙殺', color: 'bg-red-600 text-white' };
+  if (/フライ|飛$|邪飛/.test(resultJa) || /飛球/.test(t))
+    return { label: '飛出', color: 'bg-red-500 text-white' };
+  if (/ライナー|直$/.test(resultJa) || /平飛球/.test(t))
+    return { label: '直飛', color: 'bg-red-500 text-white' };
+  if (/ゴロ|ゴ$/.test(resultJa) || /滾地球/.test(t))
+    return { label: '滾出', color: 'bg-red-500 text-white' };
+  if (/失策/.test(resultJa) || /失誤/.test(t))
+    return { label: '失誤', color: 'bg-yellow-500 text-white' };
   return null;
 }
 
@@ -819,7 +889,7 @@ function FarmPBPCards({ events, awayName, homeName, pitchers }: {
                         <span className="text-[10px] text-gray-400 font-bold tabular-nums w-4 shrink-0 text-center">{p.play_order}</span>
                         <span className="font-bold text-sm text-gray-800 truncate">{parsed.batterName || '–'}</span>
                         {badge && (
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${badge.color}`}>{badge.label}</span>
+                          <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full tracking-wide shrink-0 ${badge.color}`}>{badge.label}</span>
                         )}
                       </div>
                       {/* 右側：BSO + 壘包 */}
@@ -867,6 +937,14 @@ function translatePitchResultShort(result: string): string {
     [/野手選択/, '野手選擇'], [/失策/, '失誤'],
     [/空振り/, '空振'], [/ファウル/, '界外球'],
     [/ストライク/, '好球'], [/ボール/, '壞球'],
+    // Docomo 短格式（右安/左安/中安 → 右安打 等）
+    [/^([右左中内])安$/, '$1安打'],
+    [/^([右左中])本$/, '$1本壘打'],
+    [/^([右左中])[２2]$/, '$1二壘打'],
+    [/^([右左中])[３3]$/, '$1三壘打'],
+    [/^([右左中邪内])飛$/, '$1飛球'],
+    [/^([右左中])直$/, '$1平飛球'],
+    [/^([遊二一三投捕])ゴ$/, '$1滾地球'],
   ];
   for (const [re, t] of map) if (re.test(result)) return t;
   return result;
@@ -945,12 +1023,24 @@ function FarmPitchByPitchCards({ pitchData, awayName, homeName, batters, pitcher
     }
   }
 
+  // 判斷打席最終球的結果類型（含 Docomo 短格式：右安/右飛/遊ゴ 等）
+  function finalResultType(result: string): 'hit' | 'walk' | 'out' | 'other' {
+    // 安打系：長格式 or 短格式（安$ = 右安/左安/中安；本$ = 右本；２$ ３$= 二三壘打）
+    if (/安打|ヒット|本塁打|ホームラン|二塁打|三塁打|安$|本$|[２2]$|[３3]$/.test(result)) return 'hit';
+    // 四死球
+    if (/四球|死球/.test(result)) return 'walk';
+    // 出局：長格式 or 短格式（飛$ = 右飛/左飛；ゴ$ = 遊ゴ；直$ = 右直）
+    if (/三振|ゴロ|フライ|ライナー|犠打|犠飛|併殺|飛$|ゴ$|直$/.test(result)) return 'out';
+    return 'other';
+  }
+
   // 投球圓圈顏色（對應 CPBL pitchBgColor）
   function pitchCircleBg(result: string, isStrike: boolean, isFinal: boolean): string {
     if (isFinal) {
-      if (/安打|ヒット|本塁打|二塁打|三塁打/.test(result)) return 'bg-blue-500 text-white';
-      if (/四球|死球/.test(result)) return 'bg-green-400 text-white';
-      if (/三振|ゴロ|フライ|ライナー|犠/.test(result)) return 'bg-red-500 text-white';
+      const t = finalResultType(result);
+      if (t === 'hit')  return 'bg-blue-500 text-white';
+      if (t === 'walk') return 'bg-green-400 text-white';
+      if (t === 'out')  return 'bg-red-500 text-white';
       return 'bg-yellow-400 text-gray-800';
     }
     return isStrike ? 'bg-yellow-400 text-gray-800' : 'bg-green-400 text-white';
@@ -1078,7 +1168,7 @@ function FarmPitchByPitchCards({ pitchData, awayName, homeName, batters, pitcher
                           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                             <BSODotsWhite balls={finalBalls} strikes={finalStrikes} outs={outsAtStart} />
                             {badge && (
-                              <span className={`text-[11px] font-black px-2 py-0.5 rounded-full ${badge.color}`}>
+                              <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full tracking-wide ${badge.color}`}>
                                 {badge.label}
                               </span>
                             )}
@@ -1131,7 +1221,13 @@ function FarmPitchByPitchCards({ pitchData, awayName, homeName, batters, pitcher
                               }
 
                               const label = translatePitchResultShort(pitch.result);
-                              const speedText = pitch.speed != null ? ` ${pitch.speed}k` : '';
+                              const speedText = (pitch.speed != null && pitch.speed > 0) ? `${pitch.speed}k` : '';
+                              const rType = isFinalPitch ? finalResultType(pitch.result) : 'other';
+                              const labelColor =
+                                rType === 'hit'  ? 'text-blue-600 font-black' :
+                                rType === 'walk' ? 'text-green-600 font-black' :
+                                rType === 'out'  ? 'text-red-600 font-black' :
+                                'text-gray-700';
 
                               return (
                                 <div key={pitch.pitch_num} className="flex items-center gap-2 py-1 px-2 hover:bg-gray-50 rounded">
@@ -1140,12 +1236,14 @@ function FarmPitchByPitchCards({ pitchData, awayName, homeName, batters, pitcher
                                     {pitchNum}
                                   </span>
                                   {/* 球種 + 球速 + 結果 */}
-                                  <span className="flex-1 text-xs text-gray-700 leading-relaxed">
+                                  <span className="flex-1 text-xs leading-relaxed">
                                     {pitch.ball_kind && (
                                       <span className="text-gray-400 mr-1">{pitch.ball_kind}</span>
                                     )}
-                                    <span className="text-gray-400 mr-1">{speedText.trim()}</span>
-                                    {label}
+                                    {speedText && (
+                                      <span className="text-gray-400 mr-1">{speedText}</span>
+                                    )}
+                                    <span className={labelColor}>{label}</span>
                                   </span>
                                   {/* B-S count */}
                                   <span className="text-[11px] font-bold text-gray-400 tabular-nums shrink-0">{b}-{s}</span>
@@ -1666,6 +1764,9 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
   const [tab,          setTab]          = useState<MainTab>('score');
   const [statsTab,     setStatsTab]     = useState<StatsTab>('batter');
   const [pbpMode,      setPbpMode]      = useState<'list' | 'review'>('list');
+  const [showReplay,       setShowReplay]       = useState(false);
+  const [replayInitialAb,  setReplayInitialAb]  = useState(0);
+  const [replayKey,        setReplayKey]        = useState(0);
   const [awayScore, setAwayScore] = useState<number | null>(game.score_away);
   const [homeScore, setHomeScore] = useState<number | null>(game.score_home);
   const [liveStatus, setLiveStatus] = useState<string>(game.status);
@@ -1731,6 +1832,21 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
   const latestBatterName = latestPbpEvent ? parseNpbDescription(latestPbpEvent.description).batterName : '';
   const currentBatterStat = currentBatters.find(b => b.player_name === latestBatterName)
     ?? (currentBatters.length > 0 ? currentBatters[currentBatters.length - 1] : undefined);
+
+  // 只取當前打席的投球（用於直播好球帶顯示）
+  const latestAtBatKey = pitchData.length > 0 ? pitchData[pitchData.length - 1].at_bat_key : null;
+  const currentAtBatPitches = latestAtBatKey ? pitchData.filter(p => p.at_bat_key === latestAtBatKey) : [];
+
+  function handleInningClick(inning: number) {
+    if (!pitchData.length) return;
+    const atBats = buildAtBatList(pitchData);
+    const idx = atBats.findIndex(ab => ab.inning === inning);
+    const targetIdx = Math.max(0, idx);
+    setReplayInitialAb(targetIdx);
+    setReplayKey(k => k + 1);
+    if (!isFinal) setShowReplay(true);
+    setTab('score');
+  }
 
   const TABS: { key: MainTab; label: string }[] = [
     { key: 'home',  label: '首頁' },
@@ -1815,7 +1931,7 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
         {/* ── 局分表 ── */}
         {!loading && (
           <div className="shrink-0 border-b border-gray-200 bg-white">
-            <InningScoreTable innings={innings} stats={stats} awayName={awayName} homeName={homeName} totalAway={totalAway} totalHome={totalHome} />
+            <InningScoreTable innings={innings} stats={stats} awayName={awayName} homeName={homeName} totalAway={totalAway} totalHome={totalHome} onInningClick={pitchData.length > 0 ? handleInningClick : undefined} />
           </div>
         )}
 
@@ -1841,6 +1957,8 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
           ) : tab === 'score' ? (
             isFinal && pitchData.length > 0 ? (
               <ReplayFieldPanel
+                key={replayKey}
+                initialAbIdx={replayInitialAb}
                 pitchData={pitchData}
                 awayName={awayName}
                 homeName={homeName}
@@ -1848,15 +1966,52 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
                 pitchers={pitchers}
                 innings={innings}
               />
+            ) : showReplay && pitchData.length > 0 ? (
+              <>
+                <div className="flex items-center justify-between px-3 py-2 bg-gray-900 border-b border-gray-700">
+                  <span className="text-xs font-black text-yellow-400 border border-yellow-400 px-2 py-0.5 rounded">回看模式</span>
+                  <button
+                    onClick={() => setShowReplay(false)}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-black hover:bg-red-700 transition active:scale-95">
+                    ● 返回直播
+                  </button>
+                </div>
+                <ReplayFieldPanel
+                  key={replayKey}
+                  initialAbIdx={replayInitialAb}
+                  pitchData={pitchData}
+                  awayName={awayName}
+                  homeName={homeName}
+                  batters={batters}
+                  pitchers={pitchers}
+                  innings={innings}
+                />
+              </>
             ) : (
-              <BaseballFieldPanel
-                latestEvent={latestPbpEvent}
-                isFinal={isFinal}
-                allEvents={playByPlay}
-                currentPitcherName={currentPitcher?.player_name}
-                currentBatterName={latestBatterName || currentBatterStat?.player_name}
-                pitches={pitchData}
-              />
+              <>
+                {pitchData.length > 0 && (
+                  <div className="flex justify-end px-3 py-2 bg-gray-900 border-b border-gray-700">
+                    <button
+                      onClick={() => {
+                        const atBats = buildAtBatList(pitchData);
+                        setReplayInitialAb(Math.max(0, atBats.length - 1));
+                        setReplayKey(k => k + 1);
+                        setShowReplay(true);
+                      }}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-black hover:bg-blue-700 transition active:scale-95">
+                      ▶ 回看
+                    </button>
+                  </div>
+                )}
+                <BaseballFieldPanel
+                  latestEvent={latestPbpEvent}
+                  isFinal={isFinal}
+                  allEvents={playByPlay}
+                  currentPitcherName={currentPitcher?.player_name}
+                  currentBatterName={latestBatterName || currentBatterStat?.player_name}
+                  pitches={currentAtBatPitches}
+                />
+              </>
             )
 
           ) : tab === 'pbp' ? (
