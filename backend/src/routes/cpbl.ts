@@ -15,7 +15,7 @@ router.get('/players', async (req: Request, res: Response): Promise<void> => {
     if (teamName) { params.push(`%${teamName}%`); conds.push(`team_name ILIKE $${params.length}`); }
 
     if (conds.length) query += ' WHERE ' + conds.join(' AND ');
-    query += ' ORDER BY uniform_no::int NULLS LAST, name';
+    query += " ORDER BY (CASE WHEN uniform_no ~ '^[0-9]+$' THEN uniform_no::int END) NULLS LAST, name";
 
     const result = await pool.query(query, params);
     res.json(result.rows);

@@ -1214,7 +1214,7 @@ export async function rescrapeGameByGameSno(
   gameId: number, gameSno: number, kindCode: string, year: number, gameDate?: Date,
 ): Promise<{ message: string }> {
   try {
-    const { batters, liveLog, firstSno, pitchers } = await fetchBoxLive(year, kindCode, gameSno);
+    const { batters, liveLog, firstSno, pitchers, visitingScoreboards, homeScoreboards } = await fetchBoxLive(year, kindCode, gameSno);
 
     // 從 DB 取得比賽隊名，建立 mock item 避免重新呼叫 fetchDailyGames
     const gameRow = await pool.query<{ team_home: string; team_away: string }>(
@@ -1233,10 +1233,30 @@ export async function rescrapeGameByGameSno(
     if (batters.length > 0) await saveBatterStats(gameId, batters, mockItem);
     if (pitchers.length > 0) await savePitcherStats(gameId, pitchers, mockItem);
     if (firstSno.length > 0) await saveLineups(gameId, firstSno, mockItem);
-    if (liveLog.length > 0) {
+
+    // 局分：優先使用 ScoreboardJson；若無則從 liveLog 推導
+    if (visitingScoreboards.length > 0 || homeScoreboards.length > 0) {
+      for (const inn of visitingScoreboards) {
+        await pool.query(
+          `INSERT INTO game_innings (game_id, inning, score_away, score_home)
+           VALUES ($1, $2, $3, NULL)
+           ON CONFLICT (game_id, inning) DO UPDATE SET score_away = EXCLUDED.score_away`,
+          [gameId, inn.InningSeq, inn.ScoreCnt],
+        );
+      }
+      for (const inn of homeScoreboards) {
+        await pool.query(
+          `INSERT INTO game_innings (game_id, inning, score_away, score_home)
+           VALUES ($1, $2, NULL, $3)
+           ON CONFLICT (game_id, inning) DO UPDATE SET score_home = EXCLUDED.score_home`,
+          [gameId, inn.InningSeq, inn.ScoreCnt],
+        );
+      }
+    } else if (liveLog.length > 0) {
       await saveInningsFromLiveLog(gameId, liveLog);
-      await saveLiveLog(gameId, liveLog);
     }
+
+    if (liveLog.length > 0) await saveLiveLog(gameId, liveLog);
 
     if (batters.length === 0 && liveLog.length === 0) {
       return { message: `⚠ GameSno=${gameSno} 無資料` };
@@ -1329,14 +1349,17 @@ export async function runCpblFullScheduleScraper(
               if (!hasPitcher.rows.length) {
                 try {
                   const year = new Date(item.GameDate).getFullYear();
-                  const { batters, liveLog, firstSno, pitchers } = await fetchBoxLive(year, item.KindCode, item.GameSno);
+                  const { batters, liveLog, firstSno, pitchers, visitingScoreboards: vs, homeScoreboards: hs } = await fetchBoxLive(year, item.KindCode, item.GameSno);
                   if (firstSno.length > 0) await saveLineups(gameId, firstSno, item);
                   if (batters.length > 0) await saveBatterStats(gameId, batters, item);
                   if (pitchers.length > 0) await savePitcherStats(gameId, pitchers, item);
-                  if (liveLog.length > 0) {
+                  if (vs.length > 0 || hs.length > 0) {
+                    for (const inn of vs) await pool.query(`INSERT INTO game_innings (game_id, inning, score_away, score_home) VALUES ($1,$2,$3,NULL) ON CONFLICT (game_id, inning) DO UPDATE SET score_away=EXCLUDED.score_away`, [gameId, inn.InningSeq, inn.ScoreCnt]);
+                    for (const inn of hs) await pool.query(`INSERT INTO game_innings (game_id, inning, score_away, score_home) VALUES ($1,$2,NULL,$3) ON CONFLICT (game_id, inning) DO UPDATE SET score_home=EXCLUDED.score_home`, [gameId, inn.InningSeq, inn.ScoreCnt]);
+                  } else if (liveLog.length > 0) {
                     await saveInningsFromLiveLog(gameId, liveLog);
-                    await saveLiveLog(gameId, liveLog);
                   }
+                  if (liveLog.length > 0) await saveLiveLog(gameId, liveLog);
                   await new Promise(r => setTimeout(r, 600));
                 } catch (e) {
                   console.warn(`[CPBL Schedule] fetchBoxLive(${item.GameSno}) 失敗:`, (e as Error).message);
@@ -1443,11 +1466,8 @@ export async function runScraper(): Promise<{ updated: number; message: string }
               // 投手成績：每次都更新
               if (pitchers.length > 0) await savePitcherStats(gameId, pitchers, item);
 
-              // 局分：優先從 liveLog 推導；若 liveLog 為空但 getlive 回傳 Scoreboards 則直接用
-              if (liveLog.length > 0) {
-                await saveInningsFromLiveLog(gameId, liveLog);
-              } else if (visitingScoreboards.length > 0 || homeScoreboards.length > 0) {
-                // getlive API 直接回傳 Scoreboards（終場或部分直播）
+              // 局分：優先使用 ScoreboardJson（最可靠的逐局來源）；若無則從 liveLog 推導
+              if (visitingScoreboards.length > 0 || homeScoreboards.length > 0) {
                 for (const inn of visitingScoreboards) {
                   await pool.query(
                     `INSERT INTO game_innings (game_id, inning, score_away, score_home)
@@ -1464,6 +1484,8 @@ export async function runScraper(): Promise<{ updated: number; message: string }
                     [gameId, inn.InningSeq, inn.ScoreCnt],
                   );
                 }
+              } else if (liveLog.length > 0) {
+                await saveInningsFromLiveLog(gameId, liveLog);
               }
 
               // 逐球紀錄：liveLog 是完整逐球資料，直播中也儲存（比 CurtBatting 更完整）
