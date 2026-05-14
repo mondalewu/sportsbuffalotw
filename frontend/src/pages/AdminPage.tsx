@@ -184,6 +184,19 @@ export default function AdminPage() {
     setScraperLogs(prev => [{ time, msg, type }, ...prev].slice(0, 60));
   };
 
+  const authFetch = (url: string, opts: RequestInit = {}) => {
+    const token = localStorage.getItem('authToken');
+    return fetch(url, {
+      credentials: 'include',
+      ...opts,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(opts.headers as Record<string, string> ?? {}),
+      },
+    });
+  };
+
   const handleTabChange = (tab: typeof adminTab) => {
     setAdminTab(tab);
     setAdminMsg('');
@@ -916,7 +929,7 @@ export default function AdminPage() {
                   <button disabled={!!scraperStatus?.cpblSchedule?.isRunning} onClick={async () => {
                     addLog('▶ CPBL 整季賽程爬蟲啟動', 'warn');
                     try {
-                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-cpbl-schedule`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
+                      const res = await authFetch(`${API_BASE}/api/v1/scraper/trigger-cpbl-schedule`, { method: 'POST' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ CPBL 賽程爬蟲啟動失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-700 text-white rounded-xl text-xs font-bold hover:bg-red-800 transition flex-shrink-0 disabled:opacity-50">
@@ -936,7 +949,7 @@ export default function AdminPage() {
                   <button onClick={async () => {
                     addLog('▶ CPBL 積分榜更新', 'warn');
                     try {
-                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-cpbl-standings`, { method: 'POST', credentials: 'include' });
+                      const res = await authFetch(`${API_BASE}/api/v1/scraper/trigger-cpbl-standings`, { method: 'POST' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ CPBL 積分榜更新失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white rounded-xl text-xs font-bold hover:bg-red-600 transition flex-shrink-0">
@@ -956,10 +969,8 @@ export default function AdminPage() {
                   <button onClick={async () => {
                     addLog('▶ CPBL 打者賽季成績更新', 'warn');
                     try {
-                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-cpbl-player-stats`, {
-                        method: 'POST', credentials: 'include',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ year: 2026 }),
+                      const res = await authFetch(`${API_BASE}/api/v1/scraper/trigger-cpbl-player-stats`, {
+                        method: 'POST', body: JSON.stringify({ year: 2026 }),
                       });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ CPBL 打者賽季成績更新失敗', 'error'); }
@@ -980,9 +991,7 @@ export default function AdminPage() {
                   <button onClick={async () => {
                     addLog('▶ CPBL 歷史打者成績重刷中...', 'warn');
                     try {
-                      const res = await fetch(`${API_BASE}/api/v1/scraper/rescrape-cpbl-all`, {
-                        method: 'POST', credentials: 'include',
-                      });
+                      const res = await authFetch(`${API_BASE}/api/v1/scraper/rescrape-cpbl-all`, { method: 'POST' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ 重刷失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-xl text-xs font-bold hover:bg-orange-600 transition flex-shrink-0">
@@ -1002,10 +1011,8 @@ export default function AdminPage() {
                   <button onClick={async () => {
                     addLog('▶ CPBL 投手賽季成績更新', 'warn');
                     try {
-                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-cpbl-pitcher-stats`, {
-                        method: 'POST', credentials: 'include',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ year: 2026 }),
+                      const res = await authFetch(`${API_BASE}/api/v1/scraper/trigger-cpbl-pitcher-stats`, {
+                        method: 'POST', body: JSON.stringify({ year: 2026 }),
                       });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ CPBL 投手賽季成績更新失敗', 'error'); }
@@ -1030,7 +1037,7 @@ export default function AdminPage() {
                   <button disabled={!!scraperStatus?.cpblRoster?.isRunning} onClick={async () => {
                     addLog('▶ CPBL 球員名冊爬蟲啟動', 'warn');
                     try {
-                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-cpbl-roster`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
+                      const res = await authFetch(`${API_BASE}/api/v1/scraper/trigger-cpbl-roster`, { method: 'POST' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ CPBL 名冊爬蟲啟動失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700 transition flex-shrink-0 disabled:opacity-50">
@@ -1087,7 +1094,7 @@ export default function AdminPage() {
                   <button disabled={!!scraperStatus?.npbFarm?.isRunning} onClick={async () => {
                     addLog('▶ NPB 二軍比分爬蟲啟動', 'warn');
                     try {
-                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-npb-farm`, { method: 'POST', credentials: 'include' });
+                      const res = await authFetch(`${API_BASE}/api/v1/scraper/trigger-npb-farm`, { method: 'POST' });
                       const data = await res.json(); addLog(data.message, 'success'); getScraperStatus().then(setScraperStatus);
                     } catch { addLog('✗ 二軍爬蟲執行失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 text-white rounded-xl text-xs font-bold hover:bg-sky-700 transition flex-shrink-0 disabled:opacity-50">
@@ -1155,7 +1162,7 @@ export default function AdminPage() {
                   <button onClick={async () => {
                     addLog('▶ NPB 積分榜更新', 'warn');
                     try {
-                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-npb-standings`, { method: 'POST', credentials: 'include' });
+                      const res = await authFetch(`${API_BASE}/api/v1/scraper/trigger-npb-standings`, { method: 'POST' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ NPB 積分榜更新失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500 text-white rounded-xl text-xs font-bold hover:bg-blue-600 transition flex-shrink-0">
@@ -1179,7 +1186,7 @@ export default function AdminPage() {
                   <button disabled={!!scraperStatus?.npbSchedule?.isRunning} onClick={async () => {
                     addLog('▶ NPB 整季賽程爬蟲啟動', 'warn');
                     try {
-                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-npb-schedule`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
+                      const res = await authFetch(`${API_BASE}/api/v1/scraper/trigger-npb-schedule`, { method: 'POST' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ NPB 賽程爬蟲失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition flex-shrink-0 disabled:opacity-50">
@@ -1203,7 +1210,7 @@ export default function AdminPage() {
                   <button disabled={!!scraperStatus?.npbRoster?.isRunning} onClick={async () => {
                     addLog('▶ NPB 一軍名冊爬蟲啟動', 'warn');
                     try {
-                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-npb-roster`, { method: 'POST', credentials: 'include' });
+                      const res = await authFetch(`${API_BASE}/api/v1/scraper/trigger-npb-roster`, { method: 'POST' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ NPB 名冊爬蟲失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white rounded-xl text-xs font-bold hover:bg-teal-700 transition flex-shrink-0 disabled:opacity-50">
@@ -1226,7 +1233,7 @@ export default function AdminPage() {
                   <button disabled={!!scraperStatus?.npbFarmRoster?.isRunning} onClick={async () => {
                     addLog('▶ 二軍獨立球隊名冊爬蟲啟動', 'warn');
                     try {
-                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-npb-farm-roster`, { method: 'POST', credentials: 'include' });
+                      const res = await authFetch(`${API_BASE}/api/v1/scraper/trigger-npb-farm-roster`, { method: 'POST' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ 二軍名冊爬蟲失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-500 text-white rounded-xl text-xs font-bold hover:bg-sky-600 transition flex-shrink-0 disabled:opacity-50">
@@ -1248,7 +1255,7 @@ export default function AdminPage() {
                   <button disabled={!!scraperStatus?.docomoFarm?.isRunning} onClick={async () => {
                     addLog('▶ Docomo 二軍爬蟲啟動', 'warn');
                     try {
-                      const res = await fetch(`${API_BASE}/api/v1/scraper/trigger-docomo-farm`, { method: 'POST', credentials: 'include' });
+                      const res = await authFetch(`${API_BASE}/api/v1/scraper/trigger-docomo-farm`, { method: 'POST' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ Docomo 爬蟲失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white rounded-xl text-xs font-bold hover:bg-teal-700 transition flex-shrink-0 disabled:opacity-50">
@@ -1454,7 +1461,7 @@ export default function AdminPage() {
                   <button onClick={async () => {
                     addLog('▶ NPB 二軍全季賽程補抓啟動', 'warn');
                     try {
-                      const res = await fetch(`${API_BASE}/api/v1/scraper/backfill-npb-farm`, { method: 'POST', credentials: 'include' });
+                      const res = await authFetch(`${API_BASE}/api/v1/scraper/backfill-npb-farm`, { method: 'POST' });
                       const data = await res.json(); addLog(data.message, 'success');
                     } catch { addLog('✗ 二軍全季補抓啟動失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-700 text-white rounded-xl text-xs font-bold hover:bg-blue-800 transition flex-shrink-0">

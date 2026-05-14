@@ -49,7 +49,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET!, { expiresIn: '24h' });
 
     res.cookie('token', token, COOKIE_OPTIONS);
-    res.status(201).json({ user });
+    res.status(201).json({ user, token });
   } catch (err) {
     console.error('Register error:', err);
     res.status(500).json({ message: '伺服器錯誤，請稍後再試' });
@@ -85,7 +85,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET!, { expiresIn: '24h' });
     res.cookie('token', token, COOKIE_OPTIONS);
-    res.json({ user: { id: user.id, email: user.email, username: user.username, role: user.role } });
+    res.json({ user: { id: user.id, email: user.email, username: user.username, role: user.role }, token });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ message: '伺服器錯誤，請稍後再試' });

@@ -10,5 +10,13 @@ const apiClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-export default apiClient;
+// 自動帶 Authorization header（解決跨域 cookie 被瀏覽器攔截的問題）
+apiClient.interceptors.request.use(config => {
+  const token = localStorage.getItem('authToken');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
+export default apiClient;
