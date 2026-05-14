@@ -221,14 +221,15 @@ async function scrapeYahooFarmGame(gameId: string, anyDate = false): Promise<Yah
     let homeTeam = '';
     const teamEls = $('.bb-gameScoreTable__team');
     if (teamEls.length >= 2) {
-      awayTeam = normalizeTeam(teamEls.eq(0).text().trim());
-      homeTeam = normalizeTeam(teamEls.eq(1).text().trim());
+      // Yahoo 二軍頁面：第一行 = 主場（後攻），第二行 = 客場（先攻）
+      homeTeam = normalizeTeam(teamEls.eq(0).text().trim());
+      awayTeam = normalizeTeam(teamEls.eq(1).text().trim());
     } else {
-      // title 格式: "YYYY年M月D日 AWAY vs.HOME 一球速報..."
+      // title 格式: "YYYY年M月D日 HOME vs.AWAY 一球速報..."
       const teamMatch = title.match(/日\s+(.+?)vs\.(.+?)\s+一球速報/);
       if (teamMatch) {
-        awayTeam = normalizeTeam(teamMatch[1].trim());
-        homeTeam = normalizeTeam(teamMatch[2].trim());
+        homeTeam = normalizeTeam(teamMatch[1].trim());
+        awayTeam = normalizeTeam(teamMatch[2].trim());
       }
     }
     if (!awayTeam || !homeTeam) return null;
