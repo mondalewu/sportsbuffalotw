@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useState, useMemo } from 'react';
 import { RefreshCw, Users, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import NpbGameDetail from './NpbGameDetail';
 import { triggerNpbScraper } from '../api/scraper';
 import { getNpbTeams, NpbTeam } from '../api/npb';
@@ -257,6 +258,7 @@ export function NpbNewsBar({ articles, onSelect }: { articles: Article[]; onSele
 const NPBSchedule: React.FC = () => {
   const today = new Date();
   const todayStr = toDateStr(today);
+  const navigate = useNavigate();
 
   const [allGames, setAllGames] = useState<NPBGame[]>([]);
   const [teams, setTeams] = useState<NpbTeam[]>([]);
@@ -265,8 +267,6 @@ const NPBSchedule: React.FC = () => {
   const [scrapeMsg, setScrapeMsg] = useState('');
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [windowStart, setWindowStart] = useState<Date>(() => getCenterStart(today));
-  const [selectedGame, setSelectedGame] = useState<NPBGame | null>(null);
-  const [selectedGameIdx, setSelectedGameIdx] = useState<number>(0);
   const [farmGame, setFarmGame] = useState<NPBGame | null>(null);
   const [rosterTeam, setRosterTeam] = useState<NpbTeam | null>(null);
   const [leagueTab, setLeagueTab] = useState<'NPB' | 'NPB2'>('NPB');
@@ -589,36 +589,11 @@ const NPBSchedule: React.FC = () => {
         /* ── 一軍：一般顯示 ── */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {selectedGames.map((g, i) => (
-            <ScoreCard key={g.id} game={g} onSelect={() => { setSelectedGame(g); setSelectedGameIdx(i); }} />
+            <ScoreCard key={g.id} game={g} onSelect={() => setFarmGame(g)} />
           ))}
         </div>
       )}
 
-      {selectedGame && (() => {
-        const awayCode = NAME_TO_CODE[selectedGame.team_away] ?? '';
-        const homeCode = NAME_TO_CODE[selectedGame.team_home] ?? '';
-        return (
-          <NpbGameDetail
-            key={selectedGame.id}
-            game={selectedGame}
-            awayCode={awayCode}
-            homeCode={homeCode}
-            onClose={() => setSelectedGame(null)}
-            hasPrev={selectedGameIdx > 0}
-            hasNext={selectedGameIdx < selectedGames.length - 1}
-            onPrev={() => {
-              const idx = selectedGameIdx - 1;
-              setSelectedGameIdx(idx);
-              setSelectedGame(selectedGames[idx]);
-            }}
-            onNext={() => {
-              const idx = selectedGameIdx + 1;
-              setSelectedGameIdx(idx);
-              setSelectedGame(selectedGames[idx]);
-            }}
-          />
-        );
-      })()}
       {farmGame && (
         <FarmGameDetail game={farmGame} onClose={() => setFarmGame(null)} />
       )}

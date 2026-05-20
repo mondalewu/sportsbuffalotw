@@ -8,10 +8,12 @@ import { getArticles, createArticle, updateArticle, deleteArticle, fetchExternal
 import { getGames, updateGame, addPlayByPlay } from '../api/games';
 import { getAllPolls, createPoll, updatePoll, deletePoll, addPollOption, deletePollOption, getAdminAnalytics } from '../api/polls';
 import type { Poll, AdminAnalytics } from '../api/polls';
-import { getScraperStatus, triggerScraper, triggerNpbScraper, triggerPbpBackfill, importGames, triggerYahooFarmScraper, triggerYahooFarmScheduleScraper, backfillDocomoPitch, backfillYahooBatterStats, triggerBatchYahooBackfill, getBatchYahooBackfillStatus } from '../api/scraper';
+import { getScraperStatus, triggerScraper, triggerNpbScraper, triggerPbpBackfill, importGames, triggerYahooFarmScraper, triggerYahooFarmScheduleScraper, backfillDocomoPitch, backfillYahooBatterStats, triggerBatchYahooBackfill, getBatchYahooBackfillStatus, cleanupSwappedDuplicates, triggerSanspoNpbScraper, scrapeSanspoGameDirect, triggerCombinedNpbScraper, scrapeCombinedGame, mergeNpbNamesForGame, getNpbGameIds } from '../api/scraper';
+import type { NpbGameIdEntry } from '../api/scraper';
 import type { BatchYahooBackfillStatus } from '../api/scraper';
 import type { AllScraperStatus, ImportGameItem } from '../api/scraper';
 import { getAds, createAd, updateAd } from '../api/ads';
+import { rescrapeNpbDocomoGame } from '../api/npb';
 import type { Article, ArticleImage, Game, AdPlacement } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -95,6 +97,9 @@ export default function AdminPage() {
   const [batchYahooStatus, setBatchYahooStatus] = useState<BatchYahooBackfillStatus | null>(null);
   const [gameSearchQuery, setGameSearchQuery] = useState('');
   const [gameSearchResults, setGameSearchResults] = useState<Array<{ id: number; team_home: string; team_away: string; game_date: string; yahoo_game_id: string | null }>>([]);
+  const [showNpbDocomo, setShowNpbDocomo] = useState(false);
+  const [npbDocomoForm, setNpbDocomoForm] = useState({ docomoGameId: '', dbGameId: '', isFinal: false });
+  const [npbDocomoLoading, setNpbDocomoLoading] = useState(false);
 
   // Ad state
   const [ads, setAds] = useState<AdPlacement[]>([]);
@@ -1079,6 +1084,125 @@ export default function AdminPage() {
                   </button>
                 </div>
 
+                {/* NPB 一軍 Docomo 逐球補完 */}
+                <div className="px-6 py-4 bg-blue-50/60">
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0 bg-blue-400" />
+                        <span className="font-bold text-sm text-gray-800">Docomo 一軍逐球補完</span>
+                      </div>
+                      <p className="text-xs text-gray-400 ml-4 mt-0.5">補抓一軍比賽的逐球位置＋文字速報（需 Docomo game_id 與 DB game_id）</p>
+                    </div>
+                    <button onClick={() => setShowNpbDocomo(v => !v)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-700 text-white rounded-xl text-xs font-bold hover:bg-blue-800 transition flex-shrink-0">
+                      {showNpbDocomo ? '關閉' : '補完一軍'}
+                    </button>
+                  </div>
+                  {showNpbDocomo && (
+                    <div className="mt-3 ml-4 space-y-2">
+                      <div className="flex flex-wrap gap-2 items-end">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-xs text-gray-500 font-bold">Docomo game_id</label>
+                          <input
+                            type="text"
+                            placeholder="例：2021038858"
+                            value={npbDocomoForm.docomoGameId}
+                            onChange={e => setNpbDocomoForm(f => ({ ...f, docomoGameId: e.target.value }))}
+                            className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs w-36 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-xs text-gray-500 font-bold">DB game_id</label>
+                          <input
+                            type="number"
+                            placeholder="例：456"
+                            value={npbDocomoForm.dbGameId}
+                            onChange={e => setNpbDocomoForm(f => ({ ...f, dbGameId: e.target.value }))}
+                            className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs w-28 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                          />
+                        </div>
+                        <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                          <input type="checkbox" checked={npbDocomoForm.isFinal}
+                            onChange={e => setNpbDocomoForm(f => ({ ...f, isFinal: e.target.checked }))}
+                            className="rounded" />
+                          已完賽（補完個別打席文件）
+                        </label>
+                        <button
+                          disabled={npbDocomoLoading || !npbDocomoForm.docomoGameId || !npbDocomoForm.dbGameId}
+                          onClick={async () => {
+                            const dbId = parseInt(npbDocomoForm.dbGameId, 10);
+                            if (!npbDocomoForm.docomoGameId || !dbId) return;
+                            setNpbDocomoLoading(true);
+                            addLog(`▶ Docomo 一軍補完 (docomoId=${npbDocomoForm.docomoGameId}, dbId=${dbId})`, 'warn');
+                            try {
+                              const res = await rescrapeNpbDocomoGame(npbDocomoForm.docomoGameId, dbId, npbDocomoForm.isFinal);
+                              addLog(`${res.success ? '✓' : '✗'} ${res.message}`, res.success ? 'success' : 'error');
+                            } catch { addLog('✗ 一軍補完失敗', 'error'); }
+                            finally { setNpbDocomoLoading(false); }
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition disabled:opacity-50">
+                          <RefreshCw className={`w-3.5 h-3.5 ${npbDocomoLoading ? 'animate-spin' : ''}`} />
+                          {npbDocomoLoading ? '補完中...' : '執行補完'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-400">從 Docomo URL <code className="bg-gray-100 px-1 rounded">game_id=XXXXXXX</code> 取得 game_id；DB game_id 是 games.id（一軍場次）</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* NPB ID 查詢 */}
+                <NpbGameIdLookup />
+
+                {/* Docomo + Sanspo 合併爬蟲 */}
+                <div className="bg-indigo-50 border border-indigo-100 rounded-2xl mx-4 mb-2 p-4 space-y-3">
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${scraperStatus?.combinedNpb?.isRunning ? 'bg-yellow-400 animate-pulse' : scraperStatus?.combinedNpb?.lastError ? 'bg-red-500' : scraperStatus?.combinedNpb?.lastRun ? 'bg-green-500' : 'bg-gray-300'}`} />
+                        <span className="font-bold text-sm text-gray-800">NPB 一軍 雙來源合併</span>
+                        <span className="text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">Docomo + Sanspo</span>
+                        {scraperStatus?.combinedNpb?.isRunning && <span className="text-xs text-yellow-600 font-bold animate-pulse">執行中...</span>}
+                      </div>
+                      <p className="text-xs text-gray-500 ml-4 mt-0.5">
+                        Docomo 取打者姓名 → Sanspo 取逐球座標＋球速＋球種 → 自動姓名補完
+                      </p>
+                      {scraperStatus?.combinedNpb?.lastRun && (
+                        <p className="text-xs text-gray-400 ml-4">上次：{new Date(scraperStatus.combinedNpb.lastRun).toLocaleString('zh-TW')}</p>
+                      )}
+                      {scraperStatus?.combinedNpb?.lastResult && (
+                        <p className="text-xs text-gray-500 ml-4 truncate">{scraperStatus.combinedNpb.lastResult}</p>
+                      )}
+                    </div>
+                    <button
+                      disabled={!!scraperStatus?.combinedNpb?.isRunning}
+                      onClick={async () => {
+                        addLog('▶ NPB 一軍合併爬蟲啟動（Docomo + Sanspo + 姓名補完）', 'warn');
+                        try {
+                          const data = await triggerCombinedNpbScraper();
+                          addLog(data.message, 'success');
+                          getScraperStatus().then(setScraperStatus);
+                        } catch { addLog('✗ 合併爬蟲執行失敗', 'error'); }
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition flex-shrink-0 disabled:opacity-50">
+                      <RefreshCw className={`w-3.5 h-3.5 ${scraperStatus?.combinedNpb?.isRunning ? 'animate-spin' : ''}`} />
+                      立即執行
+                    </button>
+                  </div>
+
+                  {/* 步驟說明 */}
+                  <div className="ml-4 flex gap-3 text-xs text-gray-500">
+                    <span className="flex items-center gap-1"><span className="w-4 h-4 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-[10px]">1</span>Docomo 打席文字速報</span>
+                    <span className="text-gray-300">→</span>
+                    <span className="flex items-center gap-1"><span className="w-4 h-4 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center font-bold text-[10px]">2</span>Sanspo 全場逐球座標</span>
+                    <span className="text-gray-300">→</span>
+                    <span className="flex items-center gap-1"><span className="w-4 h-4 rounded-full bg-green-100 text-green-600 flex items-center justify-center font-bold text-[10px]">3</span>姓名自動補完</span>
+                  </div>
+
+                  {/* 手動補完面板 */}
+                  <CombinedManualPanel addLog={addLog} />
+                </div>
+
                 {/* NPB 二軍比分 */}
                 <div className="flex items-center gap-4 px-6 py-4">
                   <div className="flex-1 min-w-0">
@@ -1238,6 +1362,26 @@ export default function AdminPage() {
                     } catch { addLog('✗ 二軍名冊爬蟲失敗', 'error'); }
                   }} className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-500 text-white rounded-xl text-xs font-bold hover:bg-sky-600 transition flex-shrink-0 disabled:opacity-50">
                     <RefreshCw className={`w-3.5 h-3.5 ${scraperStatus?.npbFarmRoster?.isRunning ? 'animate-spin' : ''}`} /> 更新名冊
+                  </button>
+                </div>
+
+                {/* 主客場互換重複清除 */}
+                <div className="flex items-center gap-4 px-6 py-4 bg-orange-50/40">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0 bg-orange-400" />
+                      <span className="font-bold text-sm text-gray-800">清除主客場互換重複場次</span>
+                    </div>
+                    <p className="text-xs text-gray-400 ml-4 mt-0.5">刪除同一天同兩隊但主客場顛倒的重複記錄（優先保留有比分、分數較高、場地符合主場的那筆）</p>
+                  </div>
+                  <button onClick={async () => {
+                    addLog('▶ 清除主客場互換重複場次…', 'warn');
+                    try {
+                      const result = await cleanupSwappedDuplicates();
+                      addLog(`✓ ${result.message}`, 'success');
+                    } catch { addLog('✗ 清除失敗', 'error'); }
+                  }} className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 text-white rounded-xl text-xs font-bold hover:bg-orange-700 transition flex-shrink-0">
+                    <RefreshCw className="w-3.5 h-3.5" /> 立即清除
                   </button>
                 </div>
 
@@ -1947,6 +2091,271 @@ export default function AdminPage() {
 
       </div>
     </main>
+  );
+}
+
+// ─── NPB 比賽 ID 查詢面板 ────────────────────────────────────────────────────
+function NpbGameIdLookup() {
+  const todayStr = new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD
+  const [date, setDate] = React.useState(todayStr);
+  const [games, setGames] = React.useState<NpbGameIdEntry[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [copied, setCopied] = React.useState<string | null>(null);
+  const [show, setShow] = React.useState(false);
+
+  const copy = (val: string | number | null, label: string) => {
+    if (val == null) return;
+    navigator.clipboard.writeText(String(val));
+    setCopied(label);
+    setTimeout(() => setCopied(null), 1500);
+  };
+
+  const lookup = async () => {
+    setLoading(true);
+    try {
+      const res = await getNpbGameIds(date);
+      setGames(res.games);
+    } catch { setGames([]); }
+    finally { setLoading(false); }
+  };
+
+  const statusBadge = (s: string) => {
+    if (s === 'live')  return <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1 rounded font-bold">直播</span>;
+    if (s === 'final') return <span className="text-[10px] bg-gray-100 text-gray-500 px-1 rounded">完賽</span>;
+    return <span className="text-[10px] bg-blue-50 text-blue-400 px-1 rounded">預定</span>;
+  };
+
+  return (
+    <div className="mx-4 mb-3 border border-dashed border-gray-200 rounded-2xl p-4">
+      <button onClick={() => setShow(v => !v)} className="flex items-center gap-2 text-sm font-bold text-gray-700 w-full">
+        <span className="text-base">🔍</span> NPB 比賽 ID 查詢
+        <span className="ml-auto text-xs text-gray-400">{show ? '收起' : '展開'}</span>
+      </button>
+
+      {show && (
+        <div className="mt-3 space-y-3">
+          <div className="flex gap-2 items-end">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-gray-500">日期</span>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+            </div>
+            <button onClick={lookup} disabled={loading}
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-gray-800 text-white rounded-xl text-xs font-bold hover:bg-gray-900 transition disabled:opacity-50">
+              {loading ? '查詢中...' : '查詢'}
+            </button>
+          </div>
+
+          {games.length === 0 && !loading && (
+            <p className="text-xs text-gray-400 text-center py-2">查無比賽資料</p>
+          )}
+
+          {games.length > 0 && (
+            <div className="space-y-2">
+              {games.map(g => (
+                <div key={g.dbId} className="bg-white border border-gray-100 rounded-xl p-3 space-y-2 shadow-sm">
+                  {/* 隊伍名稱 + 狀態 */}
+                  <div className="flex items-center gap-2">
+                    {statusBadge(g.status)}
+                    <span className="text-sm font-bold text-gray-800">{g.teamAway} <span className="text-gray-400 font-normal">@</span> {g.teamHome}</span>
+                    <span className="text-xs text-gray-400 ml-auto">{new Date(g.gameDate).toLocaleDateString('zh-TW')}</span>
+                  </div>
+
+                  {/* ID 列表 */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {/* DB game_id */}
+                    <div className="bg-gray-50 rounded-lg px-2 py-1.5">
+                      <p className="text-[10px] text-gray-400 mb-0.5">DB game_id</p>
+                      <div className="flex items-center gap-1">
+                        <span className="text-sm font-bold text-gray-800 tabular-nums">{g.dbId}</span>
+                        <button onClick={() => copy(g.dbId, `db-${g.dbId}`)}
+                          className="ml-auto text-[10px] text-indigo-500 hover:text-indigo-700 font-bold">
+                          {copied === `db-${g.dbId}` ? '✓' : '複製'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Docomo game_id */}
+                    <div className={`rounded-lg px-2 py-1.5 ${g.docomoGameId ? 'bg-blue-50' : 'bg-gray-50'}`}>
+                      <p className="text-[10px] text-gray-400 mb-0.5">Docomo game_id</p>
+                      <div className="flex items-center gap-1">
+                        <span className={`text-sm font-bold tabular-nums ${g.docomoGameId ? 'text-blue-700' : 'text-gray-300'}`}>
+                          {g.docomoGameId ?? '未知'}
+                        </span>
+                        {g.docomoGameId && (
+                          <button onClick={() => copy(g.docomoGameId, `doc-${g.dbId}`)}
+                            className="ml-auto text-[10px] text-indigo-500 hover:text-indigo-700 font-bold">
+                            {copied === `doc-${g.dbId}` ? '✓' : '複製'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Sanspo globalId */}
+                    <div className={`rounded-lg px-2 py-1.5 ${g.sanspoGlobalId ? 'bg-purple-50' : 'bg-gray-50'}`}>
+                      <p className="text-[10px] text-gray-400 mb-0.5">Sanspo globalId</p>
+                      <div className="flex items-center gap-1">
+                        <span className={`text-sm font-bold tabular-nums ${g.sanspoGlobalId ? 'text-purple-700' : 'text-gray-300'}`}>
+                          {g.sanspoGlobalId ?? '未知'}
+                        </span>
+                        {g.sanspoGlobalId && (
+                          <button onClick={() => copy(g.sanspoGlobalId, `san-${g.dbId}`)}
+                            className="ml-auto text-[10px] text-indigo-500 hover:text-indigo-700 font-bold">
+                            {copied === `san-${g.dbId}` ? '✓' : '複製'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── 合併爬蟲手動補完面板 ────────────────────────────────────────────────────
+function CombinedManualPanel({ addLog }: { addLog: (msg: string, type: 'success' | 'error' | 'warn') => void }) {
+  const [show, setShow] = React.useState(false);
+  const [form, setForm] = React.useState({ globalId: '', dbGameId: '' });
+  const [mergeDbId, setMergeDbId] = React.useState('');
+  const [loading, setLoading] = React.useState(false);
+  const [mergeLoading, setMergeLoading] = React.useState(false);
+
+  return (
+    <div className="ml-4 space-y-2">
+      <button onClick={() => setShow(v => !v)} className="text-xs text-indigo-600 underline">
+        {show ? '收起手動工具' : '手動補完工具'}
+      </button>
+      {show && (
+        <div className="space-y-3 pt-1">
+          {/* 單場合併補完 */}
+          <div>
+            <p className="text-xs font-medium text-gray-600 mb-1">單場合併補完（Sanspo globalId + DB game_id）</p>
+            <div className="flex flex-wrap gap-2 items-end">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-gray-400">Sanspo globalId</span>
+                <input type="text" placeholder="例：20260855"
+                  value={form.globalId}
+                  onChange={e => setForm(f => ({ ...f, globalId: e.target.value }))}
+                  className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs w-32 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-gray-400">DB game_id</span>
+                <input type="number" placeholder="例：456"
+                  value={form.dbGameId}
+                  onChange={e => setForm(f => ({ ...f, dbGameId: e.target.value }))}
+                  className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs w-24 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              </div>
+              <button
+                disabled={loading || !form.globalId || !form.dbGameId}
+                onClick={async () => {
+                  const gId = parseInt(form.globalId, 10);
+                  const dbId = parseInt(form.dbGameId, 10);
+                  if (!gId || !dbId) return;
+                  setLoading(true);
+                  addLog(`▶ 合併補完 (globalId=${gId}, dbId=${dbId})`, 'warn');
+                  try {
+                    const res = await scrapeCombinedGame(gId, dbId);
+                    addLog(`${res.success ? '✓' : '✗'} ${res.message}`, res.success ? 'success' : 'error');
+                  } catch { addLog('✗ 合併補完失敗', 'error'); }
+                  finally { setLoading(false); }
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition disabled:opacity-50">
+                {loading ? '補完中...' : '執行補完'}
+              </button>
+            </div>
+          </div>
+
+          {/* 僅補完姓名 */}
+          <div>
+            <p className="text-xs font-medium text-gray-600 mb-1">僅補完姓名（已有 Sanspo 逐球資料，補打者/投手名）</p>
+            <div className="flex gap-2 items-end">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-gray-400">DB game_id</span>
+                <input type="number" placeholder="例：456"
+                  value={mergeDbId}
+                  onChange={e => setMergeDbId(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs w-24 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              </div>
+              <button
+                disabled={mergeLoading || !mergeDbId}
+                onClick={async () => {
+                  const dbId = parseInt(mergeDbId, 10);
+                  if (!dbId) return;
+                  setMergeLoading(true);
+                  addLog(`▶ 姓名補完 (dbId=${dbId})`, 'warn');
+                  try {
+                    const res = await mergeNpbNamesForGame(dbId);
+                    addLog(`✓ ${res.message}`, 'success');
+                  } catch { addLog('✗ 姓名補完失敗', 'error'); }
+                  finally { setMergeLoading(false); }
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-xl text-xs font-bold hover:bg-green-700 transition disabled:opacity-50">
+                {mergeLoading ? '補完中...' : '補完姓名'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Sanspo 一球速報手動補完面板 ─────────────────────────────────────────────
+function SanspoManualPanel({ addLog }: { addLog: (msg: string, type: 'success' | 'error' | 'warn') => void }) {
+  const [show, setShow] = React.useState(false);
+  const [form, setForm] = React.useState({ globalId: '', dbGameId: '' });
+  const [loading, setLoading] = React.useState(false);
+
+  return (
+    <div className="ml-4">
+      <button onClick={() => setShow(v => !v)}
+        className="text-xs text-indigo-600 underline">
+        {show ? '關閉手動補完' : '手動指定 globalId 補完'}
+      </button>
+      {show && (
+        <div className="mt-2 flex flex-wrap gap-2 items-end">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-gray-500">Sanspo globalId</span>
+            <input type="text" placeholder="例：20260855"
+              value={form.globalId}
+              onChange={e => setForm(f => ({ ...f, globalId: e.target.value }))}
+              className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs w-32 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-gray-500">DB game_id</span>
+            <input type="number" placeholder="例：456"
+              value={form.dbGameId}
+              onChange={e => setForm(f => ({ ...f, dbGameId: e.target.value }))}
+              className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs w-24 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+          </div>
+          <button
+            disabled={loading || !form.globalId || !form.dbGameId}
+            onClick={async () => {
+              const gId = parseInt(form.globalId, 10);
+              const dbId = parseInt(form.dbGameId, 10);
+              if (!gId || !dbId) return;
+              setLoading(true);
+              addLog(`▶ Sanspo 補完 (globalId=${gId}, dbId=${dbId})`, 'warn');
+              try {
+                const res = await scrapeSanspoGameDirect(gId, dbId);
+                addLog(`${res.success ? '✓' : '✗'} ${res.message}`, res.success ? 'success' : 'error');
+              } catch { addLog('✗ Sanspo 補完失敗', 'error'); }
+              finally { setLoading(false); }
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition disabled:opacity-50">
+            {loading ? '補完中...' : '執行補完'}
+          </button>
+          <p className="w-full text-xs text-gray-400">
+            從 Sanspo URL <code className="bg-gray-100 px-1 rounded">global_id=XXXXXXXX</code> 取得 globalId；DB game_id 是 games.id
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 

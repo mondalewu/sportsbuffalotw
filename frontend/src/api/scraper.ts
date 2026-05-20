@@ -40,6 +40,9 @@ export interface AllScraperStatus {
   yahooFarm?: ScraperStatus;
   yahooFarmSchedule?: SimpleScraperStatus;
   docomoFarm?: SimpleScraperStatus;
+  docomoNpb?: SimpleScraperStatus;
+  sanspoNpb?: SimpleScraperStatus;
+  combinedNpb?: SimpleScraperStatus & { gamesProcessed?: number; pitchesSaved?: number; namesUpdated?: number };
   yahooBatchBackfill?: BatchYahooBackfillStatus;
   [key: string]: unknown;
 }
@@ -76,6 +79,11 @@ export const triggerNpbFarmScraper = async (): Promise<{ added: number; message:
 
 export const cleanupDuplicates = async (): Promise<{ message: string }> => {
   const res = await apiClient.post('/scraper/cleanup-duplicates');
+  return res.data;
+};
+
+export const cleanupSwappedDuplicates = async (): Promise<{ message: string; deleted: number }> => {
+  const res = await apiClient.post('/scraper/cleanup-swapped-duplicates');
   return res.data;
 };
 
@@ -132,5 +140,46 @@ export const triggerBatchYahooBackfill = async (): Promise<{ message: string; st
 
 export const getBatchYahooBackfillStatus = async (): Promise<{ status: BatchYahooBackfillStatus }> => {
   const res = await apiClient.get('/scraper/batch-backfill-yahoo-batter-stats');
+  return res.data;
+};
+
+export const triggerSanspoNpbScraper = async (): Promise<{ message: string }> => {
+  const res = await apiClient.post('/scraper/trigger-sanspo-npb');
+  return res.data;
+};
+
+export const scrapeSanspoGameDirect = async (globalId: number, dbGameId: number): Promise<{ success: boolean; message: string; pitchCount?: number }> => {
+  const res = await apiClient.post('/scraper/scrape-sanspo-game-direct', { globalId, dbGameId });
+  return res.data;
+};
+
+export const triggerCombinedNpbScraper = async (): Promise<{ message: string }> => {
+  const res = await apiClient.post('/scraper/trigger-combined-npb');
+  return res.data;
+};
+
+export const scrapeCombinedGame = async (globalId: number, dbGameId: number): Promise<{ success: boolean; message: string; pitchCount?: number; battersUpdated?: number }> => {
+  const res = await apiClient.post('/scraper/scrape-combined-game', { globalId, dbGameId });
+  return res.data;
+};
+
+export const mergeNpbNamesForGame = async (dbGameId: number): Promise<{ message: string; battersUpdated: number; pitchersUpdated: number }> => {
+  const res = await apiClient.post('/scraper/merge-npb-names-game', { dbGameId });
+  return res.data;
+};
+
+export interface NpbGameIdEntry {
+  dbId: number;
+  teamHome: string;
+  teamAway: string;
+  gameDate: string;
+  status: string;
+  docomoGameId: string | null;
+  sanspoGlobalId: number | null;
+}
+
+export const getNpbGameIds = async (date?: string): Promise<{ date: string; games: NpbGameIdEntry[] }> => {
+  const params = date ? `?date=${date}` : '';
+  const res = await apiClient.get(`/scraper/npb-game-ids${params}`);
   return res.data;
 };

@@ -244,6 +244,77 @@ function StrikeZoneOverlay({ pitches = [] }: { pitches?: PitchData[] }) {
   );
 }
 
+// ── 回顧面板用 helpers ──────────────────────────────────────────────────────
+
+function isOutResult(result: string): boolean {
+  if (/三振/.test(result)) return true;
+  if (/ゴロ/.test(result) && !/ヒット|安打|内野安打|野手選択/.test(result)) return true;
+  if (/フライ/.test(result) && !/ヒット|安打|失策/.test(result)) return true;
+  if (/ライナー/.test(result) && !/ヒット|安打/.test(result)) return true;
+  if (/犠打|犠飛/.test(result)) return true;
+  return false;
+}
+
+function translatePitchResult(result: string): string {
+  if (!result) return '–';
+  const map: [RegExp, string][] = [
+    [/見逃し三振/, '見逃三振'], [/空振り三振/, '空振三振'], [/三振/, '三振'],
+    [/本塁打|ホームラン/, '全壘打'], [/三塁打/, '三壘安打'], [/二塁打/, '二壘安打'],
+    [/内野安打/, '內野安打'], [/ヒット|安打/, '安打'],
+    [/四球/, '四壞球'], [/死球/, '觸身球'],
+    [/犠飛/, '犧牲飛球'], [/犠打/, '犧打'],
+    [/ゴロ/, '滾地球'], [/フライ/, '飛球'], [/ライナー/, '平飛球'],
+    [/ファウル/, '界外球'], [/ストライク/, '好球'], [/ボール/, '壞球'],
+  ];
+  for (const [re, t] of map) if (re.test(result)) return result.replace(re, t);
+  return result;
+}
+
+interface AtBatEntry {
+  inning: number; is_top: boolean;
+  batterName: string; pitcherName: string;
+  pitches: PitchData[]; abSeq: number;
+}
+
+function buildAtBatList(pitchData: PitchData[]): AtBatEntry[] {
+  const map = new Map<string, PitchData[]>();
+  for (const p of pitchData) {
+    const key = `${p.inning}-${p.is_top ? 1 : 0}-${p.at_bat_key}`;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(p);
+  }
+  const entries: AtBatEntry[] = [];
+  for (const [, pitches] of map) {
+    pitches.sort((a, b) => a.pitch_num - b.pitch_num);
+    const first = pitches[0];
+    entries.push({ inning: first.inning, is_top: first.is_top, batterName: first.batter_name, pitcherName: first.pitcher_name, pitches, abSeq: 0 });
+  }
+  entries.sort((a, b) => a.inning - b.inning || (a.is_top === b.is_top ? 0 : a.is_top ? -1 : 1));
+  entries.forEach((e, i) => { e.abSeq = i + 1; });
+  return entries;
+}
+
+function computeAbRunners(atBats: AtBatEntry[], currentAbIdx: number) {
+  const cur = atBats[currentAbIdx];
+  if (!cur) return { base1: null as string | null, base2: null as string | null, base3: null as string | null };
+  const prev = atBats.filter((ab, i) => i < currentAbIdx && ab.inning === cur.inning && ab.is_top === cur.is_top);
+  let b1: string | null = null, b2: string | null = null, b3: string | null = null;
+  for (const ab of prev) {
+    const res = ab.pitches[ab.pitches.length - 1]?.result ?? '';
+    const n = ab.batterName;
+    if (/本塁打|ホームラン/.test(res)) { b1 = null; b2 = null; b3 = null; }
+    else if (/三塁打/.test(res)) { b1 = null; b2 = null; b3 = n; }
+    else if (/二塁打/.test(res)) { b3 = b2; b2 = n; b1 = null; }
+    else if (/ヒット|安打|内野安打/.test(res)) { b3 = b2; b2 = b1; b1 = n; }
+    else if (/四球|死球/.test(res)) {
+      if (b1 && b2) { b3 = b2; b2 = b1; b1 = n; }
+      else if (b1) { b2 = b1; b1 = n; }
+      else { b1 = n; }
+    }
+  }
+  return { base1: b1, base2: b2, base3: b3 };
+}
+
 // ── PBP description 解析（"1アウト 1・3塁 山本 2-2より 空振り三振"）────────────
 function parseNpbDescription(desc: string): {
   outs: number; balls: number; strikes: number;
@@ -440,13 +511,214 @@ function BaseballFieldPanel({
         </div>
       )}
 
-      {/* ─ FINAL オーバーレイ ─ */}
-      {isFinal && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="text-white text-3xl font-black tracking-widest drop-shadow-lg">試合終了</div>
-          <div className="text-gray-300 text-lg font-bold mt-1 tracking-widest">FINAL</div>
-        </div>
+    </div>
+  );
+}
+
+// ── NPB 一軍 逐球回顧面板（比賽結束時替換球場面板）────────────────────────────
+
+function NpbReplayFieldPanel({
+  pitchData, awayName, homeName, batters, pitchers,
+}: {
+  pitchData: PitchData[];
+  awayName: string;
+  homeName: string;
+  batters: BatterStat[];
+  pitchers: PitcherStat[];
+}) {
+  const atBats = buildAtBatList(pitchData);
+  const total = atBats.length;
+
+  const [abIdx, setAbIdx] = useState(Math.max(0, total - 1));
+  const [pitchIdx, setPitchIdx] = useState(0);
+
+  if (total === 0) {
+    return (
+      <div className="flex items-center justify-center py-12 text-gray-400 text-sm bg-gray-50">
+        尚無逐球資料（請執行 Docomo 爬蟲）
+      </div>
+    );
+  }
+
+  const safeAbIdx   = Math.max(0, Math.min(abIdx, total - 1));
+  const ab          = atBats[safeAbIdx];
+  const pitches     = ab.pitches;
+  const maxPitch    = pitches.length - 1;
+  const safePI      = Math.max(0, Math.min(pitchIdx, maxPitch));
+  const revealed    = pitches.slice(0, safePI + 1);
+  const cur         = pitches[safePI];
+  const isLastAb    = safeAbIdx === total - 1;
+  const isLastPitch = safePI === maxPitch;
+  const isAtEnd     = isLastAb && isLastPitch;
+  const attackTeam  = ab.is_top ? awayName : homeName;
+
+  let balls = 0, strikes = 0;
+  for (let i = 0; i < safePI; i++) {
+    if (!pitches[i].is_strike) balls = Math.min(balls + 1, 3);
+    else if (strikes < 2) strikes++;
+  }
+  let outs = 0;
+  for (const prev of atBats) {
+    if (prev.abSeq >= ab.abSeq) break;
+    if (prev.inning === ab.inning && prev.is_top === ab.is_top) {
+      if (isOutResult(prev.pitches[prev.pitches.length - 1]?.result ?? '')) outs = Math.min(outs + 1, 2);
+    }
+  }
+
+  const runners = computeAbRunners(atBats, safeAbIdx);
+
+  const avgMap = new Map<string, string>();
+  for (const b of batters) {
+    if (b.at_bats > 0) {
+      const s = (b.hits / b.at_bats).toFixed(3);
+      avgMap.set(b.player_name, s.startsWith('0.') ? s.slice(1) : s);
+    }
+  }
+  const pcMap = new Map<string, number>();
+  for (const p of pitchers) pcMap.set(p.player_name, p.pitch_count);
+
+  const pitchLabel = translatePitchResult(cur.result);
+
+  function goNextAb()   { if (safeAbIdx < total - 1) { setAbIdx(safeAbIdx + 1); setPitchIdx(0); } }
+  function goPrevAb()   { if (safeAbIdx > 0) { setAbIdx(safeAbIdx - 1); setPitchIdx(0); } }
+  function goNextPitch() { if (safePI < maxPitch) setPitchIdx(safePI + 1); else goNextAb(); }
+  function goPrevPitch() {
+    if (safePI > 0) setPitchIdx(safePI - 1);
+    else if (safeAbIdx > 0) { setAbIdx(safeAbIdx - 1); setPitchIdx(atBats[safeAbIdx - 1].pitches.length - 1); }
+  }
+
+  const bp = { b1: { left: '85%', top: '45%' }, b2: { left: '50%', top: '33%' }, b3: { left: '15%', top: '45%' } };
+  const ReplayBase = ({ active, runner }: { active: boolean; runner?: string | null }) => (
+    <div className="flex flex-col items-center gap-0.5">
+      {active && runner && (
+        <div className="mb-0.5 bg-black/85 text-yellow-300 text-[10px] font-black px-2 py-0.5 rounded-full whitespace-nowrap shadow border border-yellow-400/30">{runner}</div>
       )}
+      <div className={`w-5 h-5 rounded-sm border-2 shadow ${active ? 'bg-yellow-400 border-yellow-200 shadow-yellow-400/50' : 'bg-white/85 border-gray-300'}`}
+        style={{ transform: 'rotate(45deg)' }} />
+    </div>
+  );
+
+  const SZ_W_R = Math.round(SZ_W * 1.2);
+  const SZ_H_R = Math.round((SZ_H + 14) * 1.2);
+
+  return (
+    <div className="flex flex-col select-none">
+      <div className="relative overflow-hidden bg-gray-900" style={{ height: 350 }}>
+        <img src="/baseball-field.png" alt="" className="absolute inset-0 w-full h-full object-cover"
+          onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        <div className="absolute inset-0 bg-black/50" />
+
+        {/* 壘包 */}
+        <div className="absolute" style={{ left: bp.b2.left, top: bp.b2.top, transform: 'translate(-50%,-50%)' }}><ReplayBase active={!!runners.base2} runner={runners.base2} /></div>
+        <div className="absolute" style={{ left: bp.b3.left, top: bp.b3.top, transform: 'translate(-50%,-50%)' }}><ReplayBase active={!!runners.base3} runner={runners.base3} /></div>
+        <div className="absolute" style={{ left: bp.b1.left, top: bp.b1.top, transform: 'translate(-50%,-50%)' }}><ReplayBase active={!!runners.base1} runner={runners.base1} /></div>
+
+        {/* 左上：局次 + BSO */}
+        <div className="absolute top-3 left-3 bg-black/85 rounded-xl px-3 py-2 shadow-xl min-w-[110px]">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className="text-white font-black text-xs">{ab.inning}回{ab.is_top ? '表' : '裏'}</span>
+            <span className="text-yellow-400 font-black text-[10px] border border-yellow-400 px-1 rounded">リプレイ</span>
+          </div>
+          <BSOLights balls={balls} strikes={strikes} outs={outs} />
+        </div>
+
+        {/* 上中央：球種 + 球速 */}
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-black/85 rounded-xl px-4 py-2 text-center shadow-xl">
+          <div className="text-white font-black text-sm">{pitchLabel}</div>
+          {(cur.ball_kind || cur.speed) && (
+            <div className="text-gray-300 text-[11px] mt-0.5">
+              {cur.speed && <span className="text-blue-300 font-bold">{cur.speed}km/h </span>}
+              {cur.ball_kind && <span>{cur.ball_kind}</span>}
+            </div>
+          )}
+        </div>
+
+        {/* 左下：投手 */}
+        <div className="absolute bottom-3 left-3 bg-black/85 rounded-xl px-3 py-2 shadow-xl max-w-[140px]">
+          <div className="text-gray-400 text-[9px] font-bold mb-1">投手</div>
+          <div className="text-white font-black text-sm truncate">{ab.pitcherName}</div>
+          {pcMap.get(ab.pitcherName) != null && (
+            <div className="text-gray-400 text-[10px] mt-0.5">{pcMap.get(ab.pitcherName)} 球</div>
+          )}
+        </div>
+
+        {/* 中下：打者 */}
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/85 rounded-xl px-3 py-2 text-center shadow-xl max-w-[140px]">
+          <div className="text-gray-400 text-[9px] font-bold mb-1">打者</div>
+          <div className="text-white font-black text-sm truncate">{ab.batterName}</div>
+          {avgMap.get(ab.batterName) && (
+            <div className="text-yellow-400 text-[10px] font-bold mt-0.5">{avgMap.get(ab.batterName)}</div>
+          )}
+        </div>
+
+        {/* 右下：好球帶 + 球歷 */}
+        <div className="absolute bottom-3 right-3 bg-black/85 rounded-xl px-2 py-2 shadow-xl flex gap-2 items-start">
+          <svg width={SZ_W_R} height={SZ_H_R} viewBox={`0 0 ${SZ_W} ${SZ_H + 14}`}>
+            <rect x={SZ_LEFT} y={SZ_TOP} width={SZ_RIGHT - SZ_LEFT} height={SZ_BOTTOM - SZ_TOP}
+              fill="rgba(255,255,255,0.08)" stroke="rgba(156,163,175,0.7)" strokeWidth="1" />
+            {[1, 2].map(i => (
+              <g key={i}>
+                <line x1={SZ_LEFT + (SZ_RIGHT - SZ_LEFT) * i / 3} y1={SZ_TOP} x2={SZ_LEFT + (SZ_RIGHT - SZ_LEFT) * i / 3} y2={SZ_BOTTOM} stroke="rgba(156,163,175,0.35)" strokeWidth="0.5" />
+                <line x1={SZ_LEFT} y1={SZ_TOP + (SZ_BOTTOM - SZ_TOP) * i / 3} x2={SZ_RIGHT} y2={SZ_TOP + (SZ_BOTTOM - SZ_TOP) * i / 3} stroke="rgba(156,163,175,0.35)" strokeWidth="0.5" />
+              </g>
+            ))}
+            {revealed.filter(p => p.x != null && p.y != null).map((p, i) => {
+              const { cx, cy } = mapXY(p.x, p.y);
+              const isCur = i === revealed.filter(pp => pp.x != null).length - 1;
+              return (
+                <g key={i}>
+                  <circle cx={cx} cy={cy} r={isCur ? 5 : 3.5} fill={pitchColor(p.ball_kind)}
+                    stroke={isCur ? 'white' : 'transparent'} strokeWidth={isCur ? 1.5 : 0} opacity={isCur ? 1 : 0.6} />
+                  <text x={cx} y={cy + 0.5} textAnchor="middle" dominantBaseline="middle"
+                    fontSize={isCur ? 7 : 5.5} fill="white" fontWeight="bold">{i + 1}</text>
+                </g>
+              );
+            })}
+          </svg>
+          <div className="flex flex-col gap-0.5 min-w-[64px] max-h-[100px] overflow-y-auto">
+            {revealed.map((p, i) => {
+              const isCur = i === revealed.length - 1;
+              return (
+                <div key={i} className={`flex items-center gap-1 text-[10px] ${isCur ? 'text-white font-black' : 'text-gray-400'}`}>
+                  <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black flex-shrink-0 ${isCur ? 'bg-yellow-400 text-gray-900' : 'bg-gray-700 text-gray-300'}`}>{i + 1}</span>
+                  <span className="truncate">{translatePitchResult(p.result)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* 下部導覽列 */}
+      <div className="bg-gray-900 flex items-center justify-between px-3 py-2.5 gap-2">
+        <div className="flex items-center gap-1.5 flex-1">
+          <button onClick={goPrevAb} disabled={safeAbIdx === 0}
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-black disabled:opacity-30 hover:bg-blue-700 active:scale-95 transition shrink-0">
+            ◀ 前へ
+          </button>
+          <div className="text-center flex-1">
+            <div className="text-white font-black text-xs">{attackTeam}攻撃</div>
+            <div className="text-gray-400 text-[10px]">第{ab.abSeq} / {total}打席</div>
+          </div>
+          <button onClick={goNextAb} disabled={isLastAb}
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-600 text-white rounded-lg text-xs font-black disabled:opacity-30 hover:bg-gray-500 active:scale-95 transition shrink-0">
+            次へ ▶
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button onClick={goPrevPitch} disabled={safeAbIdx === 0 && safePI === 0}
+            className="px-2.5 py-1.5 bg-gray-700 text-white rounded-lg text-xs font-black disabled:opacity-30 hover:bg-gray-600 active:scale-95 transition">
+            前一球
+          </button>
+          <div className="text-center min-w-[48px]">
+            <div className="text-gray-300 text-[10px] font-bold tabular-nums">{safePI + 1}/{pitches.length}球</div>
+          </div>
+          <button onClick={goNextPitch} disabled={isAtEnd}
+            className="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-black disabled:opacity-30 hover:bg-blue-700 active:scale-95 transition">
+            下一球
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -524,7 +796,7 @@ function LineupPanel({ name, batters, rosterMap }: {
                 {pos}
               </span>
               {/* 選手名 */}
-              <span className={`flex-1 truncate text-[11px] ${
+              <span className={`flex-1 text-[11px] ${
                 isStarter ? 'font-bold text-gray-800' : 'font-medium text-amber-700'
               }`}>
                 {b.player_name}
@@ -841,24 +1113,43 @@ export default function NpbGameDetail({ game, awayCode, homeCode, onClose, stand
             </div>
 
           ) : tab === 'score' ? (
-            /* ── 比分速報：棒球場 + PBP 連動 ── */
-            <BaseballFieldPanel
-              latestEvent={latestPbpEvent}
-              isFinal={isFinal}
-              allEvents={playByPlay}
-              currentPitcherName={currentPitcher?.player_name}
-              pitcherPitchCount={currentPitcher?.pitch_count}
-              currentBatterName={latestBatterName || currentBatterStat?.player_name}
-              batterAvg={batterAvg}
-              pitches={pitchData}
-            />
+            /* ── 比分速報：結束 + 有逐球資料 → 回顧面板；其他 → 球場面板 ── */
+            isFinal && pitchData.length > 0 ? (
+              <NpbReplayFieldPanel
+                pitchData={pitchData}
+                awayName={awayName}
+                homeName={homeName}
+                batters={batters}
+                pitchers={pitchers}
+              />
+            ) : (
+              <BaseballFieldPanel
+                latestEvent={latestPbpEvent}
+                isFinal={isFinal}
+                allEvents={playByPlay}
+                currentPitcherName={currentPitcher?.player_name}
+                pitcherPitchCount={currentPitcher?.pitch_count}
+                currentBatterName={latestBatterName || currentBatterStat?.player_name}
+                batterAvg={batterAvg}
+                pitches={pitchData}
+              />
+            )
 
           ) : tab === 'pbp' ? (
             /* ── 文字速報 ── */
             playByPlay.length === 0 ? (
               <div className="text-center py-8 text-gray-400 text-sm">速報資料尚未更新</div>
             ) : (
-              <NpbPlayByPlayCards events={playByPlay} awayName={awayName} homeName={homeName} batters={batters} innings={innings} />
+              <div>
+                  {/* 圖例 */}
+                  <div className="flex items-center justify-end gap-3 px-4 pt-3 pb-1 text-[11px] text-gray-400 font-bold">
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full bg-green-400" />壞球</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full bg-yellow-400" />好球</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" />出局</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-500" />安打</span>
+                  </div>
+                  <NpbPlayByPlayCards events={playByPlay} awayName={awayName} homeName={homeName} batters={batters} innings={innings} pitchData={pitchData} pitchers={pitchers} />
+                </div>
             )
 
           ) : (
@@ -976,6 +1267,62 @@ function InningScoreTable({ innings, stats, awayName, homeName, totalAway, total
 
 // ── 文字速報 ──────────────────────────────────────────────────────────────────
 
+// ── 日文 pitch text 翻譯 ────────────────────────────────────────────────────
+function translatePitchText(text: string): string {
+  return text
+    .replace(/ボール/g, '壞球').replace(/ストライク/g, '好球')
+    .replace(/空振り/g, '揮空').replace(/見逃し/g, '見逃')
+    .replace(/ファウル/g, '界外球').replace(/三振/g, '三振')
+    .replace(/ヒット|安打/g, '安打').replace(/本塁打|ホームラン/g, '全壘打')
+    .replace(/二塁打/g, '二壘安打').replace(/三塁打/g, '三壘安打')
+    .replace(/ゴロ/g, '滾地').replace(/フライ/g, '飛球')
+    .replace(/四球/g, '四壞球').replace(/死球/g, '觸身球');
+}
+
+// 逐球結果短文翻譯（用於 pitch list 欄）
+function translatePitchShort(result: string): string {
+  if (!result) return '';
+  if (result.includes('ボール')) return '壞球';
+  if (result.includes('空振')) return '揮空';
+  if (result.includes('見逃')) return '見逃';
+  if (result.includes('ファウル')) return '界外';
+  if (result.includes('三振')) return '三振';
+  if (result.includes('安打') || result.includes('ヒット')) return '安打';
+  if (result.includes('本塁打') || result.includes('ホームラン')) return '全壘打';
+  if (result.includes('ゴロ')) return '滾地';
+  if (result.includes('フライ')) return '飛球';
+  if (result.includes('ライナー')) return '平飛';
+  if (result.includes('四球')) return '四壞';
+  if (result.includes('死球')) return '觸身';
+  return result;
+}
+
+// 逐球圓圈顏色（非最後一球：壞球=綠, 好球=黃；最後一球：安打=藍, 四壞=綠, 出局=紅, 其他=黃）
+function pitchCircleBg(result: string, isStrike: boolean, isFinal: boolean): string {
+  if (isFinal) {
+    if (/安打|ヒット|本塁打|ホームラン|二塁打|三塁打/.test(result)) return 'bg-blue-500 text-white';
+    if (/四球|死球/.test(result)) return 'bg-green-400 text-white';
+    if (/三振|ゴロ|フライ|ライナー|犠打|犠飛|併殺/.test(result)) return 'bg-red-500 text-white';
+    return 'bg-yellow-400 text-gray-800';
+  }
+  return isStrike ? 'bg-yellow-400 text-gray-800' : 'bg-green-400 text-white';
+}
+
+// ERA 計算（earned_runs / innings * 9，innings_pitched 格式: "5.0" 或 "5.1/3"）
+function parseInningsNum(ip: string): number {
+  if (!ip) return 0;
+  const parts = ip.split('.');
+  const full = parseInt(parts[0]) || 0;
+  const frac = parts[1] ? parseInt(parts[1]) / 3 : 0;
+  return full + frac;
+}
+function fmtNpbEra(earnedRuns: number, ip: string): string {
+  const ipNum = parseInningsNum(ip);
+  if (ipNum <= 0) return '-.--';
+  const era = (earnedRuns * 9) / ipNum;
+  return era.toFixed(2);
+}
+
 // ── 日文→中文翻譯 ─────────────────────────────────────────────────────────────
 function translateJa(text: string): string {
   const map: [RegExp | string, string][] = [
@@ -1041,51 +1388,52 @@ function translateJa(text: string): string {
   return result;
 }
 
-// ── NPB 一軍文字速報卡片（CPBL 風格）────────────────────────────────────────
+// ── NPB 一軍文字速報（二軍風格）────────────────────────────────────────────────
 
-function parseNpbDesc(desc: string): {
-  outs: number; b1: boolean; b2: boolean; b3: boolean;
-  batterName: string; balls: number; strikes: number; result: string;
-} | null {
+interface RichPbpEntry {
+  batNum: string;
+  batterName: string;
+  outsB4: number;
+  result: string;
+  balls: number;
+  strikes: number;
+  pitches: { num: string; text: string }[];
+}
+
+function parseRichPbp(desc: string): RichPbpEntry | null {
+  if (!desc.startsWith('{')) return null;
+  try { return JSON.parse(desc) as RichPbpEntry; } catch { return null; }
+}
+
+function parseOldStylePbp(desc: string): RichPbpEntry | null {
   if (!desc.includes('より')) return null;
   const outsM = desc.match(/^(\d+)アウト\s*/);
   if (!outsM) return null;
-  const outs = parseInt(outsM[1]);
   let rest = desc.slice(outsM[0].length);
-  let b1 = false, b2 = false, b3 = false;
-  const runnerPats: [RegExp, boolean, boolean, boolean][] = [
-    [/^満塁\s*/, true, true, true],
-    [/^1・2・3塁\s*/, true, true, true],
-    [/^1・2塁\s*/, true, true, false],
-    [/^1・3塁\s*/, true, false, true],
-    [/^2・3塁\s*/, false, true, true],
-    [/^1塁\s*/, true, false, false],
-    [/^2塁\s*/, false, true, false],
-    [/^3塁\s*/, false, false, true],
-  ];
-  for (const [pat, r1, r2, r3] of runnerPats) {
-    const m = rest.match(pat);
-    if (m) { b1 = r1; b2 = r2; b3 = r3; rest = rest.slice(m[0].length); break; }
+  for (const pat of [/^満塁\s*/,/^1・2・3塁\s*/,/^1・2塁\s*/,/^1・3塁\s*/,/^2・3塁\s*/,/^[123]塁\s*/]) {
+    const m = rest.match(pat); if (m) { rest = rest.slice(m[0].length); break; }
   }
-  const bsoM = rest.match(/^(.+?)\s+(\d+)-(\d+)より\s+(.+)$/);
-  if (!bsoM) return null;
-  return { outs, b1, b2, b3, batterName: bsoM[1].trim(), balls: parseInt(bsoM[2]), strikes: parseInt(bsoM[3]), result: bsoM[4].trim() };
+  const m = rest.match(/^(.+?)\s+(\d+)-(\d+)より\s+(.+)$/);
+  if (!m) return null;
+  return { batNum: '', batterName: m[1].trim(), outsB4: parseInt(outsM[1]),
+    balls: parseInt(m[2]), strikes: parseInt(m[3]), result: m[4].trim(), pitches: [] };
 }
 
 function npbResultBadge(result: string): { label: string; color: string } | null {
   if (/本塁打|ホームラン/.test(result)) return { label: '全打', color: 'bg-red-600 text-white' };
   if (/三塁打/.test(result)) return { label: '三安', color: 'bg-orange-500 text-white' };
   if (/二塁打/.test(result)) return { label: '二安', color: 'bg-green-600 text-white' };
-  if (/内野安打|安打|ヒット/.test(result)) return { label: '一安', color: 'bg-green-500 text-white' };
-  if (/フォアボール|四球|敬遠/.test(result)) return { label: '四壞', color: 'bg-green-500 text-white' };
-  if (/死球/.test(result)) return { label: '死球', color: 'bg-blue-500 text-white' };
-  if (/犠牲フライ|犠飛/.test(result)) return { label: '犠飛', color: 'bg-gray-500 text-white' };
-  if (/犠打|バント/.test(result)) return { label: '犠打', color: 'bg-gray-500 text-white' };
-  if (/三振/.test(result)) return { label: '三振', color: 'bg-gray-400 text-white' };
-  if (/併殺|ダブルプレー/.test(result)) return { label: '雙殺', color: 'bg-gray-500 text-white' };
-  if (/失策|野手選択/.test(result)) return { label: '失誤', color: 'bg-orange-400 text-white' };
-  if (/フライ/.test(result)) return { label: '飛出', color: 'bg-gray-400 text-white' };
-  if (/ゴロ|ライナー/.test(result)) return { label: '滾出', color: 'bg-gray-400 text-white' };
+  if (/内野安打|安打|ヒット/.test(result)) return { label: '安打', color: 'bg-green-500 text-white' };
+  if (/フォアボール|四球|敬遠/.test(result)) return { label: '四壞', color: 'bg-blue-400 text-white' };
+  if (/死球/.test(result)) return { label: '觸身', color: 'bg-blue-500 text-white' };
+  if (/犠牲フライ|犠飛/.test(result)) return { label: '犧飛', color: 'bg-gray-500 text-white' };
+  if (/犠打|バント/.test(result)) return { label: '犧打', color: 'bg-gray-500 text-white' };
+  if (/三振/.test(result)) return { label: '三振', color: 'bg-gray-700 text-white' };
+  if (/併殺|ダブルプレー/.test(result)) return { label: '雙殺', color: 'bg-gray-600 text-white' };
+  if (/失策/.test(result)) return { label: '失誤', color: 'bg-orange-400 text-white' };
+  if (/野手選択/.test(result)) return { label: '野選', color: 'bg-orange-300 text-white' };
+  if (/フライ|ライナー/.test(result)) return { label: '飛出', color: 'bg-gray-500 text-white' };
+  if (/ゴロ/.test(result)) return { label: '滾出', color: 'bg-gray-500 text-white' };
   return null;
 }
 
@@ -1093,36 +1441,180 @@ function NpbBSODots({ balls, strikes, outs }: { balls: number; strikes: number; 
   return (
     <div className="flex items-center gap-1.5 select-none">
       <div className="flex gap-0.5">
-        {[0,1,2].map(i => <span key={i} className={`inline-block w-2.5 h-2.5 rounded-full border ${i < balls ? 'bg-green-400 border-green-500' : 'bg-gray-200 border-gray-300'}`} />)}
+        {[0,1,2].map(i => <span key={i} className={`inline-block w-3 h-3 rounded-full ${i < balls ? 'bg-green-400' : 'bg-gray-200'}`} />)}
       </div>
       <div className="flex gap-0.5">
-        {[0,1].map(i => <span key={i} className={`inline-block w-2.5 h-2.5 rounded-full border ${i < strikes ? 'bg-yellow-400 border-yellow-500' : 'bg-gray-200 border-gray-300'}`} />)}
+        {[0,1].map(i => <span key={i} className={`inline-block w-3 h-3 rounded-full ${i < strikes ? 'bg-yellow-400' : 'bg-gray-200'}`} />)}
       </div>
       <div className="flex gap-0.5">
-        {[0,1].map(i => <span key={i} className={`inline-block w-2.5 h-2.5 rounded-full border ${i < outs ? 'bg-red-400 border-red-500' : 'bg-gray-200 border-gray-300'}`} />)}
+        {[0,1].map(i => <span key={i} className={`inline-block w-3 h-3 rounded-full ${i < outs ? 'bg-red-400' : 'bg-gray-200'}`} />)}
       </div>
     </div>
   );
 }
 
 function NpbBaseDiamond({ b1, b2, b3 }: { b1: boolean; b2: boolean; b3: boolean }) {
-  const size = 10, gap = 2, span = size + gap, svgSize = span * 2 + size;
+  const s = 9, g = 2, sp = s + g, sz = sp * 2 + s;
   return (
-    <svg width={svgSize} height={svgSize} viewBox={`0 0 ${svgSize} ${svgSize}`}>
-      <rect x={span} y={0} width={size} height={size} rx={1} transform={`rotate(45 ${span + size/2} ${size/2})`} fill={b2 ? '#f59e0b' : '#d1d5db'} />
-      <rect x={0} y={span} width={size} height={size} rx={1} transform={`rotate(45 ${size/2} ${span + size/2})`} fill={b3 ? '#f59e0b' : '#d1d5db'} />
-      <rect x={span*2} y={span} width={size} height={size} rx={1} transform={`rotate(45 ${span*2 + size/2} ${span + size/2})`} fill={b1 ? '#f59e0b' : '#d1d5db'} />
-      <rect x={span} y={span*2} width={size} height={size} rx={1} transform={`rotate(45 ${span + size/2} ${span*2 + size/2})`} fill="#d1d5db" />
+    <svg width={sz} height={sz} viewBox={`0 0 ${sz} ${sz}`} className="flex-shrink-0">
+      <rect x={sp} y={0} width={s} height={s} rx={1} transform={`rotate(45 ${sp+s/2} ${s/2})`}    fill={b2 ? '#f59e0b' : '#e5e7eb'} />
+      <rect x={0}  y={sp} width={s} height={s} rx={1} transform={`rotate(45 ${s/2} ${sp+s/2})`}   fill={b3 ? '#f59e0b' : '#e5e7eb'} />
+      <rect x={sp*2} y={sp} width={s} height={s} rx={1} transform={`rotate(45 ${sp*2+s/2} ${sp+s/2})`} fill={b1 ? '#f59e0b' : '#e5e7eb'} />
+      <rect x={sp} y={sp*2} width={s} height={s} rx={1} transform={`rotate(45 ${sp+s/2} ${sp*2+s/2})`} fill="#e5e7eb" />
     </svg>
   );
 }
 
-function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings }: {
+function RichAtBatCard({ entry, order, avg, score, b1, b2, b3, pitchRows, pitcherInfo }: {
+  entry: RichPbpEntry;
+  order: number | undefined;
+  avg: string | undefined;
+  score: { away: number; home: number } | undefined;
+  b1: boolean; b2: boolean; b3: boolean;
+  pitchRows?: PitchData[];
+  pitcherInfo?: { name: string; pitch_count?: number; era?: string } | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const badge = npbResultBadge(entry.result);
+  const initial = entry.batterName.charAt(0) || '?';
+
+  // BSO before last pitch (from actual pitch data if available, else from JSON entry)
+  let finalBalls = entry.balls;
+  let finalStrikes = entry.strikes;
+  if (pitchRows && pitchRows.length > 0) {
+    finalBalls = 0; finalStrikes = 0;
+    for (let i = 0; i < pitchRows.length - 1; i++) {
+      if (!pitchRows[i].is_strike) finalBalls = Math.min(finalBalls + 1, 3);
+      else if (finalStrikes < 2) finalStrikes++;
+    }
+  }
+
+  const hasPitches = pitchRows && pitchRows.length > 0;
+
+  return (
+    <div className="p-3 border-b border-gray-100 last:border-0">
+      {/* Main at-bat card */}
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-12 flex-shrink-0 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-500 text-base font-black select-none">
+          {initial}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          {/* Batting order + name + avg */}
+          <div className="flex items-center gap-1.5 flex-wrap mb-1">
+            {order != null && <span className="text-xs font-black text-gray-500">第{order}棒</span>}
+            <span className="font-black text-sm text-gray-800">{entry.batterName}</span>
+            {avg && <span className="text-[11px] font-bold bg-yellow-50 text-yellow-700 border border-yellow-200 px-1.5 py-0.5 rounded">{avg}</span>}
+          </div>
+
+          {/* BSO dots + result badge + base diamond + score */}
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+            <NpbBSODots balls={finalBalls} strikes={finalStrikes} outs={entry.outsB4} />
+            {badge && (
+              <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full tracking-wide ${badge.color}`}>
+                {badge.label}
+              </span>
+            )}
+            <NpbBaseDiamond b1={b1} b2={b2} b3={b3} />
+            {score != null && (
+              <span className="ml-auto text-xs font-black text-gray-600 tabular-nums whitespace-nowrap">
+                客 {score.away} : {score.home} 主
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Pitcher row + expand toggle */}
+      {(pitcherInfo || hasPitches) && (
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="mt-2 mb-1 w-full flex items-center gap-2 pl-0.5 text-left hover:bg-gray-50 rounded-md py-0.5 transition-colors"
+        >
+          <span className="text-[11px] text-gray-400">
+            投手：{pitcherInfo?.name ?? pitchRows?.[0]?.pitcher_name ?? ''}
+          </span>
+          {pitcherInfo?.pitch_count != null && (
+            <span className="text-[11px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">
+              {pitcherInfo.pitch_count}球{pitcherInfo.era ? ` ERA ${pitcherInfo.era}` : ''}
+            </span>
+          )}
+          <span className="ml-auto flex items-center gap-1 text-[11px] font-bold text-gray-400 shrink-0">
+            {hasPitches ? pitchRows!.length : 0}球
+            <span className="text-[10px]">{expanded ? '▲' : '▼'}</span>
+          </span>
+        </button>
+      )}
+
+      {/* Pitch list from game_pitch_data */}
+      {hasPitches && (() => {
+        const toShow = expanded ? pitchRows! : pitchRows!.slice(-1);
+        return (
+          <div className="space-y-0 pl-1 border-l-2 border-gray-100 ml-1">
+            {toShow.map((pitch) => {
+              const actualIdx = pitchRows!.indexOf(pitch);
+              const pitchNum = actualIdx + 1;
+              const isFinalPitch = actualIdx === pitchRows!.length - 1;
+              const numBg = pitchCircleBg(pitch.result ?? '', pitch.is_strike, isFinalPitch);
+
+              // B-S before this pitch
+              let b = 0, s = 0;
+              for (let j = 0; j < actualIdx; j++) {
+                if (!pitchRows![j].is_strike) b++;
+                else if (s < 2) s++;
+              }
+
+              const label = translatePitchShort(pitch.result ?? '');
+              const speedText = (pitch.speed != null && pitch.speed > 0) ? `${pitch.speed}k` : '';
+              const rType = isFinalPitch
+                ? (/安打|ヒット|本塁打|ホームラン/.test(pitch.result ?? '') ? 'hit'
+                  : /四球|死球/.test(pitch.result ?? '') ? 'walk'
+                  : /三振|ゴロ|フライ|犠/.test(pitch.result ?? '') ? 'out' : 'other')
+                : 'other';
+              const labelColor = rType === 'hit' ? 'text-blue-600 font-black'
+                : rType === 'walk' ? 'text-green-600 font-black'
+                : rType === 'out'  ? 'text-red-600 font-black'
+                : 'text-gray-700';
+
+              return (
+                <div key={pitch.pitch_num} className="flex items-center gap-2 py-1 px-2 hover:bg-gray-50 rounded">
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${numBg}`}>
+                    {pitchNum}
+                  </span>
+                  <span className="flex-1 text-xs leading-relaxed">
+                    {pitch.ball_kind && <span className="text-gray-400 mr-1">{pitch.ball_kind}</span>}
+                    {speedText && <span className="text-gray-400 mr-1">{speedText}</span>}
+                    <span className={labelColor}>{label}</span>
+                  </span>
+                  <span className="text-[11px] font-bold text-gray-400 tabular-nums shrink-0">{b}-{s}</span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+// 判斷打席結果是否出局（用於壘上跑者推算）
+function isAbOut(result: string): boolean {
+  if (/三振/.test(result)) return true;
+  if (/ゴロ/.test(result) && !/安打|ヒット|野手選択/.test(result)) return true;
+  if (/フライ|ライナー/.test(result) && !/安打|ヒット/.test(result)) return true;
+  if (/犠打|犠飛/.test(result)) return true;
+  if (/併殺/.test(result)) return true;
+  return false;
+}
+
+function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings, pitchData, pitchers }: {
   events: PlayByPlayEvent[];
   awayName: string;
   homeName: string;
   batters: BatterStat[];
   innings: GameInning[];
+  pitchData: PitchData[];
+  pitchers: PitcherStat[];
 }) {
   const batterOrderMap = new Map<string, number>();
   const batterAvgMap   = new Map<string, string>();
@@ -1132,7 +1624,34 @@ function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings }: {
     batterAvgMap.set(b.player_name, avg);
   }
 
-  // 累積比分：halfScore[`${inning}-${is_top}`] = { away, home } 打席開始前的比分
+  // Build pitch lookup: "${inning}_${isTop ? 1 : 0}_${abSeq}" → PitchData[] sorted by pitch_num
+  // Sanspo at_bat_key format: s{globalId}_{inning}_{tob}_{abSeq}  (tob: 1=top, 2=bottom)
+  const pitchMap = new Map<string, PitchData[]>();
+  for (const p of pitchData) {
+    const key = p.at_bat_key ?? '';
+    if (!key.startsWith('s')) continue;
+    const parts = key.split('_');
+    if (parts.length < 4) continue;
+    const inn = parseInt(parts[1]);
+    const tobNum = parseInt(parts[2]);        // 1=top, 2=bottom
+    const abSeq = parseInt(parts[3]);
+    const mapKey = `${inn}_${tobNum === 1 ? 1 : 0}_${abSeq}`;
+    if (!pitchMap.has(mapKey)) pitchMap.set(mapKey, []);
+    pitchMap.get(mapKey)!.push(p);
+  }
+  for (const arr of pitchMap.values()) arr.sort((a, b) => a.pitch_num - b.pitch_num);
+
+  // Pitcher ERA map
+  const pitcherEraMap = new Map<string, { name: string; pitch_count: number; era: string }>();
+  for (const p of pitchers) {
+    pitcherEraMap.set(p.player_name, {
+      name: p.player_name,
+      pitch_count: p.pitch_count,
+      era: fmtNpbEra(p.earned_runs, p.innings_pitched),
+    });
+  }
+
+  // 累積比分
   const halfScore = new Map<string, { away: number; home: number }>();
   let cumAway = 0, cumHome = 0;
   const maxInning = Math.max(...innings.map(i => i.inning), 0);
@@ -1144,6 +1663,7 @@ function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings }: {
     cumHome += inn?.score_home ?? 0;
   }
 
+  // 依局半分組
   const grouped = new Map<string, PlayByPlayEvent[]>();
   for (const e of events) {
     const key = `${e.inning}-${e.is_top}`;
@@ -1152,11 +1672,9 @@ function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings }: {
   }
 
   const sortedKeys = [...grouped.keys()].sort((a, b) => {
-    const [ai, at] = a.split('-');
-    const [bi, bt] = b.split('-');
-    const inningDiff = parseInt(ai) - parseInt(bi);
-    if (inningDiff !== 0) return inningDiff;
-    return (at === 'true' ? 1 : 0) - (bt === 'true' ? 1 : 0);
+    const [ai, at] = a.split('-'); const [bi, bt] = b.split('-');
+    const d = parseInt(ai) - parseInt(bi);
+    return d !== 0 ? d : (at === 'true' ? 1 : 0) - (bt === 'true' ? 1 : 0);
   }).reverse();
 
   return (
@@ -1165,67 +1683,84 @@ function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings }: {
         const [inningStr, isTopStr] = key.split('-');
         const inning = parseInt(inningStr);
         const isTop  = isTopStr === 'true';
+        // 正序 plays（最舊到最新），顯示時再 reverse 為最新在上
         const plays  = grouped.get(key)!;
         const score  = halfScore.get(key);
+
+        // 正向計算壘上狀態 + abSeq 對應
+        let rb1 = false, rb2 = false, rb3 = false, rOuts = 0;
+        const runnerStates: { b1: boolean; b2: boolean; b3: boolean }[] = [];
+        const evAbSeqMap = new Map<PlayByPlayEvent, number>();
+        let abCounter = 0;
+        for (const ev of plays) {
+          const rich = parseRichPbp(ev.description) ?? parseOldStylePbp(ev.description);
+          if (!rich) { runnerStates.push({ b1: rb1, b2: rb2, b3: rb3 }); continue; }
+          abCounter++;
+          evAbSeqMap.set(ev, abCounter);
+          runnerStates.push({ b1: rb1, b2: rb2, b3: rb3 });
+          const res = rich.result;
+          if (/本塁打|ホームラン/.test(res)) { rb1 = false; rb2 = false; rb3 = false; }
+          else if (/三塁打/.test(res)) { rb1 = false; rb2 = false; rb3 = true; }
+          else if (/二塁打/.test(res)) { rb3 = rb2; rb2 = true; rb1 = false; }
+          else if (/安打|ヒット|内野安打/.test(res)) { rb3 = rb2; rb2 = rb1; rb1 = true; }
+          else if (/四球|死球|敬遠/.test(res)) {
+            if (rb1 && rb2) { rb3 = rb2; rb2 = rb1; rb1 = true; }
+            else if (rb1) { rb2 = rb1; rb1 = true; }
+            else rb1 = true;
+          } else if (isAbOut(res)) {
+            rOuts++;
+            if (rOuts >= 3) { rb1 = false; rb2 = false; rb3 = false; rOuts = 0; }
+          }
+        }
+
+        // 反轉顯示（最新在上）
+        const reversedPlays = [...plays].reverse();
+        const reversedStates = [...runnerStates].reverse();
+
         return (
-          <div key={key} className="border-b border-gray-100 last:border-0">
-            <div className={`px-4 py-1.5 text-xs font-bold sticky top-0 z-10 ${
-              isTop ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'
+          <div key={key} className="mb-2 rounded-xl overflow-hidden border border-gray-200 shadow-sm">
+            {/* 局半標題列 */}
+            <div className={`px-4 py-1.5 flex items-center gap-2 ${
+              isTop ? 'bg-blue-600' : 'bg-orange-500'
             }`}>
-              {inning}局{isTop ? '上' : '下'}（{isTop ? awayName : homeName}攻）
+              <span className="text-white font-black text-sm">{inning} 局{isTop ? '上' : '下'}</span>
+              <span className="text-white/80 text-xs font-bold">（{isTop ? awayName : homeName}攻）</span>
             </div>
-            <div className="divide-y divide-gray-50">
-              {[...plays].reverse().map((ev, i) => {
-                const parsed = parseNpbDesc(ev.description);
-                if (!parsed) {
+
+            <div className="divide-y divide-gray-100 bg-white">
+              {reversedPlays.map((ev, i) => {
+                const rich = parseRichPbp(ev.description) ?? parseOldStylePbp(ev.description);
+                const runners = reversedStates[i] ?? { b1: false, b2: false, b3: false };
+
+                if (!rich) {
+                  // 純文字公告（投手替換、守備交代等）
                   return (
-                    <div key={i} className="px-4 py-1.5 text-xs text-gray-400 leading-relaxed">
+                    <div key={i} className="px-4 py-2 text-xs text-gray-400 leading-relaxed">
                       {translateJa(ev.description)}
                     </div>
                   );
                 }
-                const { outs, b1, b2, b3, batterName, balls, strikes, result } = parsed;
-                const order = batterOrderMap.get(batterName);
-                const avg   = batterAvgMap.get(batterName);
-                const badge = npbResultBadge(result);
+
+                // Look up pitch data by (inning, isTop, abSeq)
+                const abSeq = evAbSeqMap.get(ev);
+                const pitchKey = abSeq != null ? `${inning}_${isTop ? 1 : 0}_${abSeq}` : null;
+                const matchedPitches = pitchKey ? (pitchMap.get(pitchKey) ?? []) : [];
+                const pitcherName = matchedPitches[0]?.pitcher_name ?? null;
+                const pitcherStats = pitcherName ? pitcherEraMap.get(pitcherName) ?? null : null;
+
                 return (
-                  <div key={i} className="px-4 py-3 flex gap-3 items-start">
-                    {/* 打者頭像佔位 */}
-                    <div className="w-9 h-10 rounded-md bg-gray-100 flex-shrink-0 flex items-center justify-center text-gray-400 text-xs font-bold">
-                      {order ? `#${order}` : '?'}
-                    </div>
-                    <div className="flex-1 min-w-0 space-y-1">
-                      {/* 第一行：打序 + 打者名 + 打率 */}
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {order && <span className="text-xs font-bold text-gray-500">第{order}棒</span>}
-                        <span className="font-bold text-sm text-gray-800">{batterName}</span>
-                        {avg && (
-                          <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded">
-                            {avg}
-                          </span>
-                        )}
-                      </div>
-                      {/* 第二行：BSO + 結果徽章 + 壘包 + 比分 */}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <NpbBSODots balls={balls} strikes={strikes} outs={outs} />
-                        {badge && (
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${badge.color}`}>
-                            {badge.label}
-                          </span>
-                        )}
-                        <NpbBaseDiamond b1={b1} b2={b2} b3={b3} />
-                        {score != null && (
-                          <span className="text-[10px] text-gray-500 font-bold ml-auto">
-                            客{score.away}:{score.home}主
-                          </span>
-                        )}
-                      </div>
-                      {/* 第三行：原文翻譯 */}
-                      <div className="text-xs text-gray-500 leading-relaxed">
-                        {translateJa(ev.description)}
-                      </div>
-                    </div>
-                  </div>
+                  <RichAtBatCard
+                    key={i}
+                    entry={rich}
+                    order={batterOrderMap.get(rich.batterName)}
+                    avg={batterAvgMap.get(rich.batterName)}
+                    score={score}
+                    b1={runners.b1}
+                    b2={runners.b2}
+                    b3={runners.b3}
+                    pitchRows={matchedPitches.length > 0 ? matchedPitches : undefined}
+                    pitcherInfo={pitcherStats ? { name: pitcherStats.name, pitch_count: pitcherStats.pitch_count, era: pitcherStats.era } : (pitcherName ? { name: pitcherName } : null)}
+                  />
                 );
               })}
             </div>
@@ -1345,7 +1880,7 @@ function BatterTable({ title, batters }: { title: string; batters: BatterStat[] 
                   {inningCols.map(n => {
                     const result = b.at_bat_results?.[n - 1] ?? '';
                     const isHr  = result.includes('本');
-                    const isHit = !isHr && (result.includes('安') || result.includes('二塁') || result.includes('三塁'));
+                    const isHit = !isHr && (result.includes('安') || result.includes('二塁') || result.includes('三塁') || /[123]$/.test(result));
                     return (
                       <td key={n} className="px-1 py-1 text-center whitespace-nowrap">
                         {result ? (

@@ -450,6 +450,21 @@ export default function AdminApp() {
                   className="bg-orange-500 text-white px-6 py-3 rounded-xl font-black hover:bg-orange-600 transition disabled:opacity-50">
                   🗑 清除重複比賽記錄
                 </button>
+                <button
+                  onClick={async () => {
+                    if (!confirm('清除主客場互換的重複二軍比賽？（優先保留有比分的那筆）')) return;
+                    setScraperLoading(true);
+                    try {
+                      const { cleanupSwappedDuplicates } = await import('../api/scraper');
+                      const res = await cleanupSwappedDuplicates();
+                      flash(`✅ ${res.message}`);
+                    } catch { flash('❌ 清除失敗'); }
+                    finally { setScraperLoading(false); }
+                  }}
+                  disabled={scraperLoading}
+                  className="bg-red-500 text-white px-6 py-3 rounded-xl font-black hover:bg-red-600 transition disabled:opacity-50">
+                  🔄 清除主客場互換重複記錄
+                </button>
               </div>
             </div>
 

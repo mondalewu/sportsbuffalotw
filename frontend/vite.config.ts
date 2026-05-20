@@ -10,6 +10,10 @@ export default defineConfig(({ mode }) => ({
   server: mode === 'development' ? {
     host: '0.0.0.0',
     port: 5173,
+    hmr: {
+      host: 'localhost',
+      port: 5173,
+    },
     proxy: {
       '/api': {
         target: process.env.API_PROXY_TARGET || 'http://localhost:3001',

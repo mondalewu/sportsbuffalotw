@@ -21,6 +21,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import pool from '../db/pool';
+import { runDocomoNpbDailyScraper } from './docomoNpbScraper';
 
 const NPB_BASE = 'https://npb.jp';
 
@@ -1192,10 +1193,7 @@ export async function runLiveBoxScoreUpdate(): Promise<void> {
         );
       }
 
-      // 更新 NPB.jp 文字速報
-      if (npbUrl) {
-        await scrapeNpbPlayByPlay(npbUrl, gameId);
-      }
+      // 文字速報與好球帶改由 Docomo 爬蟲負責（runDocomoNpbDailyScraper）
     }
 
     // ② 剛完賽（最近 24 小時）且尚無文字速報的場次：補抓一次
@@ -1210,10 +1208,7 @@ export async function runLiveBoxScoreUpdate(): Promise<void> {
          AND g.npb_url IS NOT NULL`,
     );
 
-    for (const row of recentFinal.rows) {
-      await scrapeNpbPlayByPlay(row.npb_url!, row.id);
-      await new Promise(r => setTimeout(r, 800));
-    }
+    // 文字速報與好球帶由 runDocomoNpbDailyScraper 負責，此處不再從 npb.jp 補抓
 
   } catch (err) {
     console.warn('[Live Update] 更新失敗:', (err as Error).message);
@@ -1262,14 +1257,7 @@ export async function runNpbScraper(): Promise<{ updated: number; message: strin
           detail.winPitcher, detail.lossPitcher, detail.savePitcher,
         );
 
-        // npb.jp 文字速報：使用 npb_url（若已填入）
-        const urlRow = await pool.query<{ npb_url: string | null }>(
-          'SELECT npb_url FROM games WHERE id = $1', [gameId]
-        );
-        const npbUrl = urlRow.rows[0]?.npb_url ?? null;
-        if (npbUrl) {
-          await scrapeNpbPlayByPlay(npbUrl, gameId);
-        }
+        // 文字速報與好球帶由 runDocomoNpbDailyScraper 負責
       }
 
       // Rate limiting — npb.jp に負荷をかけない
@@ -1280,6 +1268,12 @@ export async function runNpbScraper(): Promise<{ updated: number; message: strin
     npbScraperStatus.lastResult = `✅ NPB 更新 ${updated} 場 (${dateStr})`;
     npbScraperStatus.isRunning = false;
     console.log(`[NPB Scraper] ${npbScraperStatus.lastResult}`);
+
+    // Docomo 文字速報 + 好球帶（非同步，不阻擋主流程）
+    runDocomoNpbDailyScraper().catch(e =>
+      console.warn('[NPB Scraper] Docomo 副爬蟲失敗:', (e as Error).message),
+    );
+
     return { updated, message: npbScraperStatus.lastResult, status: npbScraperStatus };
 
   } catch (err) {

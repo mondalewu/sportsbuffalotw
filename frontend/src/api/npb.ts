@@ -83,6 +83,9 @@ export interface PlayByPlayEvent {
   is_top: boolean;
   play_order: number;
   description: string;
+  balls?: number;
+  strikes?: number;
+  outs_before?: number;
 }
 
 export const getNpbTeams = async (): Promise<NpbTeam[]> => {
@@ -297,5 +300,25 @@ export const getNpbPreseasonStandings = async (): Promise<PreseasonStandings> =>
 
 export const getNpbRecentGames = async (): Promise<FarmGame[]> => {
   const res = await apiClient.get('/npb/recent');
+  return res.data;
+};
+
+export interface NpbDocomoScrapeResult {
+  success: boolean;
+  message: string;
+  pitches: number;
+  plays: number;
+}
+
+export const rescrapeNpbDocomoGame = async (
+  docomoGameId: string,
+  dbGameId: number,
+  isFinal = false,
+): Promise<NpbDocomoScrapeResult> => {
+  const res = await apiClient.post('/scraper/rescrape-npb-docomo-game', {
+    docomoGameId,
+    dbGameId,
+    isFinal,
+  });
   return res.data;
 };

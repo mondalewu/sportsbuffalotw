@@ -10,6 +10,9 @@ import { runYahooFarmScraper, yahooFarmScraperStatus, runYahooFarmScheduleScrape
 import { runYahooFarmRosterScraper, farmRosterScraperStatus } from '../services/npbYahooFarmRosterScraper';
 import { runNpbStandingsScraper, npbStandingsScraperStatus } from '../services/npbStandingsScraper';
 import { runDocomoFarmScraper, docomoScraperStatus, rescrapeDocomoByDbGameId, backfillPitchDataByDocomoId, backfillYahooBatterStats, previewYahooBatterStats, runBatchYahooBackfill, batchYahooBackfillStatus } from '../services/docomoFarmScraper';
+import { scrapeDocomoNpbGame, scrapeDocomoNpbGameAuto, runDocomoNpbDailyScraper, docomoNpbDailyStatus } from '../services/docomoNpbScraper';
+import { scrapeSanspoGame, scrapeSanspoGameAuto, runSanspoNpbDailyScraper, sanspoNpbScraperStatus, mergeNamesIntoSanspoPitchData, fetchGameList, parseSanspoDate, normalizeSanspoTeam } from '../services/sanspoNpbScraper';
+import { runCombinedNpbDailyScraper, runCombinedScrapeForGame, runMergeNamesForTodayGames, combinedNpbScraperStatus } from '../services/combinedNpbScraper';
 import pool from '../db/pool';
 
 const router = Router();
@@ -28,6 +31,9 @@ router.get('/status', verifyToken, requireRole('editor', 'admin'), (_req: Reques
     npbFarmRoster: farmRosterScraperStatus,
     npbStandings: npbStandingsScraperStatus,
     docomoFarm: docomoScraperStatus,
+    docomoNpb: docomoNpbDailyStatus,
+    sanspoNpb: sanspoNpbScraperStatus,
+    combinedNpb: combinedNpbScraperStatus,
     npbBackfill: backfillStatus,
     npbPbpBackfill: pbpBackfillStatus,
     npbFarmPbp: farmPbpBackfillStatus,
@@ -313,6 +319,119 @@ router.post('/cleanup-duplicates', verifyToken, requireRole('editor', 'admin'), 
   }
 });
 
+// POST /api/v1/scraper/cleanup-swapped-duplicates — 清除主客場互換的重複二軍比賽
+router.post('/cleanup-swapped-duplicates', verifyToken, requireRole('editor', 'admin'), async (_req: Request, res: Response): Promise<void> => {
+  // venue 關鍵字 → 主場球隊（作為資料品質相同時的備援判斷）
+  const VENUE_HOME: Record<string, string> = {
+    '戸田': 'ヤクルト',
+    'ZOZOマリン': 'ロッテ', '幕張': 'ロッテ', 'QVC': 'ロッテ', 'ロッテ': 'ロッテ',
+    '鎌スタ': '楽天', '楽天生命': '楽天', '宮城': '楽天',
+    'ファイターズ': '日本ハム', 'ESCON': '日本ハム', 'エスコン': '日本ハム',
+    'タマスタ': 'ソフトバンク', 'みずほ': 'ソフトバンク', '北九州': 'ソフトバンク',
+    '所沢': '西武', '西武': '西武', 'カーミニーク': '西武', 'ベルーナ': '西武',
+    'ほっともっと': 'オリックス', '京セラ': 'オリックス',
+    '鳴尾浜': '阪神', '甲子園': '阪神',
+    '横須賀': 'DeNA', 'サーティーフォー': 'DeNA',
+    '由宇': '広島', 'マツダ': '広島',
+    'ナゴヤ': '中日', 'バンテリン': '中日', '岡崎': '中日',
+    '浜松': 'くふうハヤテ', 'ハヤテ': 'くふうハヤテ', '静岡': 'くふうハヤテ',
+    'オイシックス': 'オイシックス', '新潟': 'オイシックス',
+  };
+
+  function guessHomeTeam(venue: string | null): string | null {
+    if (!venue) return null;
+    for (const [kw, team] of Object.entries(VENUE_HOME)) {
+      if (venue.includes(kw)) return team;
+    }
+    return null;
+  }
+
+  // 資料品質分數：live 狀態 > 非 null 分數 > 總得分
+  function dataScore(row: { score_home: number | null; score_away: number | null; status: string }): number {
+    const isLive  = row.status === 'live'  ? 10000 : 0;
+    const notNull = (row.score_home !== null ? 1 : 0) + (row.score_away !== null ? 1 : 0);
+    const total   = (row.score_home ?? 0) + (row.score_away ?? 0);
+    return isLive + notNull * 1000 + total;
+  }
+
+  try {
+    const dupRes = await pool.query<{
+      id_a: number; id_b: number;
+      home_a: string; away_a: string;
+      sh_a: number | null; sa_a: number | null; status_a: string;
+      sh_b: number | null; sa_b: number | null; status_b: string;
+      venue_a: string | null;
+    }>(`
+      SELECT
+        a.id    AS id_a,   b.id    AS id_b,
+        a.team_home AS home_a, a.team_away AS away_a,
+        a.score_home AS sh_a, a.score_away AS sa_a, a.status AS status_a,
+        b.score_home AS sh_b, b.score_away AS sa_b, b.status AS status_b,
+        a.venue AS venue_a
+      FROM games a
+      JOIN games b
+        ON a.league = b.league
+       AND DATE(a.game_date AT TIME ZONE 'Asia/Tokyo') = DATE(b.game_date AT TIME ZONE 'Asia/Tokyo')
+       AND a.team_home = b.team_away
+       AND a.team_away = b.team_home
+       AND a.id < b.id
+      WHERE a.league IN ('NPB2', 'CPBL-W', 'CPBL-B')
+    `);
+
+    if (dupRes.rows.length === 0) {
+      res.json({ message: '沒有找到主客場互換的重複記錄', deleted: 0 });
+      return;
+    }
+
+    const delIds: number[] = [];
+    const pairs: { keep: number; del: number; reason: string }[] = [];
+
+    for (const row of dupRes.rows) {
+      const scoreA = dataScore({ score_home: row.sh_a, score_away: row.sa_a, status: row.status_a });
+      const scoreB = dataScore({ score_home: row.sh_b, score_away: row.sa_b, status: row.status_b });
+
+      let keepId: number, delId: number, reason: string;
+
+      if (scoreA !== scoreB) {
+        // 資料品質不同 → 保留較好的那筆
+        keepId = scoreA > scoreB ? row.id_a : row.id_b;
+        delId  = scoreA > scoreB ? row.id_b : row.id_a;
+        reason = `資料品質 ${scoreA} vs ${scoreB}`;
+      } else {
+        // 資料品質相同 → 以場地判斷主場球隊
+        const guessedHome = guessHomeTeam(row.venue_a);
+        if (guessedHome && guessedHome === row.home_a) {
+          // id_a 的 team_home 符合場地主場 → 保留 id_a
+          keepId = row.id_a; delId = row.id_b;
+          reason = `場地 ${row.venue_a} → 主場 ${guessedHome}`;
+        } else if (guessedHome && guessedHome === row.away_a) {
+          // id_a 的 team_away 才是正確主場 → 保留 id_b（team_home = away_a = 正確主場）
+          keepId = row.id_b; delId = row.id_a;
+          reason = `場地 ${row.venue_a} → 主場 ${guessedHome}（id_b 正確）`;
+        } else {
+          // 無法判斷 → 保留較低 id（較早入庫）
+          keepId = row.id_a; delId = row.id_b;
+          reason = '無法判斷，保留較早 id';
+        }
+      }
+      delIds.push(delId);
+      pairs.push({ keep: keepId, del: delId, reason });
+    }
+
+    const delResult = await pool.query(
+      `DELETE FROM games WHERE id = ANY($1)`,
+      [delIds],
+    );
+    res.json({
+      message: `清除完成，刪除 ${delResult.rowCount} 筆主客場互換的重複記錄`,
+      deleted: delResult.rowCount,
+      pairs,
+    });
+  } catch (err) {
+    res.status(500).json({ message: `清除失敗: ${(err as Error).message}` });
+  }
+});
+
 // POST /api/v1/scraper/trigger-npb-farm-roster — 爬取二軍獨立球隊 Yahoo 名冊
 router.post('/trigger-npb-farm-roster', verifyToken, requireRole('editor', 'admin'), async (_req: Request, res: Response): Promise<void> => {
   const result = await runYahooFarmRosterScraper();
@@ -369,6 +488,57 @@ router.post('/trigger-docomo-farm', verifyToken, requireRole('editor', 'admin'),
 // GET /api/v1/scraper/trigger-docomo-farm — 查詢進度
 router.get('/trigger-docomo-farm', verifyToken, requireRole('editor', 'admin'), (_req: Request, res: Response): void => {
   res.json({ status: docomoScraperStatus });
+});
+
+// POST /api/v1/scraper/clear-farm-stats — 清除所有 NPB2 打投成績（重新爬取前使用）
+router.post('/clear-farm-stats', verifyToken, requireRole('admin'), async (_req: Request, res: Response): Promise<void> => {
+  const gameIds = await pool.query(`SELECT id FROM games WHERE league = 'NPB2'`);
+  const ids = gameIds.rows.map((r: { id: number }) => r.id);
+  const [bRes, pRes] = await Promise.all([
+    pool.query(`DELETE FROM game_batter_stats  WHERE game_id = ANY($1)`, [ids]),
+    pool.query(`DELETE FROM game_pitcher_stats WHERE game_id = ANY($1)`, [ids]),
+  ]);
+  res.json({ message: `✅ 清除完成：打者 ${bRes.rowCount} 筆、投手 ${pRes.rowCount} 筆`, batters: bRes.rowCount, pitchers: pRes.rowCount });
+});
+
+// POST /api/v1/scraper/rescrape-npb-docomo-game — NPB 一軍 Docomo 逐球 + 文字速報
+router.post('/rescrape-npb-docomo-game', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const docomoGameId = String(req.body?.docomoGameId ?? '').trim();
+  const dbGameId     = parseInt(req.body?.dbGameId, 10);
+  const isFinal      = req.body?.isFinal === true;
+  if (!docomoGameId || !dbGameId || isNaN(dbGameId)) {
+    res.status(400).json({ message: '請提供 docomoGameId（Docomo URL 的 game_id）與 dbGameId（DB 中的比賽 ID）' });
+    return;
+  }
+  const result = await scrapeDocomoNpbGame(docomoGameId, dbGameId, isFinal);
+  res.json(result);
+});
+
+// POST /api/v1/scraper/rescrape-npb-docomo-game-auto — 僅需 Docomo game_id，自動查找 DB 比賽
+router.post('/rescrape-npb-docomo-game-auto', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const docomoGameId = String(req.body?.docomoGameId ?? '').trim();
+  const isFinal      = req.body?.isFinal === true;
+  if (!docomoGameId) {
+    res.status(400).json({ message: '請提供 docomoGameId（Docomo URL 的 game_id）' });
+    return;
+  }
+  const result = await scrapeDocomoNpbGameAuto(docomoGameId, isFinal);
+  res.json(result);
+});
+
+// POST /api/v1/scraper/trigger-docomo-npb — 手動觸發 NPB 一軍 Docomo 日排程爬蟲
+router.post('/trigger-docomo-npb', verifyToken, requireRole('editor', 'admin'), (_req: Request, res: Response): void => {
+  if (docomoNpbDailyStatus.isRunning) {
+    res.json({ message: 'Docomo NPB 一軍爬蟲正在執行中', status: docomoNpbDailyStatus });
+    return;
+  }
+  runDocomoNpbDailyScraper().catch(e => console.warn('[DocomoNPB] 手動觸發失敗:', (e as Error).message));
+  res.status(202).json({ message: 'Docomo NPB 一軍爬蟲已啟動（文字速報 + 好球帶）', status: docomoNpbDailyStatus });
+});
+
+// GET /api/v1/scraper/trigger-docomo-npb — 查詢狀態
+router.get('/trigger-docomo-npb', verifyToken, requireRole('editor', 'admin'), (_req: Request, res: Response): void => {
+  res.json({ status: docomoNpbDailyStatus });
 });
 
 // POST /api/v1/scraper/rescrape-docomo-game — 指定 DB game_id 強制重新爬蟲 Docomo 二軍資料
@@ -430,6 +600,154 @@ router.post('/batch-backfill-yahoo-batter-stats', verifyToken, requireRole('edit
 // GET /api/v1/scraper/batch-backfill-yahoo-batter-stats — 查詢批量補完進度
 router.get('/batch-backfill-yahoo-batter-stats', verifyToken, requireRole('editor', 'admin'), (_req: Request, res: Response): void => {
   res.json({ status: batchYahooBackfillStatus });
+});
+
+// POST /api/v1/scraper/trigger-sanspo-npb — 手動觸發 Sanspo NPB 一軍一球速報爬蟲
+router.post('/trigger-sanspo-npb', verifyToken, requireRole('editor', 'admin'), (_req: Request, res: Response): void => {
+  if (sanspoNpbScraperStatus.isRunning) {
+    res.json({ message: 'Sanspo NPB 爬蟲正在執行中', status: sanspoNpbScraperStatus });
+    return;
+  }
+  runSanspoNpbDailyScraper().catch(e => console.warn('[SanspoNPB] 手動觸發失敗:', (e as Error).message));
+  res.status(202).json({ message: 'Sanspo NPB 一球速報爬蟲已啟動', status: sanspoNpbScraperStatus });
+});
+
+// GET /api/v1/scraper/trigger-sanspo-npb — 查詢狀態
+router.get('/trigger-sanspo-npb', verifyToken, requireRole('editor', 'admin'), (_req: Request, res: Response): void => {
+  res.json({ status: sanspoNpbScraperStatus });
+});
+
+// POST /api/v1/scraper/scrape-sanspo-game — 爬取指定 Sanspo globalId 的比賽（自動查找 DB）
+router.post('/scrape-sanspo-game', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const globalId = parseInt(req.body?.globalId, 10);
+  if (!globalId || isNaN(globalId)) {
+    res.status(400).json({ message: '請提供 globalId（Sanspo gameGlobalId）' });
+    return;
+  }
+  const result = await scrapeSanspoGameAuto(globalId);
+  res.json(result);
+});
+
+// POST /api/v1/scraper/scrape-sanspo-game-direct — 爬取指定 Sanspo globalId + DB game_id
+router.post('/scrape-sanspo-game-direct', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const globalId  = parseInt(req.body?.globalId, 10);
+  const dbGameId  = parseInt(req.body?.dbGameId, 10);
+  const maxInnings = parseInt(req.body?.maxInnings ?? '12', 10);
+  if (!globalId || !dbGameId || isNaN(globalId) || isNaN(dbGameId)) {
+    res.status(400).json({ message: '請提供 globalId（Sanspo gameGlobalId）與 dbGameId（DB 比賽 ID）' });
+    return;
+  }
+  const result = await scrapeSanspoGame(globalId, dbGameId, maxInnings);
+  res.json({ success: true, message: `爬取完成：${result.pitchCount} 球，${result.innings} 局半`, ...result });
+});
+
+// POST /api/v1/scraper/trigger-combined-npb — Docomo + Sanspo 雙來源合併爬蟲
+router.post('/trigger-combined-npb', verifyToken, requireRole('editor', 'admin'), (_req: Request, res: Response): void => {
+  if (combinedNpbScraperStatus.isRunning) {
+    res.json({ message: '合併爬蟲正在執行中', status: combinedNpbScraperStatus });
+    return;
+  }
+  runCombinedNpbDailyScraper().catch(e => console.warn('[CombinedNPB] 失敗:', (e as Error).message));
+  res.status(202).json({ message: 'NPB 一軍合併爬蟲已啟動（Docomo + Sanspo + 姓名補完）', status: combinedNpbScraperStatus });
+});
+
+// GET /api/v1/scraper/trigger-combined-npb — 查詢狀態
+router.get('/trigger-combined-npb', verifyToken, requireRole('editor', 'admin'), (_req: Request, res: Response): void => {
+  res.json({ status: combinedNpbScraperStatus });
+});
+
+// POST /api/v1/scraper/scrape-combined-game — 單場合併補完（Sanspo globalId + DB game_id）
+router.post('/scrape-combined-game', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const globalId = parseInt(req.body?.globalId, 10);
+  const dbGameId = parseInt(req.body?.dbGameId, 10);
+  if (!globalId || !dbGameId || isNaN(globalId) || isNaN(dbGameId)) {
+    res.status(400).json({ message: '請提供 globalId（Sanspo gameGlobalId）與 dbGameId（DB 比賽 ID）' });
+    return;
+  }
+  const result = await runCombinedScrapeForGame(globalId, dbGameId);
+  res.json(result);
+});
+
+// POST /api/v1/scraper/merge-npb-names — 僅補完今日比賽的姓名（Docomo → Sanspo）
+router.post('/merge-npb-names', verifyToken, requireRole('editor', 'admin'), async (_req: Request, res: Response): Promise<void> => {
+  const result = await runMergeNamesForTodayGames();
+  res.json({ message: `補完完成：${result.gamesProcessed} 場，${result.totalNamesUpdated} 筆`, ...result });
+});
+
+// POST /api/v1/scraper/merge-npb-names-game — 補完指定場次的姓名
+router.post('/merge-npb-names-game', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const dbGameId = parseInt(req.body?.dbGameId, 10);
+  if (!dbGameId || isNaN(dbGameId)) {
+    res.status(400).json({ message: '請提供 dbGameId（DB 比賽 ID）' });
+    return;
+  }
+  const result = await mergeNamesIntoSanspoPitchData(dbGameId);
+  res.json({ message: `補完完成：打者 ${result.battersUpdated} 筆，投手 ${result.pitchersUpdated} 筆`, ...result });
+});
+
+// GET /api/v1/scraper/npb-game-ids?date=YYYY-MM-DD — 查詢指定日期 NPB 一軍比賽的所有 ID
+router.get('/npb-game-ids', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const dateParam = (req.query.date as string) ?? new Date().toISOString().slice(0, 10);
+
+    // 1. 從 DB 取得當日 NPB 比賽
+    const dbGames = await pool.query<{
+      id: number;
+      team_home: string;
+      team_away: string;
+      game_date: string;
+      status: string;
+      docomo_game_id: string | null;
+    }>(
+      `SELECT id, team_home, team_away, game_date, status, docomo_game_id
+       FROM games
+       WHERE league = 'NPB'
+         AND DATE(game_date AT TIME ZONE 'Asia/Tokyo') = $1::date
+       ORDER BY game_date ASC`,
+      [dateParam],
+    );
+
+    if (dbGames.rows.length === 0) {
+      res.json({ date: dateParam, games: [] });
+      return;
+    }
+
+    // 2. 嘗試從 Sanspo gamelist 取得 globalId（僅今日有效）
+    // gamelist 回傳 "2026-05-19" 格式，直接與 dateParam 比對
+    let sanspoGames: Awaited<ReturnType<typeof fetchGameList>> = [];
+    try {
+      const all = await fetchGameList();
+      sanspoGames = all.filter(g => g.gameDate === dateParam);
+    } catch { /* Sanspo 不可用時略過 */ }
+
+    // 3. 合併資料
+    const result = dbGames.rows.map(g => {
+      const homeNorm = g.team_home;
+      const awayNorm = g.team_away;
+
+      // 比對 Sanspo：主客隊名部分相符即可
+      const sanspoMatch = sanspoGames.find(s => {
+        const sHome = normalizeSanspoTeam(s.home?.nickname ?? '');
+        const sAway = normalizeSanspoTeam(s.visitor?.nickname ?? '');
+        return (homeNorm.includes(sHome) || sHome.includes(homeNorm.substring(0, 2))) &&
+               (awayNorm.includes(sAway) || sAway.includes(awayNorm.substring(0, 2)));
+      });
+
+      return {
+        dbId: g.id,
+        teamHome: g.team_home,
+        teamAway: g.team_away,
+        gameDate: g.game_date,
+        status: g.status,
+        docomoGameId: g.docomo_game_id ?? null,
+        sanspoGlobalId: sanspoMatch?.gameGlobalId ?? null,
+      };
+    });
+
+    res.json({ date: dateParam, games: result });
+  } catch (err) {
+    res.status(500).json({ message: (err as Error).message });
+  }
 });
 
 // POST /api/v1/scraper/import-games — 手動匯入比賽資料（用於無法爬取的聯盟，如 CPBL 二軍）

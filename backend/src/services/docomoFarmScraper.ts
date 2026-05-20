@@ -28,7 +28,6 @@ const HEADERS = {
   'Referer': 'https://service.smt.docomo.ne.jp/',
 };
 
-// Docomo 短縮チーム名 → DB チーム名
 const TEAM_MAP: Record<string, string> = {
   'ロッテ': 'ロッテ',       '日本ハム': '日本ハム',
   '楽天': '楽天',           '西武': '西武',
@@ -364,8 +363,15 @@ async function saveBatterStats(
   batterData: Record<string, DocomotBatter>,
   playerTeamMap: Record<string, string>,
   startingLineup: StartingEntry[] = [],
+  nameTeamMap: Record<string, string> = {},
 ): Promise<void> {
   await pool.query('DELETE FROM game_batter_stats WHERE game_id = $1', [dbGameId]);
+
+  // 先発名単→チーム逆引きマップ（Step2 で team_code 一致を保証するため）
+  const startingNameTeamMap: Record<string, string> = {};
+  for (const s of startingLineup) {
+    if (s.name && s.teamName) startingNameTeamMap[s.name] = s.teamName;
+  }
 
   // ── Step 1: 先発メンバーを 0 成績で先挿入（打席未到来の選手を確保）─────────
   for (const s of startingLineup) {
@@ -390,11 +396,19 @@ async function saveBatterStats(
   });
 
   for (const [playerId, batter] of entries) {
-    const teamCode = playerTeamMap[playerId];
-    if (!teamCode) continue;
-
     const playerName = batter.name_l || batter.name_s || '';
     if (!playerName) continue;
+
+    // 先発は playerTeamMap → startingNameTeamMap で確定（nameTeamMap より優先）
+    // 代打/代走は nameTeamMap（PBP由来）で補完
+    const teamNameStr = playerTeamMap[playerId]
+      ?? startingNameTeamMap[playerName]
+      ?? nameTeamMap[batter.name_s]
+      ?? nameTeamMap[batter.name_l]
+      ?? null;
+    if (!teamNameStr) continue;
+
+    const dbTeamCode = teamNameStr;
 
     const batNo   = toNum(batter.bat_no);
     const seqNo   = toNum(batter.seq_no);
@@ -425,7 +439,7 @@ async function saveBatterStats(
              sacrifice_hits = EXCLUDED.sacrifice_hits,
              box_avg        = COALESCE(EXCLUDED.box_avg, game_batter_stats.box_avg)`,
       [
-        dbGameId, teamCode, batNo, position, playerName,
+        dbGameId, dbTeamCode, batNo, position, playerName,
         toNum(batter.ab), toNum(batter.h), toNum(batter.rbi), toNum(batter.r),
         toNum(batter.hr), toNum(batter.so), toNum(batter.bb),
         toNum(batter.sb), toNum(batter.hp), toNum(batter.sh),
@@ -449,19 +463,20 @@ async function savePitcherStats(
   let visitOrder = 1;
 
   for (const [playerId, p] of Object.entries(pitcherData)) {
-    let teamCode: string;
+    let teamNameStr: string;
     let pitcherOrder: number;
 
     if (homePitcherIds.has(playerId)) {
-      teamCode = homeTeamName;
+      teamNameStr = homeTeamName;
       pitcherOrder = homeOrder++;
     } else if (visitPitcherIds.has(playerId)) {
-      teamCode = visitTeamName;
+      teamNameStr = visitTeamName;
       pitcherOrder = visitOrder++;
     } else {
       continue; // cannot determine team
     }
 
+    const dbTeamCode = teamNameStr;
     const ip  = toNum(p.ip);
     const ip3 = p.ip3 ? toNum(p.ip3) : 0;
     const ipStr = ip3 > 0 ? `${ip}.${ip3}` : String(ip);
@@ -486,7 +501,7 @@ async function savePitcherStats(
              pitch_count        = EXCLUDED.pitch_count,
              batters_faced      = EXCLUDED.batters_faced`,
       [
-        dbGameId, teamCode, pitcherOrder, playerName, ipStr,
+        dbGameId, dbTeamCode, pitcherOrder, playerName, ipStr,
         toNum(p.h), toNum(p.r), toNum(p.er),
         toNum(p.bb), toNum(p.so), toNum(p.hr), toNum(p.hbp),
         toNum(p.nop), toNum(p.bf),
@@ -724,6 +739,15 @@ async function savePlayByPlay(
 
 async function scrapeYahooFarmBatterStats(gid: string, dbGameId: number): Promise<void> {
   try {
+    // Yahoo 二軍頁面：第一張表 = 客場（先攻），第二張表 = 主場（後攻）
+    const gameRes = await pool.query<{ team_home: string; team_away: string }>(
+      'SELECT team_home, team_away FROM games WHERE id = $1',
+      [dbGameId],
+    );
+    const teamOrder = gameRes.rows[0]
+      ? [gameRes.rows[0].team_away, gameRes.rows[0].team_home]
+      : [null, null];
+
     const url = `${YAHOO_FARM_STATS_URL}/${gid}/stats`;
     const res = await axios.get<string>(url, {
       timeout: 10000,
@@ -737,18 +761,28 @@ async function scrapeYahooFarmBatterStats(gid: string, dbGameId: number): Promis
 
     const $ = cheerio.load(res.data);
 
-    // 解析每張打者成績表（每隊一張）
+    // 解析每張打者成績表（每隊一張），收集所有 rows 後再 await
+    const upsertTasks: Promise<void>[] = [];
+
     $('table.bb-statsTable').each((_tableIdx, table) => {
+      const teamName = teamOrder[_tableIdx] ?? null;
+      const teamCode = teamName ?? null;
       const rows = $(table).find('tbody tr.bb-statsTable__row');
+      let currentBattingOrder = 0; // 追蹤目前棒次
 
       rows.each((_rowIdx, row) => {
         const cells = $(row).find('td');
         if (cells.length < 3) return;
 
-        // 選手名
+        // 守備位置（cells[0]）與選手名（cells[1]）
+        const position   = $(cells[0]).text().trim();
         const playerName = $(cells[1]).find('a').text().trim() ||
                            $(cells[1]).text().trim();
         if (!playerName || playerName === '合計') return;
+
+        // 先發的守備位置含括號，如 "(捕)"、"(中)"；代打/代走沒有括號
+        const isStarter = /^[（(]/.test(position);
+        if (isStarter) currentBattingOrder++;
 
         // 逐回結果（class --inning 的欄位）
         const inningCells = $(row).find('td.bb-statsTable__data--inning');
@@ -756,7 +790,7 @@ async function scrapeYahooFarmBatterStats(gid: string, dbGameId: number): Promis
         inningCells.each((_i, cell) => {
           const result = $(cell).find('.bb-statsTable__dataDetail').text().trim() ||
                          $(cell).text().trim();
-          atBatResults.push(result); // 空字串也保留（該局未打）
+          atBatResults.push(result);
         });
 
         // 移除尾端空白欄（沒上場的局數）
@@ -766,16 +800,51 @@ async function scrapeYahooFarmBatterStats(gid: string, dbGameId: number): Promis
 
         if (atBatResults.length === 0) return;
 
-        // 更新 DB（by player_name + game_id）— 直接傳陣列，匹配 TEXT[] 欄位
-        pool.query(
-          `UPDATE game_batter_stats
-           SET at_bat_results = $1
-           WHERE game_id = $2 AND player_name = $3`,
-          [atBatResults, dbGameId, playerName],
-        ).catch(e => console.warn('[Yahoo Farm] at_bat_results update失敗:', playerName, e.message));
+        const battingOrder = currentBattingOrder > 0 ? currentBattingOrder : 0;
+
+        const task = (async () => {
+          if (teamCode) {
+            // 先確保 row 存在（代打等 Docomo 未收錄的選手），使用與 Docomo 一致的短縮 team_code
+            await pool.query(
+              `INSERT INTO game_batter_stats
+                 (game_id, team_code, batting_order, position, player_name)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (game_id, team_code, player_name) DO NOTHING`,
+              [dbGameId, teamCode, battingOrder, position, playerName],
+            ).catch(() => {});
+
+            // team_code も WHERE に含め、異なる隊の同名選手を誤って更新しない
+            const result = await pool.query(
+              `UPDATE game_batter_stats
+               SET at_bat_results = $1
+               WHERE game_id = $2 AND team_code = $3 AND player_name = $4`,
+              [atBatResults, dbGameId, teamCode, playerName],
+            ).catch(e => { console.warn('[Yahoo Farm] at_bat_results update失敗:', playerName, e.message); return null; });
+
+            // row が更新されなかった場合（team_code 形式の違い等）は name のみで fallback
+            if (result && (result as { rowCount: number }).rowCount === 0) {
+              await pool.query(
+                `UPDATE game_batter_stats
+                 SET at_bat_results = $1
+                 WHERE game_id = $2 AND player_name = $3`,
+                [atBatResults, dbGameId, playerName],
+              ).catch(() => {});
+            }
+          } else {
+            await pool.query(
+              `UPDATE game_batter_stats
+               SET at_bat_results = $1
+               WHERE game_id = $2 AND player_name = $3`,
+              [atBatResults, dbGameId, playerName],
+            ).catch(e => console.warn('[Yahoo Farm] at_bat_results update失敗:', playerName, e.message));
+          }
+        })();
+
+        upsertTasks.push(task);
       });
     });
 
+    await Promise.all(upsertTasks);
     console.log(`[Yahoo Farm] 打者逐回成績更新: game_id=${gid}`);
   } catch (e) {
     console.warn('[Yahoo Farm] 爬蟲失敗:', gid, (e as Error).message);
@@ -845,11 +914,11 @@ async function fetchAndSaveGame(
 
   if (Array.isArray(startingData)) {
     for (const teamData of startingData) {
+      // hv=1 → homeTeam（ソフトバンク等）、hv=2以外 → visitTeam（阪神等）
+      // team_name_s は Docomo の実装により相手チーム名が入る場合があるため使用しない
       const hv = teamData['@attributes']?.hv ?? teamData.hv ?? null;
-      // team_code は常に実際のチーム名を使用。
-      // DB のホーム/アウェイ配置（homeIsDocHome）とは無関係。
-      // フロントは game.team_home / game.team_away（実際のチーム名）でフィルタするため。
       const teamName = hv === 1 ? homeTeam : visitTeam;
+      if (!teamName) continue;
       for (const player of teamData.player_info ?? []) {
         playerTeamMap[String(player.player_id)] = teamName;
         // 先発打順（1-9）があれば先発リストに追加
@@ -867,14 +936,26 @@ async function fetchAndSaveGame(
   }
 
   // 4. Batter stats（先発を 0 成績で先挿入 → batter_info で UPSERT）
+  // index_text.json を先読みして代打/代走のチームを nameTeamMap で補完
+  const earlyPbpData = await fetchJson<Record<string, DocomoPbpEntry>>(
+    `${DOCOMO_API}/result/${gid}/index_text.json`,
+  );
+  const nameTeamMap: Record<string, string> = {};
+  if (earlyPbpData && typeof earlyPbpData === 'object') {
+    for (const entry of Object.values(earlyPbpData)) {
+      const t = normalizeTeam(entry.team_name_s ?? '');
+      if (entry.name_s && t) nameTeamMap[entry.name_s] = t;
+    }
+  }
+
   const batterData = await fetchJson<Record<string, DocomotBatter>>(
     `${DOCOMO_API}/result/${gid}/batter_info.json`,
   );
   if (batterData && typeof batterData === 'object' && !Array.isArray(batterData)) {
-    await saveBatterStats(dbGameId, batterData, playerTeamMap, startingLineup);
+    await saveBatterStats(dbGameId, batterData, playerTeamMap, startingLineup, nameTeamMap);
   } else if (startingLineup.length > 0) {
     // batter_info がまだ無い場合も先発だけ挿入（試合前表示用）
-    await saveBatterStats(dbGameId, {}, playerTeamMap, startingLineup);
+    await saveBatterStats(dbGameId, {}, playerTeamMap, startingLineup, nameTeamMap);
   }
 
   // 4b. Yahoo 打者逐回成績（at_bat_results）＋ yahoo_game_id を DB に保存
@@ -918,24 +999,18 @@ async function fetchAndSaveGame(
       // index.json に打席データあり → 高品質 PBP を生成
       await savePlayByPlayFromIndex(dbGameId, indexData);
     } else {
-      // index.json が未充填 → index_text.json にフォールバック
-      const pbpData = await fetchJson<Record<string, DocomoPbpEntry>>(
-        `${DOCOMO_API}/result/${gid}/index_text.json`,
-      );
-      if (pbpData && typeof pbpData === 'object' && !Array.isArray(pbpData)) {
-        await savePlayByPlay(dbGameId, pbpData);
+      // index.json が未充填 → 先読みした earlyPbpData を再利用
+      if (earlyPbpData && typeof earlyPbpData === 'object' && !Array.isArray(earlyPbpData)) {
+        await savePlayByPlay(dbGameId, earlyPbpData);
       }
     }
 
     // final 時のみ個別打席ファイルを取得（live 時はリクエスト数を抑える）
     await savePitchData(dbGameId, indexData, gid, status === 'final');
   } else {
-    // index.json 取得失敗 → index_text.json にフォールバック
-    const pbpData = await fetchJson<Record<string, DocomoPbpEntry>>(
-      `${DOCOMO_API}/result/${gid}/index_text.json`,
-    );
-    if (pbpData && typeof pbpData === 'object' && !Array.isArray(pbpData)) {
-      await savePlayByPlay(dbGameId, pbpData);
+    // index.json 取得失敗 → 先読みした earlyPbpData を再利用
+    if (earlyPbpData && typeof earlyPbpData === 'object' && !Array.isArray(earlyPbpData)) {
+      await savePlayByPlay(dbGameId, earlyPbpData);
     }
   }
 }

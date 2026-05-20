@@ -182,7 +182,10 @@ router.get('/games/:id/pitchers', async (req: Request, res: Response): Promise<v
 router.get('/games/:id/playbyplay', async (req: Request, res: Response): Promise<void> => {
   try {
     const result = await pool.query(
-      `SELECT inning, is_top, play_order, description
+      `SELECT inning, is_top, play_order, description,
+              COALESCE(balls, 0) AS balls,
+              COALESCE(strikes, 0) AS strikes,
+              COALESCE(outs_before, 0) AS outs_before
        FROM game_play_by_play WHERE game_id = $1
        ORDER BY inning, is_top DESC, play_order`,
       [req.params.id]

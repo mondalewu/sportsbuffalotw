@@ -305,6 +305,37 @@ async function upsertFarmGameFromSchedule(row: FarmGameRow): Promise<number | nu
   const gameTs = `${row.dateStr}T${timePart}:00+09:00`;
 
   try {
+    // 先檢查是否已存在同日同兩隊的比賽（不限主客場順序），避免因為主客場顛倒而建立重複記錄
+    const existing = await pool.query<{ id: number; team_home: string }>(
+      `SELECT id, team_home FROM games
+       WHERE league = 'NPB2'
+         AND DATE(game_date AT TIME ZONE 'Asia/Tokyo') = $1::date
+         AND ((team_home = $2 AND team_away = $3) OR (team_home = $3 AND team_away = $2))
+       LIMIT 1`,
+      [row.dateStr, row.homeTeam, row.awayTeam],
+    );
+
+    if (existing.rows.length > 0) {
+      const ex = existing.rows[0];
+      // 根據既有記錄的主客場方向對應分數
+      const sHome = ex.team_home === row.homeTeam ? row.scoreHome : row.scoreAway;
+      const sAway = ex.team_home === row.homeTeam ? row.scoreAway : row.scoreHome;
+      await pool.query(
+        `UPDATE games
+         SET score_home  = COALESCE($1, score_home),
+             score_away  = COALESCE($2, score_away),
+             status      = CASE WHEN $3 = 'final' THEN 'final'::text ELSE status END,
+             game_detail = COALESCE(NULLIF($4, '試合開始前'), game_detail),
+             venue       = COALESCE($5, venue),
+             npb_url     = COALESCE($6, npb_url)
+         WHERE id = $7`,
+        [sHome, sAway, row.status,
+         row.status === 'final' ? '試合終了' : '試合開始前',
+         row.venue, row.scoresUrl ?? null, ex.id],
+      );
+      return ex.id;
+    }
+
     const result = await pool.query<{ id: number }>(
       `INSERT INTO games
          (league, team_home, team_away, score_home, score_away, status, game_detail, venue, game_date, npb_url)
@@ -358,11 +389,11 @@ async function upsertFarmGame(gameUrl: string): Promise<number | null> {
   const gameDateJST = `${detail.gameDate}T${timeStr}:00+09:00`;
 
   try {
-    const existing = await pool.query<{ id: number }>(
-      `SELECT id FROM games
+    const existing = await pool.query<{ id: number; team_home: string }>(
+      `SELECT id, team_home FROM games
        WHERE league = 'NPB2'
          AND DATE(game_date AT TIME ZONE 'Asia/Tokyo') = $1::date
-         AND team_home = $2 AND team_away = $3
+         AND ((team_home = $2 AND team_away = $3) OR (team_home = $3 AND team_away = $2))
        LIMIT 1`,
       [detail.gameDate, detail.homeTeam, detail.awayTeam],
     );
@@ -370,7 +401,10 @@ async function upsertFarmGame(gameUrl: string): Promise<number | null> {
     let gameId: number;
 
     if (existing.rows.length > 0) {
-      gameId = existing.rows[0].id;
+      const ex = existing.rows[0];
+      gameId = ex.id;
+      const sHome = ex.team_home === detail.homeTeam ? detail.scoreHome : detail.scoreAway;
+      const sAway = ex.team_home === detail.homeTeam ? detail.scoreAway : detail.scoreHome;
       await pool.query(
         `UPDATE games SET
            score_home  = COALESCE($1, score_home),
@@ -379,7 +413,7 @@ async function upsertFarmGame(gameUrl: string): Promise<number | null> {
            game_detail = $4,
            venue       = COALESCE($5, venue)
          WHERE id = $6`,
-        [detail.scoreHome, detail.scoreAway, detail.status, detail.gameDetail, detail.venue, gameId],
+        [sHome, sAway, detail.status, detail.gameDetail, detail.venue, gameId],
       );
     } else {
       const ins = await pool.query<{ id: number }>(

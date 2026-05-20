@@ -221,9 +221,9 @@ async function scrapeYahooFarmGame(gameId: string, anyDate = false): Promise<Yah
     let homeTeam = '';
     const teamEls = $('.bb-gameScoreTable__team');
     if (teamEls.length >= 2) {
-      // Yahoo 二軍頁面：第一行 = 主場（後攻），第二行 = 客場（先攻）
-      homeTeam = normalizeTeam(teamEls.eq(0).text().trim());
-      awayTeam = normalizeTeam(teamEls.eq(1).text().trim());
+      // Yahoo 二軍頁面：第一行 = 客場（先攻），第二行 = 主場（後攻）
+      awayTeam = normalizeTeam(teamEls.eq(0).text().trim());
+      homeTeam = normalizeTeam(teamEls.eq(1).text().trim());
     } else {
       // title 格式: "YYYY年M月D日 HOME vs.AWAY 一球速報..."
       const teamMatch = title.match(/日\s+(.+?)vs\.(.+?)\s+一球速報/);
@@ -373,10 +373,11 @@ async function upsertFarmGame(data: YahooFarmGameData, allowScheduled = false): 
       }
 
       // 若該球隊當日已有非 Yahoo 來源的二軍場次（npb.jp），也跳過
+      // Note: npb_url IS NULL 表示由 npbFarmScraper 建立的未完賽記錄，也需排除
       const farmExists = await pool.query<{ count: string }>(
         `SELECT COUNT(*) as count FROM games
          WHERE league = 'NPB2'
-           AND npb_url NOT LIKE '/npb/game/%'
+           AND (npb_url IS NULL OR npb_url NOT LIKE '/npb/game/%')
            AND DATE(game_date AT TIME ZONE 'Asia/Tokyo') = $1::date
            AND (team_home = $2 OR team_home = $3 OR team_away = $2 OR team_away = $3)`,
         [data.gameDate, data.homeTeam, data.awayTeam],

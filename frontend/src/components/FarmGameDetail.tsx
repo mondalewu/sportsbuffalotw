@@ -24,6 +24,13 @@ function getCode(name: string) {
   return '';
 }
 
+// team_code in DB can be either full name ("阪神") or short code ("t"/"T")
+function teamMatches(teamCode: string, teamName: string): boolean {
+  if (teamCode === teamName) return true;
+  const code = NAME_TO_CODE[teamName] ?? getCode(teamName);
+  return !!code && teamCode.toLowerCase() === code.toLowerCase();
+}
+
 // ── TeamLogo（by name）───────────────────────────────────────────────────────
 
 function TeamLogo({ name, size = 32 }: { name: string; size?: number }) {
@@ -45,6 +52,7 @@ function TeamLogo({ name, size = 32 }: { name: string; size?: number }) {
 
 interface NPBGame {
   id: number;
+  league?: string;
   team_home: string; team_away: string;
   score_home: number | null; score_away: number | null;
   status: string;
@@ -862,7 +870,7 @@ function FarmPBPCards({ events, awayName, homeName, pitchers }: {
         const inning = parseInt(innStr), isTop = isTopStr === 'true';
         const attackTeam = isTop ? awayName : homeName;
         const defPitchers = pitchers
-          .filter(p => p.team_code === (isTop ? homeName : awayName))
+          .filter(p => teamMatches(p.team_code, isTop ? homeName : awayName))
           .sort((a, b) => a.pitcher_order - b.pitcher_order);
 
         return (
@@ -1651,8 +1659,8 @@ function BatterTable({ title, batters, pitchData }: {
                     const result = b.at_bat_results?.[n - 1] ?? '';
                     // 本壘打：Yahoo 格式「左本」「右本」「中本」/ 長格式「本塁打」「ホームラン」
                     const isHr  = /本$|本塁打|ホームラン/.test(result);
-                    // 安打（含長打）：単打「右安」「左安」/ 二壘打「中２」「右２」/ 三壘打「右３」/ 長格式「安打」
-                    const isHit = !isHr && /安$|安打|ヒット|[２２][^回]?$|[３３][^回]?$/.test(result);
+                    // 安打（含長打）：「右安」「左安」/ 「中２」「右中2」/ 「右３」/ 「安打」
+                    const isHit = !isHr && (/安$|安打|ヒット/.test(result) || /[１1２2３3]$/.test(result));
                     return (
                       <td key={n} className="px-1 py-1 text-center whitespace-nowrap">
                         {result ? (
@@ -1815,11 +1823,20 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
     if (game.score_home != null) setHomeScore(game.score_home);
   }, [game.status, game.score_away, game.score_home]);
 
-  // Docomo saves team_code = team full name (e.g. '日本ハム'), filter by game.team_away/team_home
-  const awayBatters  = batters.filter(b => b.team_code === awayName).sort((a, b) => a.batting_order - b.batting_order);
-  const homeBatters  = batters.filter(b => b.team_code === homeName).sort((a, b) => a.batting_order - b.batting_order);
-  const awayPitchers = pitchers.filter(p => p.team_code === awayName).sort((a, b) => a.pitcher_order - b.pitcher_order);
-  const homePitchers = pitchers.filter(p => p.team_code === homeName).sort((a, b) => a.pitcher_order - b.pitcher_order);
+  // team_code = short code ('T','H',...), teamMatches also handles legacy full-name rows
+  // deduplicateByName: removes duplicate rows for the same player (old data may have both formats)
+  function deduplicateByName<T extends { player_name: string }>(list: T[]): T[] {
+    const seen = new Set<string>();
+    return list.filter(item => {
+      if (seen.has(item.player_name)) return false;
+      seen.add(item.player_name);
+      return true;
+    });
+  }
+  const awayBatters  = deduplicateByName(batters.filter(b => teamMatches(b.team_code, awayName)).sort((a, b) => a.batting_order - b.batting_order));
+  const homeBatters  = deduplicateByName(batters.filter(b => teamMatches(b.team_code, homeName)).sort((a, b) => a.batting_order - b.batting_order));
+  const awayPitchers = pitchers.filter(p => teamMatches(p.team_code, awayName)).sort((a, b) => a.pitcher_order - b.pitcher_order);
+  const homePitchers = pitchers.filter(p => teamMatches(p.team_code, homeName)).sort((a, b) => a.pitcher_order - b.pitcher_order);
 
   const totalAway = awayScore ?? innings.reduce((s, i) => s + (i.score_away ?? 0), 0);
   const totalHome = homeScore ?? innings.reduce((s, i) => s + (i.score_home ?? 0), 0);
@@ -1915,7 +1932,9 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
               {isFinal && <span className="text-xs text-gray-400 block">終了</span>}
               {!isLive && !isFinal && <span className="text-xs text-gray-500 block">vs</span>}
               {game.game_detail && <div className="text-[11px] text-gray-400">{game.game_detail}</div>}
-              <span className="text-[10px] text-gray-500 bg-gray-700 px-1.5 py-0.5 rounded font-bold">ファーム</span>
+              <span className="text-[10px] text-gray-500 bg-gray-700 px-1.5 py-0.5 rounded font-bold">
+                {game.league === 'NPB' ? '一軍' : 'ファーム'}
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <span className={`text-2xl font-black tabular-nums leading-none ${(isFinal||isLive) && totalHome > totalAway ? 'text-yellow-400' : 'text-white'}`}>
