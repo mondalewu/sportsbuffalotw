@@ -26,6 +26,7 @@ import { runDocomoFarmScraper, runDocomoLiveUpdate } from './services/docomoFarm
 import { initNpbTeams } from './services/npbRosterScraper';
 import { runCpblWikiRosterScraper } from './services/cpblRosterScraper';
 import { verifyToken, requireRole } from './middleware/auth';
+import bcrypt from 'bcryptjs';
 
 dotenv.config();
 
@@ -37,6 +38,23 @@ async function autoMigrate() {
     console.log('✓ DB 結構同步完成');
   } catch (err) {
     console.warn('⚠ 自動遷移警告:', (err as Error).message);
+  }
+}
+
+// Auto-seed: create default admin if no users exist
+async function autoSeed() {
+  try {
+    const { rows } = await pool.query('SELECT COUNT(*) FROM users');
+    if (parseInt(rows[0].count) === 0) {
+      const hash = await bcrypt.hash('Admin1234!', 12);
+      await pool.query(
+        `INSERT INTO users (email, password_hash, username, role) VALUES ($1,$2,$3,$4)`,
+        ['admin@sportsbuffalo.com', hash, '水牛管理員', 'admin']
+      );
+      console.log('✓ 預設 admin 帳號建立完成');
+    }
+  } catch (err) {
+    console.warn('⚠ autoSeed 警告:', (err as Error).message);
   }
 }
 
@@ -233,6 +251,7 @@ function startScraperCron() {
 }
 
 autoMigrate().then(async () => {
+  await autoSeed();
   await initNpbTeams();
   app.listen(PORT, () => {
     console.log(`🐃 水牛體育 API 已啟動: http://localhost:${PORT}`);
