@@ -870,7 +870,7 @@ function FarmPBPCards({ events, awayName, homeName, pitchers }: {
         const inning = parseInt(innStr), isTop = isTopStr === 'true';
         const attackTeam = isTop ? awayName : homeName;
         const defPitchers = pitchers
-          .filter(p => teamMatches(p.team_code, isTop ? homeName : awayName))
+          .filter(p => p.team_code === (isTop ? homeName : awayName))
           .sort((a, b) => a.pitcher_order - b.pitcher_order);
 
         return (
@@ -1823,20 +1823,11 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
     if (game.score_home != null) setHomeScore(game.score_home);
   }, [game.status, game.score_away, game.score_home]);
 
-  // team_code = short code ('T','H',...), teamMatches also handles legacy full-name rows
-  // deduplicateByName: removes duplicate rows for the same player (old data may have both formats)
-  function deduplicateByName<T extends { player_name: string }>(list: T[]): T[] {
-    const seen = new Set<string>();
-    return list.filter(item => {
-      if (seen.has(item.player_name)) return false;
-      seen.add(item.player_name);
-      return true;
-    });
-  }
-  const awayBatters  = deduplicateByName(batters.filter(b => teamMatches(b.team_code, awayName)).sort((a, b) => a.batting_order - b.batting_order));
-  const homeBatters  = deduplicateByName(batters.filter(b => teamMatches(b.team_code, homeName)).sort((a, b) => a.batting_order - b.batting_order));
-  const awayPitchers = pitchers.filter(p => teamMatches(p.team_code, awayName)).sort((a, b) => a.pitcher_order - b.pitcher_order);
-  const homePitchers = pitchers.filter(p => teamMatches(p.team_code, homeName)).sort((a, b) => a.pitcher_order - b.pitcher_order);
+  // team_code = 完整隊名（阪神/ソフトバンク 等），與 game.team_away / game.team_home 直接比對
+  const awayBatters  = batters.filter(b => b.team_code === awayName).sort((a, b) => a.batting_order - b.batting_order);
+  const homeBatters  = batters.filter(b => b.team_code === homeName).sort((a, b) => a.batting_order - b.batting_order);
+  const awayPitchers = pitchers.filter(p => p.team_code === awayName).sort((a, b) => a.pitcher_order - b.pitcher_order);
+  const homePitchers = pitchers.filter(p => p.team_code === homeName).sort((a, b) => a.pitcher_order - b.pitcher_order);
 
   const totalAway = awayScore ?? innings.reduce((s, i) => s + (i.score_away ?? 0), 0);
   const totalHome = homeScore ?? innings.reduce((s, i) => s + (i.score_home ?? 0), 0);
