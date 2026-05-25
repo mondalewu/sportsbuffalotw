@@ -1758,6 +1758,29 @@ function PitcherTable({ title, pitchers }: { title: string; pitchers: PitcherSta
   );
 }
 
+function mergeDuplicateBatters(batters: BatterStat[]): BatterStat[] {
+  const map = new Map<string, BatterStat>();
+  for (const b of batters) {
+    const key = `${b.batting_order}|${b.player_name}`;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, { ...b, at_bat_results: [...(b.at_bat_results ?? [])] });
+    } else {
+      const existingResults = existing.at_bat_results ?? [];
+      const newResults = b.at_bat_results ?? [];
+      if (b.at_bats > existing.at_bats) {
+        map.set(key, {
+          ...b,
+          at_bat_results: newResults.length >= existingResults.length ? newResults : existingResults,
+        });
+      } else if (newResults.length > existingResults.length) {
+        existing.at_bat_results = newResults;
+      }
+    }
+  }
+  return Array.from(map.values());
+}
+
 // ── 主元件 ────────────────────────────────────────────────────────────────────
 
 export default function FarmGameDetail({ game, onClose, standalone = false, onPrev, onNext, hasPrev = false, hasNext = false }: Props) {
@@ -1824,8 +1847,8 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
   }, [game.status, game.score_away, game.score_home]);
 
   // team_code = 完整隊名（阪神/ソフトバンク 等），與 game.team_away / game.team_home 直接比對
-  const awayBatters  = batters.filter(b => b.team_code === awayName).sort((a, b) => a.batting_order - b.batting_order);
-  const homeBatters  = batters.filter(b => b.team_code === homeName).sort((a, b) => a.batting_order - b.batting_order);
+  const awayBatters  = mergeDuplicateBatters(batters.filter(b => b.team_code === awayName).sort((a, b) => a.batting_order - b.batting_order));
+  const homeBatters  = mergeDuplicateBatters(batters.filter(b => b.team_code === homeName).sort((a, b) => a.batting_order - b.batting_order));
   const awayPitchers = pitchers.filter(p => p.team_code === awayName).sort((a, b) => a.pitcher_order - b.pitcher_order);
   const homePitchers = pitchers.filter(p => p.team_code === homeName).sort((a, b) => a.pitcher_order - b.pitcher_order);
 

@@ -819,6 +819,30 @@ function LineupPanel({ name, batters, rosterMap }: {
   );
 }
 
+// ── 合併同一棒次同一選手的重複資料（Yahoo HTML 會對同名球員輸出兩行）──────────────
+function mergeDuplicateBatters(batters: BatterStat[]): BatterStat[] {
+  const map = new Map<string, BatterStat>();
+  for (const b of batters) {
+    const key = `${b.batting_order}|${b.player_name}`;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, { ...b, at_bat_results: [...(b.at_bat_results ?? [])] });
+    } else {
+      const existingResults = existing.at_bat_results ?? [];
+      const newResults = b.at_bat_results ?? [];
+      if (b.at_bats > existing.at_bats) {
+        map.set(key, {
+          ...b,
+          at_bat_results: newResults.length >= existingResults.length ? newResults : existingResults,
+        });
+      } else if (newResults.length > existingResults.length) {
+        existing.at_bat_results = newResults;
+      }
+    }
+  }
+  return Array.from(map.values());
+}
+
 // ── 主元件 ────────────────────────────────────────────────────────────────────
 
 export default function NpbGameDetail({ game, awayCode, homeCode, onClose, standalone = false, onPrev, onNext, hasPrev = false, hasNext = false }: Props) {
@@ -898,8 +922,8 @@ export default function NpbGameDetail({ game, awayCode, homeCode, onClose, stand
   const awayName = CODE_TO_NAME[awayCode] ?? game.team_away;
   const homeName = CODE_TO_NAME[homeCode] ?? game.team_home;
 
-  const awayBatters  = batters.filter(b => b.team_code === awayCode).sort((a, b) => a.batting_order - b.batting_order);
-  const homeBatters  = batters.filter(b => b.team_code === homeCode).sort((a, b) => a.batting_order - b.batting_order);
+  const awayBatters  = mergeDuplicateBatters(batters.filter(b => b.team_code === awayCode).sort((a, b) => a.batting_order - b.batting_order));
+  const homeBatters  = mergeDuplicateBatters(batters.filter(b => b.team_code === homeCode).sort((a, b) => a.batting_order - b.batting_order));
   const awayPitchers = pitchers.filter(p => p.team_code === awayCode).sort((a, b) => a.pitcher_order - b.pitcher_order);
   const homePitchers = pitchers.filter(p => p.team_code === homeCode).sort((a, b) => a.pitcher_order - b.pitcher_order);
 
@@ -1453,15 +1477,29 @@ function NpbBSODots({ balls, strikes, outs }: { balls: number; strikes: number; 
   );
 }
 
-function NpbBaseDiamond({ b1, b2, b3 }: { b1: boolean; b2: boolean; b3: boolean }) {
+function NpbBaseDiamond({ b1, b2, b3 }: { b1: string | null | boolean; b2: string | null | boolean; b3: string | null | boolean }) {
   const s = 9, g = 2, sp = s + g, sz = sp * 2 + s;
+  const n1 = typeof b1 === 'string' ? b1 : null;
+  const n2 = typeof b2 === 'string' ? b2 : null;
+  const n3 = typeof b3 === 'string' ? b3 : null;
+  const hasRunner = (v: string | null | boolean) => !!v;
+
   return (
-    <svg width={sz} height={sz} viewBox={`0 0 ${sz} ${sz}`} className="flex-shrink-0">
-      <rect x={sp} y={0} width={s} height={s} rx={1} transform={`rotate(45 ${sp+s/2} ${s/2})`}    fill={b2 ? '#f59e0b' : '#e5e7eb'} />
-      <rect x={0}  y={sp} width={s} height={s} rx={1} transform={`rotate(45 ${s/2} ${sp+s/2})`}   fill={b3 ? '#f59e0b' : '#e5e7eb'} />
-      <rect x={sp*2} y={sp} width={s} height={s} rx={1} transform={`rotate(45 ${sp*2+s/2} ${sp+s/2})`} fill={b1 ? '#f59e0b' : '#e5e7eb'} />
-      <rect x={sp} y={sp*2} width={s} height={s} rx={1} transform={`rotate(45 ${sp+s/2} ${sp*2+s/2})`} fill="#e5e7eb" />
-    </svg>
+    <div className="flex items-center gap-1 flex-shrink-0">
+      <svg width={sz} height={sz} viewBox={`0 0 ${sz} ${sz}`} className="flex-shrink-0">
+        <rect x={sp} y={0} width={s} height={s} rx={1} transform={`rotate(45 ${sp+s/2} ${s/2})`}    fill={hasRunner(b2) ? '#f59e0b' : '#e5e7eb'} />
+        <rect x={0}  y={sp} width={s} height={s} rx={1} transform={`rotate(45 ${s/2} ${sp+s/2})`}   fill={hasRunner(b3) ? '#f59e0b' : '#e5e7eb'} />
+        <rect x={sp*2} y={sp} width={s} height={s} rx={1} transform={`rotate(45 ${sp*2+s/2} ${sp+s/2})`} fill={hasRunner(b1) ? '#f59e0b' : '#e5e7eb'} />
+        <rect x={sp} y={sp*2} width={s} height={s} rx={1} transform={`rotate(45 ${sp+s/2} ${sp*2+s/2})`} fill="#e5e7eb" />
+      </svg>
+      {(n1 || n2 || n3) && (
+        <div className="flex flex-col gap-0 text-[9px] leading-tight">
+          {n3 && <span className="text-amber-600 font-bold whitespace-nowrap">三 {n3.charAt(0)}</span>}
+          {n2 && <span className="text-amber-600 font-bold whitespace-nowrap">二 {n2.charAt(0)}</span>}
+          {n1 && <span className="text-amber-600 font-bold whitespace-nowrap">一 {n1.charAt(0)}</span>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1470,11 +1508,11 @@ function RichAtBatCard({ entry, order, avg, score, b1, b2, b3, pitchRows, pitche
   order: number | undefined;
   avg: string | undefined;
   score: { away: number; home: number } | undefined;
-  b1: boolean; b2: boolean; b3: boolean;
+  b1: string | null; b2: string | null; b3: string | null;
   pitchRows?: PitchData[];
   pitcherInfo?: { name: string; pitch_count?: number; era?: string } | null;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const badge = npbResultBadge(entry.result);
   const initial = entry.batterName.charAt(0) || '?';
 
@@ -1687,9 +1725,9 @@ function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings, pitc
         const plays  = grouped.get(key)!;
         const score  = halfScore.get(key);
 
-        // 正向計算壘上狀態 + abSeq 對應
-        let rb1 = false, rb2 = false, rb3 = false, rOuts = 0;
-        const runnerStates: { b1: boolean; b2: boolean; b3: boolean }[] = [];
+        // 正向計算壘上狀態 + abSeq 對應（記錄跑者姓名）
+        let rb1: string | null = null, rb2: string | null = null, rb3: string | null = null, rOuts = 0;
+        const runnerStates: { b1: string | null; b2: string | null; b3: string | null }[] = [];
         const evAbSeqMap = new Map<PlayByPlayEvent, number>();
         let abCounter = 0;
         for (const ev of plays) {
@@ -1699,17 +1737,18 @@ function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings, pitc
           evAbSeqMap.set(ev, abCounter);
           runnerStates.push({ b1: rb1, b2: rb2, b3: rb3 });
           const res = rich.result;
-          if (/本塁打|ホームラン/.test(res)) { rb1 = false; rb2 = false; rb3 = false; }
-          else if (/三塁打/.test(res)) { rb1 = false; rb2 = false; rb3 = true; }
-          else if (/二塁打/.test(res)) { rb3 = rb2; rb2 = true; rb1 = false; }
-          else if (/安打|ヒット|内野安打/.test(res)) { rb3 = rb2; rb2 = rb1; rb1 = true; }
+          const n = rich.batterName;
+          if (/本塁打|ホームラン/.test(res)) { rb1 = null; rb2 = null; rb3 = null; }
+          else if (/三塁打/.test(res)) { rb1 = null; rb2 = null; rb3 = n; }
+          else if (/二塁打/.test(res)) { rb3 = rb2; rb2 = n; rb1 = null; }
+          else if (/安打|ヒット|内野安打/.test(res)) { rb3 = rb2; rb2 = rb1; rb1 = n; }
           else if (/四球|死球|敬遠/.test(res)) {
-            if (rb1 && rb2) { rb3 = rb2; rb2 = rb1; rb1 = true; }
-            else if (rb1) { rb2 = rb1; rb1 = true; }
-            else rb1 = true;
+            if (rb1 && rb2) { rb3 = rb2; rb2 = rb1; rb1 = n; }
+            else if (rb1) { rb2 = rb1; rb1 = n; }
+            else rb1 = n;
           } else if (isAbOut(res)) {
             rOuts++;
-            if (rOuts >= 3) { rb1 = false; rb2 = false; rb3 = false; rOuts = 0; }
+            if (rOuts >= 3) { rb1 = null; rb2 = null; rb3 = null; rOuts = 0; }
           }
         }
 
@@ -1730,7 +1769,7 @@ function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings, pitc
             <div className="divide-y divide-gray-100 bg-white">
               {reversedPlays.map((ev, i) => {
                 const rich = parseRichPbp(ev.description) ?? parseOldStylePbp(ev.description);
-                const runners = reversedStates[i] ?? { b1: false, b2: false, b3: false };
+                const runners = reversedStates[i] ?? { b1: null, b2: null, b3: null };
 
                 if (!rich) {
                   // 純文字公告（投手替換、守備交代等）
