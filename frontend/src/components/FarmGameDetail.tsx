@@ -1847,8 +1847,15 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
   }, [game.status, game.score_away, game.score_home]);
 
   // team_code = 完整隊名（阪神/ソフトバンク 等），與 game.team_away / game.team_home 直接比對
-  const awayBatters  = mergeDuplicateBatters(batters.filter(b => b.team_code === awayName).sort((a, b) => a.batting_order - b.batting_order));
-  const homeBatters  = mergeDuplicateBatters(batters.filter(b => b.team_code === homeName).sort((a, b) => a.batting_order - b.batting_order));
+  // 排除「0打數 且 同名選手在對方球隊有打數」的幽靈資料（Yahoo 爬蟲雙寫 bug）
+  const removeGhosts = (teamBatters: BatterStat[], otherBatters: BatterStat[]) => {
+    const otherWithAB = new Set(otherBatters.filter(b => b.at_bats > 0).map(b => b.player_name));
+    return teamBatters.filter(b => b.at_bats > 0 || !otherWithAB.has(b.player_name));
+  };
+  const rawAway = batters.filter(b => b.team_code === awayName).sort((a, b) => a.batting_order - b.batting_order);
+  const rawHome = batters.filter(b => b.team_code === homeName).sort((a, b) => a.batting_order - b.batting_order);
+  const awayBatters  = mergeDuplicateBatters(removeGhosts(rawAway, rawHome));
+  const homeBatters  = mergeDuplicateBatters(removeGhosts(rawHome, rawAway));
   const awayPitchers = pitchers.filter(p => p.team_code === awayName).sort((a, b) => a.pitcher_order - b.pitcher_order);
   const homePitchers = pitchers.filter(p => p.team_code === homeName).sort((a, b) => a.pitcher_order - b.pitcher_order);
 
