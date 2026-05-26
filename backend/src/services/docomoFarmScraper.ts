@@ -1140,7 +1140,7 @@ export async function rescrapeDocomoByDbGameId(
     const scheduleData = await fetchJson<DocomoSchedule>(`${DOCOMO_API}/top_today_schedule.json`);
     const homeNorm  = normalizeTeam(dbGame.team_home);
     const awayNorm  = normalizeTeam(dbGame.team_away);
-    const dateStr   = dbGame.game_date.slice(0, 10).replace(/-/g, '/');
+    const dateStr   = new Date(dbGame.game_date).toISOString().slice(0, 10).replace(/-/g, '/');
 
     const gameInfo = (scheduleData?.today ?? []).find(g => {
       const h = normalizeTeam(g.home_team_name_s);
@@ -1412,11 +1412,11 @@ export async function runBatchYahooBackfill(): Promise<void> {
     // 4. 建立快速查詢 Map："YYYY-MM-DD_home_away" → dbGame
     const pendingMap = new Map<string, typeof pending[0]>();
     for (const g of pending) {
-      const date = g.game_date.slice(0, 10);
+      const date = new Date(g.game_date).toISOString().slice(0, 10);
       pendingMap.set(`${date}_${g.team_home}_${g.team_away}`, g);
       pendingMap.set(`${date}_${g.team_away}_${g.team_home}`, g);
     }
-    const pendingDates = new Set(pending.map(g => g.game_date.slice(0, 10)));
+    const pendingDates = new Set(pending.map(g => new Date(g.game_date).toISOString().slice(0, 10)));
 
     // 5. 逐一掃描：先用 Docomo home.json 快速驗證（確認是二軍比賽），再用 Yahoo score 頁取日期/球隊
     let matched = 0;
