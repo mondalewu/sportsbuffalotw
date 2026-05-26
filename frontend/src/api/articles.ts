@@ -56,3 +56,12 @@ export const uploadArticleImages = async (articleId: number, files: File[]): Pro
 export const deleteArticleImage = async (articleId: number, imageId: number): Promise<void> => {
   await apiClient.delete(`/articles/${articleId}/images/${imageId}`);
 };
+
+export const uploadCoverImage = async (file: File): Promise<string> => {
+  const form = new FormData();
+  form.append('image', file);
+  const res = await apiClient.post('/articles/upload-cover', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data.url;
+};

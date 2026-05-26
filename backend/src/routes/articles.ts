@@ -184,6 +184,19 @@ router.get('/:id/images', async (req: Request, res: Response): Promise<void> => 
   }
 });
 
+// POST /api/v1/articles/upload-cover — 上傳封面圖（不需文章 ID）[editor+]
+router.post(
+  '/upload-cover',
+  verifyToken,
+  requireRole('editor', 'admin'),
+  imgUpload.single('image'),
+  (req: Request, res: Response): void => {
+    const file = req.file;
+    if (!file) { res.status(400).json({ message: '未提供圖片' }); return; }
+    res.json({ url: `/uploads/articles/${file.filename}` });
+  }
+);
+
 // POST /api/v1/articles/:id/images/upload — 上傳圖片檔案 [editor+]
 router.post(
   '/:id/images/upload',

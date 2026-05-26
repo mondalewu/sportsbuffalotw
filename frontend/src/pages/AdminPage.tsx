@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import ScraperStatusCard from '../components/ScraperStatusCard';
-import { getArticles, createArticle, updateArticle, deleteArticle, fetchExternalNews, uploadArticleImages, deleteArticleImage } from '../api/articles';
+import { getArticles, createArticle, updateArticle, deleteArticle, fetchExternalNews, uploadArticleImages, deleteArticleImage, uploadCoverImage } from '../api/articles';
 import { getGames, updateGame, addPlayByPlay } from '../api/games';
 import { getAllPolls, createPoll, updatePoll, deletePoll, addPollOption, deletePollOption, getAdminAnalytics } from '../api/polls';
 import type { Poll, AdminAnalytics } from '../api/polls';
@@ -59,6 +59,7 @@ export default function AdminPage() {
   const [isFetchingNews, setIsFetchingNews] = useState(false);
   const [articleImages, setArticleImages] = useState<ArticleImage[]>([]);
   const [imgUploading, setImgUploading] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
 
   // Game state
   const [adminGames, setAdminGames] = useState<Game[]>([]);
@@ -366,9 +367,28 @@ export default function AdminPage() {
                     className="border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400">
                     {['CPBL', 'NPB', 'WBC', 'MLB', 'NBA', '其他'].map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
-                  <input type="text" placeholder="封面圖 URL（選填）" value={newArticle.imageUrl}
-                    onChange={e => setNewArticle(f => ({ ...f, imageUrl: e.target.value }))}
-                    className="border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                  <div className="flex gap-2">
+                    <input type="text" placeholder="封面圖 URL（選填）" value={newArticle.imageUrl}
+                      onChange={e => setNewArticle(f => ({ ...f, imageUrl: e.target.value }))}
+                      className="flex-1 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                    <label className={`flex items-center gap-1.5 px-4 py-3 rounded-xl border-2 border-dashed cursor-pointer text-sm font-bold transition whitespace-nowrap
+                      ${coverUploading ? 'border-gray-200 text-gray-300' : 'border-gray-300 text-gray-500 hover:border-red-400 hover:text-red-500'}`}>
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                      {coverUploading ? '上傳中...' : '上傳圖片'}
+                      <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="hidden" disabled={coverUploading}
+                        onChange={async e => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setCoverUploading(true);
+                          try {
+                            const url = await uploadCoverImage(file);
+                            setNewArticle(f => ({ ...f, imageUrl: url }));
+                            showMsg('✅ 封面圖上傳成功');
+                          } catch { showMsg('❌ 封面圖上傳失敗'); }
+                          finally { setCoverUploading(false); e.target.value = ''; }
+                        }} />
+                    </label>
+                  </div>
                 </div>
                 {newArticle.imageUrl && (
                   <img src={newArticle.imageUrl} alt="預覽" className="w-full h-40 object-cover rounded-xl"
