@@ -1,4 +1,4 @@
-import apiClient from './client';
+import apiClient, { API_BASE } from './client';
 import type { Article, ArticleImage } from '../types';
 
 export interface ArticlesParams {
@@ -63,5 +63,7 @@ export const uploadCoverImage = async (file: File): Promise<string> => {
   const res = await apiClient.post('/articles/upload-cover', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
-  return res.data.url;
+  const url: string = res.data.url;
+  // 後端回傳相對路徑時，補上 Railway 後端域名，確保圖片從正確主機載入
+  return url.startsWith('/') ? `${API_BASE}${url}` : url;
 };
