@@ -1604,8 +1604,15 @@ function BatterTable({ title, batters, pitchData }: {
       : (computedResults.get(b.player_name) ?? []),
   }));
 
-  const maxResults = Math.max(...enriched.map(b => b.at_bat_results?.length ?? 0), 0);
-  const inningCols = Array.from({ length: maxResults }, (_, i) => i + 1);
+  // 找出最後一個有資料的欄位（避免尾端全空欄位撐寬表格）
+  let lastColWithData = 0;
+  for (const b of enriched) {
+    const results = b.at_bat_results ?? [];
+    for (let i = results.length - 1; i >= 0; i--) {
+      if (results[i]) { lastColWithData = Math.max(lastColWithData, i + 1); break; }
+    }
+  }
+  const inningCols = Array.from({ length: lastColWithData }, (_, i) => i + 1);
 
   return (
     <div>
