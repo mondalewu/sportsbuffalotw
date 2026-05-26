@@ -1853,11 +1853,27 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
     if (game.score_home != null) setHomeScore(game.score_home);
   }, [game.status, game.score_away, game.score_home]);
 
-  // team_code = 完整隊名（阪神/ソフトバンク 等），與 game.team_away / game.team_home 直接比對
-  // 排除「0打數 且 同名選手在對方球隊有打數」的幽靈資料（Yahoo 爬蟲雙寫 bug）
+  // 排除幽靈資料，並將 at_bat_results 從幽靈記錄移轉給真正記錄
+  // Yahoo 爬蟲雙寫 bug：at_bat_results 常寫到 0打數的幽靈，而非有打數的真實記錄
   const removeGhosts = (teamBatters: BatterStat[], otherBatters: BatterStat[]) => {
+    // 對方隊伍中 0打數但有 at_bat_results 的幽靈（代表這些 results 屬於本隊真實選手）
+    const otherGhostResults = new Map<string, string[]>();
+    for (const b of otherBatters) {
+      if (b.at_bats === 0 && b.at_bat_results && b.at_bat_results.length > 0) {
+        otherGhostResults.set(b.player_name, b.at_bat_results);
+      }
+    }
     const otherWithAB = new Set(otherBatters.filter(b => b.at_bats > 0).map(b => b.player_name));
-    return teamBatters.filter(b => b.at_bats > 0 || !otherWithAB.has(b.player_name));
+    return teamBatters
+      .filter(b => b.at_bats > 0 || !otherWithAB.has(b.player_name))
+      .map(b => {
+        // 真實記錄無 at_bat_results 時，從對方幽靈中移轉
+        if (b.at_bats > 0 && (!b.at_bat_results || b.at_bat_results.length === 0)) {
+          const rescued = otherGhostResults.get(b.player_name);
+          if (rescued && rescued.length > 0) return { ...b, at_bat_results: rescued };
+        }
+        return b;
+      });
   };
   const rawAway = batters.filter(b => b.team_code === awayName).sort((a, b) => a.batting_order - b.batting_order);
   const rawHome = batters.filter(b => b.team_code === homeName).sort((a, b) => a.batting_order - b.batting_order);
