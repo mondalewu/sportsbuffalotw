@@ -9,6 +9,7 @@ import PlayersPage from './pages/PlayersPage';
 import PollPage from './pages/PollPage';
 import AdminPage from './pages/AdminPage';
 import ArticlePage from './pages/ArticlePage';
+import AthleticsPage from './pages/AthleticsPage';
 import NpbGamePage from './pages/NpbGamePage';
 import CpblGamePage from './pages/CpblGamePage';
 
@@ -27,6 +28,7 @@ export default function App() {
             <Route path="/wbsc" element={<WBSCPage />} />
             <Route path="/players" element={<PlayersPage />} />
             <Route path="/poll" element={<PollPage />} />
+            <Route path="/athletics" element={<AthleticsPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/article" element={<ArticlePage />} />
           </Route>
