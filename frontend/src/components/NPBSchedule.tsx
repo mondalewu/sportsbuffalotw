@@ -589,7 +589,18 @@ const NPBSchedule: React.FC = () => {
         /* ── 一軍：一般顯示 ── */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {selectedGames.map((g, i) => (
-            <ScoreCard key={g.id} game={g} onSelect={() => setFarmGame(g)} />
+            <ScoreCard
+              key={g.id}
+              game={g}
+              onSelect={() => {
+                const isClickable = g.status === 'live' || g.status === 'final';
+                if (!isClickable) return;
+                // NPB 一軍 → 導向獨立頁（有完整成績 / 文字速報）
+                // NPB 二軍 → 維持 modal（FarmGameDetail）
+                if (g.league === 'NPB') navigate(`/npb/game/${g.id}`);
+                else setFarmGame(g);
+              }}
+            />
           ))}
         </div>
       )}

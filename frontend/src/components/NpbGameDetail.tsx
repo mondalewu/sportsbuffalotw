@@ -324,10 +324,13 @@ function parseNpbDescription(desc: string): {
   const outsMatch = desc.match(/^(\d)アウト/);
   const outs = outsMatch ? parseInt(outsMatch[1], 10) : 0;
 
-  const base1 = /1塁/.test(desc);
-  const base2 = /2塁/.test(desc);
-  const base3 = /3塁/.test(desc);
   const manrui = /満塁/.test(desc);
+  // NPB PBP 格式: "1・3塁" 代表一三壘有人，需解析 "([1-3][・1-3]*)塁" 群組
+  const baseGroupMatch = desc.match(/([1-3][・1-3]*)塁/);
+  const baseGroup = baseGroupMatch?.[1] ?? '';
+  const base1 = manrui || baseGroup.includes('1');
+  const base2 = manrui || baseGroup.includes('2');
+  const base3 = manrui || baseGroup.includes('3');
 
   // BSO: "2-1より" → balls=2 strikes=1
   const bsoMatch = desc.match(/(\d)-(\d)より/);
@@ -346,9 +349,9 @@ function parseNpbDescription(desc: string): {
 
   return {
     outs, balls, strikes,
-    base1: base1 || manrui,
-    base2: base2 || manrui,
-    base3: base3 || manrui,
+    base1,
+    base2,
+    base3,
     batterName,
     resultText,
   };
@@ -579,12 +582,29 @@ function NpbReplayFieldPanel({
 
   const pitchLabel = translatePitchResult(cur.result);
 
-  function goNextAb()   { if (safeAbIdx < total - 1) { setAbIdx(safeAbIdx + 1); setPitchIdx(0); } }
-  function goPrevAb()   { if (safeAbIdx > 0) { setAbIdx(safeAbIdx - 1); setPitchIdx(0); } }
+  // 切換打席時顯示該打席所有投球（設到最後一球 index）
+  function goNextAb() {
+    if (safeAbIdx < total - 1) {
+      const nextIdx = safeAbIdx + 1;
+      setAbIdx(nextIdx);
+      setPitchIdx(atBats[nextIdx].pitches.length - 1);
+    }
+  }
+  function goPrevAb() {
+    if (safeAbIdx > 0) {
+      const prevIdx = safeAbIdx - 1;
+      setAbIdx(prevIdx);
+      setPitchIdx(atBats[prevIdx].pitches.length - 1);
+    }
+  }
   function goNextPitch() { if (safePI < maxPitch) setPitchIdx(safePI + 1); else goNextAb(); }
   function goPrevPitch() {
     if (safePI > 0) setPitchIdx(safePI - 1);
-    else if (safeAbIdx > 0) { setAbIdx(safeAbIdx - 1); setPitchIdx(atBats[safeAbIdx - 1].pitches.length - 1); }
+    else if (safeAbIdx > 0) {
+      const prevIdx = safeAbIdx - 1;
+      setAbIdx(prevIdx);
+      setPitchIdx(atBats[prevIdx].pitches.length - 1);
+    }
   }
 
   const bp = { b1: { left: '85%', top: '45%' }, b2: { left: '50%', top: '33%' }, b3: { left: '15%', top: '45%' } };

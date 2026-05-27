@@ -368,10 +368,30 @@ function ReplayFieldPanel({ pitchData, awayName, homeName, batters, pitchers, in
   const pitchResultLabel = translatePitchResultShort(currentPitch.result);
   const finalBadge = isLastPitch ? resultBadgeFarm(currentPitch.result) : null;
 
-  function goNextAb() { if (abIdx < total - 1) { setAbIdx(abIdx + 1); setPitchIdx(0); } }
-  function goPrevAb() { if (abIdx > 0) { setAbIdx(abIdx - 1); setPitchIdx(0); } }
+  // 切換打席時顯示該打席所有投球（設到最後一球 index）
+  function goNextAb() {
+    if (abIdx < total - 1) {
+      const nextIdx = abIdx + 1;
+      setAbIdx(nextIdx);
+      setPitchIdx(atBats[nextIdx].pitches.length - 1);
+    }
+  }
+  function goPrevAb() {
+    if (abIdx > 0) {
+      const prevIdx = abIdx - 1;
+      setAbIdx(prevIdx);
+      setPitchIdx(atBats[prevIdx].pitches.length - 1);
+    }
+  }
   function goNextPitch() { if (safeIdx < maxPitch) setPitchIdx(safeIdx + 1); else goNextAb(); }
-  function goPrevPitch() { if (safeIdx > 0) setPitchIdx(safeIdx - 1); else goPrevAb(); }
+  function goPrevPitch() {
+    if (safeIdx > 0) setPitchIdx(safeIdx - 1);
+    else if (abIdx > 0) {
+      const prevIdx = abIdx - 1;
+      setAbIdx(prevIdx);
+      setPitchIdx(atBats[prevIdx].pitches.length - 1);
+    }
+  }
 
   const bp = { b1: { left: '85%', top: '45%' }, b2: { left: '50%', top: '33%' }, b3: { left: '15%', top: '45%' } };
   const ReplayBase = ({ active, runner }: { active: boolean; runner?: string|null }) => (
@@ -1372,10 +1392,30 @@ function PitchReviewMode({ pitchData, awayName, homeName, batters, pitchers, inn
   const pitchResult = translatePitchResultShort(currentPitch.result);
   const resultBadge = isLastPitchOfAb ? resultBadgeFarm(currentPitch.result) : null;
 
-  function goNextAb() { if (abIdx < total - 1) { setAbIdx(abIdx + 1); setPitchIdx(0); } }
-  function goPrevAb() { if (abIdx > 0) { setAbIdx(abIdx - 1); setPitchIdx(0); } }
+  // 切換打席時顯示該打席所有投球（設到最後一球 index）
+  function goNextAb() {
+    if (abIdx < total - 1) {
+      const nextIdx = abIdx + 1;
+      setAbIdx(nextIdx);
+      setPitchIdx(atBats[nextIdx].pitches.length - 1);
+    }
+  }
+  function goPrevAb() {
+    if (abIdx > 0) {
+      const prevIdx = abIdx - 1;
+      setAbIdx(prevIdx);
+      setPitchIdx(atBats[prevIdx].pitches.length - 1);
+    }
+  }
   function goNextPitch() { if (safeIdx < maxPitch) setPitchIdx(safeIdx + 1); else goNextAb(); }
-  function goPrevPitch() { if (safeIdx > 0) setPitchIdx(safeIdx - 1); else goPrevAb(); }
+  function goPrevPitch() {
+    if (safeIdx > 0) setPitchIdx(safeIdx - 1);
+    else if (abIdx > 0) {
+      const prevIdx = abIdx - 1;
+      setAbIdx(prevIdx);
+      setPitchIdx(atBats[prevIdx].pitches.length - 1);
+    }
+  }
 
   return (
     <div className="max-w-lg mx-auto select-none">
