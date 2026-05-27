@@ -1765,23 +1765,35 @@ function PitcherTable({ title, pitchers }: { title: string; pitchers: PitcherSta
   );
 }
 
+// 正規化選手名稱：統一空白字元（全形→半形），避免合併 key 不一致
+function normalizePlayerName(name: string): string {
+  return name.replace(/[\s　]+/g, ' ').trim();
+}
+
+// 逐格合併兩個逐局結果陣列（取各位置的非空值）
+function mergeAtBatResults(a: string[], b: string[]): string[] {
+  const len = Math.max(a.length, b.length);
+  return Array.from({ length: len }, (_, i) => (a[i] || '') || (b[i] || ''));
+}
+
 function mergeDuplicateBatters(batters: BatterStat[]): BatterStat[] {
   const map = new Map<string, BatterStat>();
   for (const b of batters) {
-    const key = `${b.batting_order}|${b.player_name}`;
+    // 以正規化名稱建立 key，避免全形/半形空白造成誤判
+    const key = `${b.batting_order}|${normalizePlayerName(b.player_name)}`;
     const existing = map.get(key);
     if (!existing) {
       map.set(key, { ...b, at_bat_results: [...(b.at_bat_results ?? [])] });
     } else {
-      const existingResults = existing.at_bat_results ?? [];
-      const newResults = b.at_bat_results ?? [];
+      // 逐格合併 at_bat_results（兩筆資料可能各有不同局次的成績）
+      const merged = mergeAtBatResults(existing.at_bat_results ?? [], b.at_bat_results ?? []);
       if (b.at_bats > existing.at_bats) {
-        map.set(key, {
-          ...b,
-          at_bat_results: newResults.length >= existingResults.length ? newResults : existingResults,
-        });
-      } else if (newResults.length > existingResults.length) {
-        existing.at_bat_results = newResults;
+        map.set(key, { ...b, at_bat_results: merged });
+      } else {
+        existing.at_bat_results = merged;
+        // 若新記錄的統計數字更完整，補充欄位
+        if (b.hits > existing.hits) existing.hits = b.hits;
+        if (b.home_runs > existing.home_runs) existing.home_runs = b.home_runs;
       }
     }
   }
