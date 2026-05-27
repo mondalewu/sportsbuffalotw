@@ -1155,7 +1155,12 @@ export default function NpbGameDetail({ game, awayCode, homeCode, onClose, stand
                 pitcherPitchCount={currentPitcher?.pitch_count}
                 currentBatterName={latestBatterName || currentBatterStat?.player_name}
                 batterAvg={batterAvg}
-                pitches={pitchData}
+                pitches={(() => {
+                  // 只顯示當前打席（最後一個 at_bat_key）的投球
+                  if (!pitchData.length) return [];
+                  const lastKey = pitchData[pitchData.length - 1].at_bat_key;
+                  return pitchData.filter(p => p.at_bat_key === lastKey);
+                })()}
               />
             )
 
