@@ -1765,9 +1765,23 @@ function PitcherTable({ title, pitchers }: { title: string; pitchers: PitcherSta
   );
 }
 
-// 正規化選手名稱：統一空白字元（全形→半形），避免合併 key 不一致
+// 常見日文姓名異體字 → 常用字對照（Docomo 用常用字、Yahoo 用異體字，需統一）
+const KANJI_VARIANTS: Record<string, string> = {
+  '髙': '高', // U+9AD9 → U+9AD8（髙橋 → 高橋）
+  '﨑': '崎', // U+FA11 → U+5D0E（山﨑 → 山崎）
+  '濵': '濱', // U+6FF5 → U+6FF1
+  '邉': '辺', // U+9089 → U+8FBA
+  '邊': '辺', // U+908A → U+8FBA
+  '㟢': '崎', // U+37E2 → U+5D0E
+};
+
+// 正規化選手名稱：統一空白字元（全形→半形）＋異體字→常用字，避免合併 key 不一致
 function normalizePlayerName(name: string): string {
-  return name.replace(/[\s　]+/g, ' ').trim();
+  let s = name.replace(/[\s　]+/g, ' ').trim();
+  for (const [variant, standard] of Object.entries(KANJI_VARIANTS)) {
+    s = s.split(variant).join(standard);
+  }
+  return s;
 }
 
 // 逐格合併兩個逐局結果陣列（取各位置的非空值）
@@ -1869,19 +1883,22 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
   // Yahoo 爬蟲雙寫 bug：at_bat_results 常寫到 0打數的幽靈，而非有打數的真實記錄
   const removeGhosts = (teamBatters: BatterStat[], otherBatters: BatterStat[]) => {
     // 對方隊伍中 0打數但有 at_bat_results 的幽靈（代表這些 results 屬於本隊真實選手）
+    // 使用正規化名稱作為 key，避免異體字不同造成查不到
     const otherGhostResults = new Map<string, string[]>();
     for (const b of otherBatters) {
       if (b.at_bats === 0 && b.at_bat_results && b.at_bat_results.length > 0) {
-        otherGhostResults.set(b.player_name, b.at_bat_results);
+        otherGhostResults.set(normalizePlayerName(b.player_name), b.at_bat_results);
       }
     }
-    const otherWithAB = new Set(otherBatters.filter(b => b.at_bats > 0).map(b => b.player_name));
+    const otherWithAB = new Set(
+      otherBatters.filter(b => b.at_bats > 0).map(b => normalizePlayerName(b.player_name))
+    );
     return teamBatters
-      .filter(b => b.at_bats > 0 || !otherWithAB.has(b.player_name))
+      .filter(b => b.at_bats > 0 || !otherWithAB.has(normalizePlayerName(b.player_name)))
       .map(b => {
         // 真實記錄無 at_bat_results 時，從對方幽靈中移轉
         if (b.at_bats > 0 && (!b.at_bat_results || b.at_bat_results.length === 0)) {
-          const rescued = otherGhostResults.get(b.player_name);
+          const rescued = otherGhostResults.get(normalizePlayerName(b.player_name));
           if (rescued && rescued.length > 0) return { ...b, at_bat_results: rescued };
         }
         return b;
