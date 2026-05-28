@@ -1,14 +1,15 @@
 /**
  * AthleticsPage — 田徑賽事頁
- * 首頁：2026 新北國際田徑公開賽
+ * 新北國際田徑公開賽 2026（World Athletics Continental Tour）
  */
 import { useState } from 'react';
 
-const EVENT_NAME = '2026 新北國際田徑公開賽';
-const EVENT_SUBTITLE = '2026 New Taipei International Athletics Open';
+const EVENT_NAME = '新北國際田徑公開賽';
+const EVENT_SUBTITLE = 'NEW TAIPEI CITY ATHLETICS OPEN 2026';
 const EVENT_DATE = '2026年6月6日（六）—6月7日（日）';
-const EVENT_VENUE = '新北市立田徑場';
-const EVENT_ORGANIZER = '中華民國田徑協會 × 新北市政府';
+const EVENT_VENUE = '板橋體育場';
+const EVENT_VENUE_EN = 'New Taipei City, Banqiao Stadium';
+const EVENT_ORGANIZER = '新北市體育處 × 中華民國田徑協會';
 
 // 賽程項目
 const SCHEDULE = [
@@ -72,30 +73,42 @@ export default function AthleticsPage() {
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
 
-      {/* Hero Banner */}
-      <div className="relative bg-gradient-to-br from-gray-900 via-red-900 to-gray-900 rounded-2xl overflow-hidden mb-8 p-8 text-white">
-        <div className="absolute inset-0 opacity-10">
-          {/* 跑道裝飾線 */}
-          {[0,1,2,3,4,5,6,7].map(i => (
-            <div key={i} className="absolute border-white border-t" style={{ top: `${12.5 * i}%`, left: 0, right: 0, opacity: 0.5 }} />
-          ))}
-        </div>
-        <div className="relative z-10">
-          <span className="inline-block bg-red-600 text-white text-xs font-black px-3 py-1 rounded-full mb-3 tracking-widest uppercase">Athletics</span>
-          <h1 className="text-3xl md:text-4xl font-black mb-1">{EVENT_NAME}</h1>
-          <p className="text-gray-300 text-sm mb-4">{EVENT_SUBTITLE}</p>
+      {/* Hero Banner — 以官方海報圖為背景 */}
+      <div className="relative rounded-2xl overflow-hidden mb-8 text-white" style={{ minHeight: 260 }}>
+        {/* 背景：官方海報圖（若不存在則 fallback 漸層） */}
+        <img
+          src="/athletics-2026.jpg"
+          alt="新北國際田徑公開賽 2026 官方海報"
+          className="absolute inset-0 w-full h-full object-cover object-center"
+          onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+        />
+        {/* 漸層遮罩（確保文字可讀）*/}
+        <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/50 to-black/10" />
+
+        <div className="relative z-10 p-8 flex flex-col justify-end" style={{ minHeight: 260 }}>
+          {/* World Athletics Continental Tour 標章 */}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="inline-block bg-yellow-400 text-black text-[10px] font-black px-2.5 py-0.5 rounded-full tracking-widest uppercase">
+              World Athletics Continental Tour 2026
+            </span>
+          </div>
+
+          <h1 className="text-3xl md:text-4xl font-black leading-tight mb-0.5">{EVENT_NAME}</h1>
+          <p className="text-gray-200 text-sm font-bold tracking-wider mb-4">{EVENT_SUBTITLE}</p>
+
           <div className="flex flex-wrap gap-4 text-sm">
             <div className="flex items-center gap-2">
-              <span className="text-red-400">📅</span>
+              <span>📅</span>
               <span className="font-bold">{EVENT_DATE}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-red-400">📍</span>
+              <span>📍</span>
               <span className="font-bold">{EVENT_VENUE}</span>
+              <span className="text-gray-300 text-xs hidden sm:inline">/ {EVENT_VENUE_EN}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-red-400">🏛</span>
-              <span className="text-gray-300">{EVENT_ORGANIZER}</span>
+              <span>🏛</span>
+              <span className="text-gray-200 text-xs">{EVENT_ORGANIZER}</span>
             </div>
           </div>
         </div>
@@ -158,9 +171,9 @@ export default function AthleticsPage() {
             <h3 className="font-black text-sm text-red-800 mb-2">賽事資訊</h3>
             <ul className="text-xs text-red-700 space-y-1">
               <li>🎟 入場：免費開放</li>
-              <li>🚇 交通：捷運新莊線</li>
-              <li>🏟 場地：新北市立田徑場</li>
-              <li>📺 轉播：華視體育</li>
+              <li>🚇 交通：板橋車站步行可達</li>
+              <li>🏟 場地：板橋體育場</li>
+              <li>🌐 主辦：新北市體育處 × 中華民國田徑協會</li>
             </ul>
           </div>
         </div>
