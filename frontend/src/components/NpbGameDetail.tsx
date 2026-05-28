@@ -1329,6 +1329,7 @@ function translatePitchText(text: string): string {
 }
 
 // 逐球結果短文翻譯（用於 pitch list 欄）
+// 支援長格式與 NPB 短格式（左安/右安/中安/左本/右本/右２/右飛/遊ゴ 等）
 function translatePitchShort(result: string): string {
   if (!result) return '';
   if (result.includes('ボール')) return '壞球';
@@ -1336,22 +1337,34 @@ function translatePitchShort(result: string): string {
   if (result.includes('見逃')) return '見逃';
   if (result.includes('ファウル')) return '界外';
   if (result.includes('三振')) return '三振';
-  if (result.includes('安打') || result.includes('ヒット')) return '安打';
+  // 長格式安打系
   if (result.includes('本塁打') || result.includes('ホームラン')) return '全壘打';
-  if (result.includes('ゴロ')) return '滾地';
-  if (result.includes('フライ')) return '飛球';
-  if (result.includes('ライナー')) return '平飛';
+  if (result.includes('三塁打')) return '三壘打';
+  if (result.includes('二塁打')) return '二壘打';
+  if (result.includes('安打') || result.includes('ヒット') || result.includes('内野安打')) return '安打';
+  // NPB 短格式（安$=右安/左安/中安, 本$=右本, ２$=二壘打, ３$=三壘打）
+  if (/安$/.test(result)) return '安打';
+  if (/本$/.test(result)) return '全壘打';
+  if (/[２2]$/.test(result)) return '二壘打';
+  if (/[３3]$/.test(result)) return '三壘打';
+  // 出局系
+  if (result.includes('ゴロ') || /ゴ$/.test(result)) return '滾地';
+  if (result.includes('フライ') || /飛$/.test(result)) return '飛球';
+  if (result.includes('ライナー') || /直$/.test(result)) return '平飛';
   if (result.includes('四球')) return '四壞';
   if (result.includes('死球')) return '觸身';
+  if (result.includes('犠打') || result.includes('犠飛')) return '犧打';
+  if (result.includes('併殺')) return '雙殺';
   return result;
 }
 
 // 逐球圓圈顏色（非最後一球：壞球=綠, 好球=黃；最後一球：安打=藍, 四壞=綠, 出局=紅, 其他=黃）
+// 同時支援長格式（安打/本塁打）和短格式（左安/右安/中安/左本/右本 等）
 function pitchCircleBg(result: string, isStrike: boolean, isFinal: boolean): string {
   if (isFinal) {
-    if (/安打|ヒット|本塁打|ホームラン|二塁打|三塁打/.test(result)) return 'bg-blue-500 text-white';
+    if (/安打|ヒット|本塁打|ホームラン|二塁打|三塁打|安$|本$|[２2]$|[３3]$/.test(result)) return 'bg-blue-500 text-white';
     if (/四球|死球/.test(result)) return 'bg-green-400 text-white';
-    if (/三振|ゴロ|フライ|ライナー|犠打|犠飛|併殺/.test(result)) return 'bg-red-500 text-white';
+    if (/三振|ゴロ|フライ|ライナー|犠打|犠飛|併殺|飛$|ゴ$|直$/.test(result)) return 'bg-red-500 text-white';
     return 'bg-yellow-400 text-gray-800';
   }
   return isStrike ? 'bg-yellow-400 text-gray-800' : 'bg-green-400 text-white';
@@ -1630,9 +1643,9 @@ function RichAtBatCard({ entry, order, avg, score, b1, b2, b3, pitchRows, pitche
               const label = translatePitchShort(pitch.result ?? '');
               const speedText = (pitch.speed != null && pitch.speed > 0) ? `${pitch.speed}k` : '';
               const rType = isFinalPitch
-                ? (/安打|ヒット|本塁打|ホームラン/.test(pitch.result ?? '') ? 'hit'
+                ? (/安打|ヒット|本塁打|ホームラン|二塁打|三塁打|安$|本$|[２2]$|[３3]$/.test(pitch.result ?? '') ? 'hit'
                   : /四球|死球/.test(pitch.result ?? '') ? 'walk'
-                  : /三振|ゴロ|フライ|犠/.test(pitch.result ?? '') ? 'out' : 'other')
+                  : /三振|ゴロ|フライ|ライナー|犠|飛$|ゴ$|直$/.test(pitch.result ?? '') ? 'out' : 'other')
                 : 'other';
               const labelColor = rType === 'hit' ? 'text-blue-600 font-black'
                 : rType === 'walk' ? 'text-green-600 font-black'
@@ -1688,17 +1701,30 @@ function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings, pitc
   }
 
   // Build pitch lookup: "${inning}_${isTop ? 1 : 0}_${abSeq}" → PitchData[] sorted by pitch_num
-  // Sanspo at_bat_key format: s{globalId}_{inning}_{tob}_{abSeq}  (tob: 1=top, 2=bottom)
+  // 支援兩種 at_bat_key 格式：
+  //   Sanspo: "s{gameId}_{inning}_{tob}_{abSeq}"  (tob: 1=top, 2=bottom)
+  //   NPB5:   "{inning:02d}{tob:1d}{abSeq:02d}"  e.g. "06103" = 6回表3打席
   const pitchMap = new Map<string, PitchData[]>();
   for (const p of pitchData) {
     const key = p.at_bat_key ?? '';
-    if (!key.startsWith('s')) continue;
-    const parts = key.split('_');
-    if (parts.length < 4) continue;
-    const inn = parseInt(parts[1]);
-    const tobNum = parseInt(parts[2]);        // 1=top, 2=bottom
-    const abSeq = parseInt(parts[3]);
-    const mapKey = `${inn}_${tobNum === 1 ? 1 : 0}_${abSeq}`;
+    let mapKey: string | null = null;
+    if (key.startsWith('s')) {
+      // Sanspo format
+      const parts = key.split('_');
+      if (parts.length >= 4) {
+        const inn = parseInt(parts[1]);
+        const tobNum = parseInt(parts[2]);
+        const abSeq = parseInt(parts[3]);
+        mapKey = `${inn}_${tobNum === 1 ? 1 : 0}_${abSeq}`;
+      }
+    } else if (/^\d{5}$/.test(key)) {
+      // NPB 5-digit format: IITNNN  (II=inning, T=top/bottom 1/2, NN=abSeq)
+      const inn    = parseInt(key.slice(0, 2));
+      const tobNum = parseInt(key.slice(2, 3));  // 1=top, 2=bottom
+      const abSeq  = parseInt(key.slice(3, 5));
+      mapKey = `${inn}_${tobNum === 1 ? 1 : 0}_${abSeq}`;
+    }
+    if (!mapKey) continue;
     if (!pitchMap.has(mapKey)) pitchMap.set(mapKey, []);
     pitchMap.get(mapKey)!.push(p);
   }
