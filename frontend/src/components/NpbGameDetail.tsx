@@ -1734,13 +1734,12 @@ function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings, pitc
     grouped.get(key)!.push(e);
   }
 
-  // 正向排列：1局上 → 1局下 → 2局上 → ... → 最新局（使用者習慣由上往下讀）
+  // 最新局在上（倒序）：最新局 → ... → 1局下 → 1局上
   const sortedKeys = [...grouped.keys()].sort((a, b) => {
     const [ai, at] = a.split('-'); const [bi, bt] = b.split('-');
     const d = parseInt(ai) - parseInt(bi);
-    // 同局：表(true)在前，裏(false)在後
-    return d !== 0 ? d : (at === 'true' ? 0 : 1) - (bt === 'true' ? 0 : 1);
-  });
+    return d !== 0 ? d : (at === 'true' ? 1 : 0) - (bt === 'true' ? 1 : 0);
+  }).reverse();
 
   return (
     <div>
@@ -1779,6 +1778,10 @@ function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings, pitc
           }
         }
 
+        // 反轉顯示（最新打席在上）
+        const reversedPlays  = [...plays].reverse();
+        const reversedStates = [...runnerStates].reverse();
+
         return (
           <div key={key} className="mb-2 rounded-xl overflow-hidden border border-gray-200 shadow-sm">
             {/* 局半標題列 */}
@@ -1790,9 +1793,9 @@ function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings, pitc
             </div>
 
             <div className="divide-y divide-gray-100 bg-white">
-              {plays.map((ev, i) => {
+              {reversedPlays.map((ev, i) => {
                 const rich = parseRichPbp(ev.description) ?? parseOldStylePbp(ev.description);
-                const runners = runnerStates[i] ?? { b1: null, b2: null, b3: null };
+                const runners = reversedStates[i] ?? { b1: null, b2: null, b3: null };
 
                 if (!rich) {
                   // 純文字公告（投手替換、守備交代等）
