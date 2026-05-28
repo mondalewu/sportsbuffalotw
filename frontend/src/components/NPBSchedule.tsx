@@ -268,6 +268,7 @@ const NPBSchedule: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [windowStart, setWindowStart] = useState<Date>(() => getCenterStart(today));
   const [farmGame, setFarmGame] = useState<NPBGame | null>(null);
+  const [npbGame,  setNpbGame]  = useState<NPBGame | null>(null);
   const [rosterTeam, setRosterTeam] = useState<NpbTeam | null>(null);
   const [leagueTab, setLeagueTab] = useState<'NPB' | 'NPB2'>('NPB');
   const [selectedMonth, setSelectedMonth] = useState<number>(today.getMonth() + 1);
@@ -595,9 +596,9 @@ const NPBSchedule: React.FC = () => {
               onSelect={() => {
                 const isClickable = g.status === 'live' || g.status === 'final';
                 if (!isClickable) return;
-                // NPB 一軍 → 導向獨立頁（有完整成績 / 文字速報）
-                // NPB 二軍 → 維持 modal（FarmGameDetail）
-                if (g.league === 'NPB') navigate(`/npb/game/${g.id}`);
+                // NPB 一軍 → NpbGameDetail modal（正確使用短代碼過濾成績）
+                // NPB 二軍 → FarmGameDetail modal
+                if (g.league === 'NPB') setNpbGame(g);
                 else setFarmGame(g);
               }}
             />
@@ -607,6 +608,14 @@ const NPBSchedule: React.FC = () => {
 
       {farmGame && (
         <FarmGameDetail game={farmGame} onClose={() => setFarmGame(null)} />
+      )}
+      {npbGame && (
+        <NpbGameDetail
+          game={npbGame}
+          awayCode={getCode(npbGame.team_away)}
+          homeCode={getCode(npbGame.team_home)}
+          onClose={() => setNpbGame(null)}
+        />
       )}
       {rosterTeam && (
         <NpbRosterModal team={rosterTeam} onClose={() => setRosterTeam(null)} />
