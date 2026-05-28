@@ -6,14 +6,14 @@ import { useState } from 'react';
 
 const EVENT_NAME = '2026 新北國際田徑公開賽';
 const EVENT_SUBTITLE = '2026 New Taipei International Athletics Open';
-const EVENT_DATE = '2026年7月5日（六）—7月6日（日）';
+const EVENT_DATE = '2026年6月6日（六）—6月7日（日）';
 const EVENT_VENUE = '新北市立田徑場';
 const EVENT_ORGANIZER = '中華民國田徑協會 × 新北市政府';
 
 // 賽程項目
 const SCHEDULE = [
   {
-    day: '第一天｜7月5日（六）',
+    day: '第一天｜6月6日（六）',
     events: [
       { time: '09:00', name: '男子 100 公尺 — 預賽', tag: '短跑' },
       { time: '09:30', name: '女子 100 公尺 — 預賽', tag: '短跑' },
@@ -30,7 +30,7 @@ const SCHEDULE = [
     ],
   },
   {
-    day: '第二天｜7月6日（日）',
+    day: '第二天｜6月7日（日）',
     events: [
       { time: '09:00', name: '男子 100 公尺 — 決賽', tag: '短跑' },
       { time: '09:20', name: '女子 100 公尺 — 決賽', tag: '短跑' },
