@@ -272,7 +272,7 @@ const LiveGameText: React.FC<LiveGameTextProps> = ({ gameId, awayTeam, homeTeam,
 
               {/* At-bats in this half */}
               <div className="divide-y divide-gray-100 bg-white">
-                {[...half.atBats].reverse().map((ab, abIdx) => {
+                {half.atBats.map((ab, abIdx) => {
                   const badge    = resultBadge(ab.finalEvent.result_text);
                   const avg      = batterAvgMap?.[ab.batter_name];
                   const pitStats = pitcherStatsMap?.[ab.pitcher_name];

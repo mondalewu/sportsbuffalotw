@@ -1862,7 +1862,7 @@ function PlayByPlayInline({ events, awayName, homeName }: {
               {inning}局{isTop ? '上' : '下'}（{isTop ? awayName : homeName}攻）
             </div>
             <ol className="divide-y divide-gray-50">
-              {[...plays].reverse().map((p, i) => (
+              {plays.map((p, i) => (
                 <li key={i} className="px-4 py-2 text-sm text-gray-700 leading-relaxed">
                   <span className="text-gray-300 mr-1.5 text-xs tabular-nums">{p.play_order}.</span>
                   {translateJa(p.description)}
