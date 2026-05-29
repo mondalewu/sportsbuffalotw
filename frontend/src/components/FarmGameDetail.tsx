@@ -885,7 +885,12 @@ function FarmPBPCards({ events, awayName, homeName, pitchers }: {
 
   return (
     <div>
-      {[...grouped.entries()].reverse().map(([key, plays]) => {
+      {[...grouped.entries()]
+        .sort(([ka], [kb]) => {
+          const [ia, ta] = ka.split('-'); const [ib, tb] = kb.split('-');
+          return parseInt(ib) - parseInt(ia) || (ta === tb ? 0 : ta === 'true' ? -1 : 1);
+        })
+        .map(([key, plays]) => {
         const [innStr, isTopStr] = key.split('-');
         const inning = parseInt(innStr), isTop = isTopStr === 'true';
         const attackTeam = isTop ? awayName : homeName;
@@ -901,7 +906,7 @@ function FarmPBPCards({ events, awayName, homeName, pitchers }: {
             </div>
             {/* 每打席卡片 */}
             <div className="divide-y divide-gray-100">
-              {plays.map((p, i) => {
+              {[...plays].reverse().map((p, i) => {
                 const parsed = parseNpbDescription(p.description);
                 const badge = resultBadgeFarm(parsed.resultText);
                 // find current pitcher by matching order (pitchers increase over game)
@@ -1146,9 +1151,9 @@ function FarmPitchByPitchCards({ pitchData, awayName, homeName, batters, pitcher
                 <span className="text-white/80 text-xs font-bold">（{attackTeam}）</span>
               </div>
 
-              {/* 各打席（順序：第1棒在前） */}
+              {/* 各打席（倒序：最新在前） */}
               <div className="divide-y divide-gray-100 bg-white">
-                {half.atBatList.map(([abId, pitches], abIdx) => {
+                {[...half.atBatList].reverse().map(([abId, pitches], abIdx) => {
                   const firstPitch = pitches[0];
                   const lastPitch  = pitches[pitches.length - 1];
                   const batterName  = firstPitch.batter_name;

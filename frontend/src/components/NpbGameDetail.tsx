@@ -1850,7 +1850,12 @@ function PlayByPlayInline({ events, awayName, homeName }: {
 
   return (
     <div>
-      {[...grouped.entries()].reverse().map(([key, plays]) => {
+      {[...grouped.entries()]
+        .sort(([ka], [kb]) => {
+          const [ia, ta] = ka.split('-'); const [ib, tb] = kb.split('-');
+          return parseInt(ib) - parseInt(ia) || (ta === tb ? 0 : ta === 'true' ? -1 : 1);
+        })
+        .map(([key, plays]) => {
         const [inningStr, isTopStr] = key.split('-');
         const inning = parseInt(inningStr);
         const isTop  = isTopStr === 'true';
