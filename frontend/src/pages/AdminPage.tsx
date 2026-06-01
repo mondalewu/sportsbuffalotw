@@ -405,8 +405,8 @@ export default function AdminPage() {
                   <MDEditor
                     value={newArticle.content}
                     onChange={v => setNewArticle(f => ({ ...f, content: v ?? '' }))}
-                    height={320}
-                    preview="edit"
+                    height={400}
+                    preview="live"
                   />
                 </div>
                 <button type="submit" className={`w-full py-3 rounded-xl font-black transition ${editingAdminArticle ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}`}>
@@ -538,8 +538,8 @@ export default function AdminPage() {
                           <MDEditor
                             value={expandedContent}
                             onChange={v => setExpandedContent(v ?? '')}
-                            height={360}
-                            preview="edit"
+                            height={400}
+                            preview="live"
                           />
                         </div>
                         <div className="flex gap-2 mt-2">
