@@ -70,7 +70,7 @@ export default function ArticlePage() {
         <meta property="og:locale" content="zh_TW" />
 
         {/* Twitter Card */}
-        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:card" content="summary" />
         <meta name="twitter:site" content="@sportsbuffalotw" />
         <meta name="twitter:title" content={article.title} />
         <meta name="twitter:description" content={article.summary || article.title} />
