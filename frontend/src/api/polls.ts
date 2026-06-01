@@ -85,6 +85,10 @@ export interface AdminAnalytics {
   total_votes: number;
   top_polls: { id: number; question: string; is_active: boolean; total_votes: number }[];
   votes_by_day: { day: string; count: number }[];
+  articles_by_category: { category: string; count: number }[];
+  articles_by_day: { day: string; count: number }[];
+  users_by_role: { role: string; count: number }[];
+  user_growth: { week: string; count: number }[];
 }
 
 export const getAdminAnalytics = async (): Promise<AdminAnalytics> => {

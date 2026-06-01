@@ -1879,6 +1879,130 @@ export default function AdminPage() {
                     </div>
                   </div>
                 )}
+
+                {/* ── 內容類 ── */}
+                <div className="grid md:grid-cols-2 gap-6">
+                  {/* 文章分類分布 */}
+                  {analytics.articles_by_category?.length > 0 && (
+                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                      <h2 className="text-lg font-black mb-4">📰 文章分類分布</h2>
+                      <div className="space-y-2">
+                        {(() => {
+                          const total = analytics.articles_by_category.reduce((s, c) => s + c.count, 0);
+                          const COLORS = ['bg-blue-400','bg-red-400','bg-green-400','bg-orange-400','bg-purple-400','bg-yellow-400','bg-pink-400','bg-teal-400'];
+                          return analytics.articles_by_category.map((c, i) => (
+                            <div key={c.category} className="flex items-center gap-2">
+                              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${COLORS[i % COLORS.length]}`} />
+                              <span className="text-xs font-bold text-gray-600 w-16 shrink-0">{c.category}</span>
+                              <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full ${COLORS[i % COLORS.length]}`}
+                                  style={{ width: `${total > 0 ? (c.count / total) * 100 : 0}%` }} />
+                              </div>
+                              <span className="text-xs font-black text-gray-700 w-8 text-right">{c.count}</span>
+                              <span className="text-[10px] text-gray-400 w-8">{total > 0 ? Math.round((c.count / total) * 100) : 0}%</span>
+                            </div>
+                          ));
+                        })()}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 近30日文章發布趨勢 */}
+                  <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                    <h2 className="text-lg font-black mb-4">📅 近30日文章發布趨勢</h2>
+                    {analytics.articles_by_day?.length > 0 ? (
+                      <>
+                        <div className="flex items-end gap-1 h-20">
+                          {(() => {
+                            const max = Math.max(...analytics.articles_by_day.map(d => d.count), 1);
+                            return analytics.articles_by_day.map(d => (
+                              <div key={d.day} className="flex-1" title={`${d.day}: ${d.count}篇`}>
+                                <div className="w-full bg-blue-400 rounded-t"
+                                  style={{ height: `${(d.count / max) * 72}px`, minHeight: '3px' }} />
+                              </div>
+                            ));
+                          })()}
+                        </div>
+                        <div className="flex justify-between text-[10px] text-gray-400 mt-1">
+                          <span>{analytics.articles_by_day[0]?.day?.slice(5)}</span>
+                          <span>{analytics.articles_by_day[analytics.articles_by_day.length - 1]?.day?.slice(5)}</span>
+                        </div>
+                        <p className="text-[11px] text-gray-400 mt-2">
+                          共 <span className="font-black text-blue-600">{analytics.articles_by_day.reduce((s, d) => s + d.count, 0)}</span> 篇 / 近30日
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-gray-400 text-sm text-center py-6">近30日尚無文章發布</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── 用戶類 ── */}
+                <div className="grid md:grid-cols-2 gap-6">
+                  {/* 用戶角色分布 */}
+                  {analytics.users_by_role?.length > 0 && (
+                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                      <h2 className="text-lg font-black mb-4">👥 用戶角色分布</h2>
+                      <div className="space-y-3">
+                        {(() => {
+                          const total = analytics.users_by_role.reduce((s, r) => s + r.count, 0);
+                          const ROLE_STYLE: Record<string, { color: string; label: string }> = {
+                            admin:  { color: 'bg-red-500',    label: '管理員' },
+                            editor: { color: 'bg-blue-500',   label: '編輯' },
+                            member: { color: 'bg-green-400',  label: '會員' },
+                          };
+                          return analytics.users_by_role.map(r => {
+                            const s = ROLE_STYLE[r.role] ?? { color: 'bg-gray-400', label: r.role };
+                            return (
+                              <div key={r.role} className="flex items-center gap-3">
+                                <span className={`w-3 h-3 rounded-full shrink-0 ${s.color}`} />
+                                <span className="text-sm font-bold text-gray-600 w-14 shrink-0">{s.label}</span>
+                                <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                                  <div className={`h-full rounded-full ${s.color}`}
+                                    style={{ width: `${total > 0 ? (r.count / total) * 100 : 0}%` }} />
+                                </div>
+                                <span className="text-sm font-black text-gray-800 w-6 text-right">{r.count}</span>
+                                <span className="text-[10px] text-gray-400 w-8">{total > 0 ? Math.round((r.count / total) * 100) : 0}%</span>
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-4">總計 {analytics.users} 人</p>
+                    </div>
+                  )}
+
+                  {/* 近8週會員成長 */}
+                  <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                    <h2 className="text-lg font-black mb-4">📈 近8週會員成長</h2>
+                    {analytics.user_growth?.length > 0 ? (
+                      <>
+                        <div className="flex items-end gap-2 h-20">
+                          {(() => {
+                            const max = Math.max(...analytics.user_growth.map(d => d.count), 1);
+                            return analytics.user_growth.map(d => (
+                              <div key={d.week} className="flex-1 flex flex-col items-center gap-1" title={`${d.week}: ${d.count}人`}>
+                                <span className="text-[9px] text-gray-400 font-bold">{d.count}</span>
+                                <div className="w-full bg-purple-400 rounded-t"
+                                  style={{ height: `${(d.count / max) * 60}px`, minHeight: '3px' }} />
+                              </div>
+                            ));
+                          })()}
+                        </div>
+                        <div className="flex justify-between text-[10px] text-gray-400 mt-1">
+                          {analytics.user_growth.map(d => (
+                            <span key={d.week} className="flex-1 text-center">{d.week}</span>
+                          ))}
+                        </div>
+                        <p className="text-[11px] text-gray-400 mt-2">
+                          近8週共新增 <span className="font-black text-purple-600">{analytics.user_growth.reduce((s, d) => s + d.count, 0)}</span> 位會員
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-gray-400 text-sm text-center py-6">近期尚無新增會員</p>
+                    )}
+                  </div>
+                </div>
               </>
             ) : (
               <div className="text-center py-16 text-gray-400 font-bold">無法載入數據，請確認登入狀態</div>

@@ -118,6 +118,32 @@ app.get('/api/v1/admin/analytics', verifyToken, requireRole('editor', 'admin'), 
        WHERE created_at > NOW() - INTERVAL '30 days'
        GROUP BY day ORDER BY day ASC`
     );
+    // 內容類：文章分類分布
+    const articlesByCategory = await pool.query(
+      `SELECT category, COUNT(*)::INT AS count
+       FROM articles GROUP BY category ORDER BY count DESC`
+    );
+    // 內容類：近30日文章發布趨勢
+    const articlesByDay = await pool.query(
+      `SELECT DATE(published_at AT TIME ZONE 'Asia/Taipei') AS day,
+              COUNT(*)::INT AS count
+       FROM articles
+       WHERE published_at > NOW() - INTERVAL '30 days'
+       GROUP BY day ORDER BY day ASC`
+    );
+    // 用戶類：角色分布
+    const usersByRole = await pool.query(
+      `SELECT role, COUNT(*)::INT AS count FROM users GROUP BY role ORDER BY count DESC`
+    );
+    // 用戶類：近8週會員成長（每週新增）
+    const userGrowth = await pool.query(
+      `SELECT TO_CHAR(DATE_TRUNC('week', created_at AT TIME ZONE 'Asia/Taipei'), 'MM/DD') AS week,
+              COUNT(*)::INT AS count
+       FROM users
+       WHERE created_at > NOW() - INTERVAL '56 days'
+       GROUP BY DATE_TRUNC('week', created_at AT TIME ZONE 'Asia/Taipei')
+       ORDER BY DATE_TRUNC('week', created_at AT TIME ZONE 'Asia/Taipei') ASC`
+    );
     res.json({
       articles: articles.rows[0].count,
       users: users.rows[0].count,
@@ -126,6 +152,10 @@ app.get('/api/v1/admin/analytics', verifyToken, requireRole('editor', 'admin'), 
       total_votes: votes.rows[0].count,
       top_polls: topPolls.rows,
       votes_by_day: votesByDay.rows,
+      articles_by_category: articlesByCategory.rows,
+      articles_by_day: articlesByDay.rows,
+      users_by_role: usersByRole.rows,
+      user_growth: userGrowth.rows,
     });
   } catch (err) {
     res.status(500).json({ message: '伺服器錯誤' });
