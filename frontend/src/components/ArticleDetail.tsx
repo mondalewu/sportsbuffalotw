@@ -251,13 +251,20 @@ export default function ArticleDetail({ article, onBack }: Props) {
               img: ({ src, alt }) => {
                 const idx = allImages.indexOf(src ?? '');
                 return (
-                  <img
-                    src={src}
-                    alt={alt ?? ''}
-                    className="rounded-2xl shadow-md cursor-zoom-in hover:opacity-90 transition"
-                    onClick={() => idx >= 0 && openLightbox(idx)}
-                    style={{ cursor: idx >= 0 ? 'zoom-in' : 'default' }}
-                  />
+                  <figure className="my-4">
+                    <img
+                      src={src}
+                      alt={alt ?? ''}
+                      className="rounded-2xl shadow-md cursor-zoom-in hover:opacity-90 transition w-full"
+                      onClick={() => idx >= 0 && openLightbox(idx)}
+                      style={{ cursor: idx >= 0 ? 'zoom-in' : 'default' }}
+                    />
+                    {alt && (
+                      <figcaption className="text-center text-xs text-gray-400 mt-2 italic">
+                        {alt}
+                      </figcaption>
+                    )}
+                  </figure>
                 );
               },
             }}
@@ -272,19 +279,20 @@ export default function ArticleDetail({ article, onBack }: Props) {
             <h2 className="text-lg font-black text-gray-700 mb-4">相關圖片</h2>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {extraImages.map((img, i) => (
-                <div
-                  key={img.id}
-                  className="aspect-video overflow-hidden rounded-2xl shadow cursor-zoom-in bg-gray-100"
-                  onClick={() => openLightbox(article.image_url ? i + 1 : i)}
-                >
-                  <img
-                    src={img.image_url}
-                    alt={img.caption || ''}
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
-                  />
+                <div key={img.id} className="flex flex-col">
+                  <div
+                    className="aspect-video overflow-hidden rounded-2xl shadow cursor-zoom-in bg-gray-100"
+                    onClick={() => openLightbox(article.image_url ? i + 1 : i)}
+                  >
+                    <img
+                      src={img.image_url}
+                      alt={img.caption || ''}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
+                    />
+                  </div>
                   {img.caption && (
-                    <p className="text-xs text-gray-500 mt-1 px-1 truncate">{img.caption}</p>
+                    <p className="text-xs text-gray-400 mt-1.5 px-1 text-center italic">{img.caption}</p>
                   )}
                 </div>
               ))}
