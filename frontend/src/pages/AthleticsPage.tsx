@@ -86,7 +86,7 @@ export default function AthleticsPage() {
 
   const handleArticleClick = (article: Article) => {
     setSelectedArticle(article);
-    navigate('/article');
+    navigate(`/article/${article.slug}`);
   };
 
   return (

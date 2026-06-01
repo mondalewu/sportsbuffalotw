@@ -55,7 +55,7 @@ export default function NPBPage() {
     } catch {
       setSelectedArticle(article);
     }
-    navigate('/article');
+    navigate(`/article/${article.slug}`);
   };
 
   // ── Helpers ───────────────────────────────────────────────────────────────

@@ -28,7 +28,7 @@ export default function CPBLPage() {
     } catch {
       setSelectedArticle(article);
     }
-    navigate('/article');
+    navigate(`/article/${article.slug}`);
   };
 
   return (

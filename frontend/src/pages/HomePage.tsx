@@ -48,7 +48,7 @@ export default function HomePage() {
     } catch {
       setSelectedArticle(article);
     }
-    navigate('/article');
+    navigate(`/article/${article.slug}`);
   };
 
   const handleFetchExternalNews = async () => {
