@@ -33,6 +33,9 @@ export default function AdminPage() {
     }
   }, [searchParams]);
 
+  // 初始載入文章（預設 tab 是 article）
+  useEffect(() => { loadArticles(); }, []);
+
   // Stories
   interface StoryClipForm { id?: number; background_image_url: string; video_url: string; score: string; situation: string; key_play: string; ai_insight: string; duration_ms: number; clip_order: number; }
   interface StoryForm { id?: number; home_team: string; away_team: string; home_abbr: string; away_abbr: string; home_color: string; away_color: string; league: string; is_live: boolean; is_active: boolean; sort_order: number; clips: StoryClipForm[]; }
@@ -468,7 +471,7 @@ export default function AdminPage() {
                 <button onClick={loadArticles} className="text-sm font-bold text-gray-400 hover:text-red-600 transition">↻ 重新整理</button>
               </div>
               <div className="flex flex-wrap gap-2 mb-4">
-                {['全部', 'CPBL', 'NPB', 'WBC', 'MLB', 'NBA', '其他'].map(cat => (
+                {['全部', 'CPBL', 'NPB', 'WBC', 'MLB', 'NBA', '田徑', '其他'].map(cat => (
                   <button key={cat} onClick={() => setArticleFilterCat(cat)}
                     className={`text-xs font-black px-3 py-1.5 rounded-full border transition ${articleFilterCat === cat ? 'bg-red-600 text-white border-red-600' : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-red-300 hover:text-red-600'}`}>
                     {cat}
