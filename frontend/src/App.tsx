@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { HelmetProvider } from 'react-helmet-async';
 import { AppProvider } from './context/AppContext';
 import Layout from './components/Layout';
 import HomePage from './pages/HomePage';
@@ -15,6 +16,7 @@ import CpblGamePage from './pages/CpblGamePage';
 
 export default function App() {
   return (
+    <HelmetProvider>
     <BrowserRouter>
       <AppProvider>
         <Routes>
@@ -36,5 +38,6 @@ export default function App() {
         </Routes>
       </AppProvider>
     </BrowserRouter>
+    </HelmetProvider>
   );
 }

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import { useApp } from '../context/AppContext';
 import ArticleDetail from '../components/ArticleDetail';
 import { getArticleBySlug } from '../api/articles';
@@ -24,6 +25,9 @@ export default function ArticlePage() {
   }, [slug]);
 
   const article = fetched ?? selectedArticle;
+  const canonicalUrl = article
+    ? `https://sportsbuffalotw.vercel.app/article/${article.slug}`
+    : 'https://sportsbuffalotw.vercel.app';
 
   if (loading) {
     return (
@@ -50,9 +54,32 @@ export default function ArticlePage() {
   }
 
   return (
-    <ArticleDetail
-      article={article}
-      onBack={() => { setSelectedArticle(null); navigate('/'); }}
-    />
+    <>
+      <Helmet>
+        <title>{article.title} — 水牛體育</title>
+        <meta name="description" content={article.summary || article.title} />
+        <link rel="canonical" href={canonicalUrl} />
+
+        {/* Open Graph */}
+        <meta property="og:type" content="article" />
+        <meta property="og:url" content={canonicalUrl} />
+        <meta property="og:title" content={article.title} />
+        <meta property="og:description" content={article.summary || article.title} />
+        {article.image_url && <meta property="og:image" content={article.image_url} />}
+        <meta property="og:site_name" content="水牛體育 SPORTS BUFFALO" />
+        <meta property="og:locale" content="zh_TW" />
+
+        {/* Twitter Card */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:site" content="@sportsbuffalotw" />
+        <meta name="twitter:title" content={article.title} />
+        <meta name="twitter:description" content={article.summary || article.title} />
+        {article.image_url && <meta name="twitter:image" content={article.image_url} />}
+      </Helmet>
+      <ArticleDetail
+        article={article}
+        onBack={() => { setSelectedArticle(null); navigate('/'); }}
+      />
+    </>
   );
 }
