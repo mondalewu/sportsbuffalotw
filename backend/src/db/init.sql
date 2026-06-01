@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS articles (
   id SERIAL PRIMARY KEY,
   title VARCHAR(500) NOT NULL,
   slug VARCHAR(500) UNIQUE NOT NULL,
-  category VARCHAR(50) NOT NULL CHECK (category IN ('WBC','CPBL','NPB','MLB','NBA','其他')),
+  category VARCHAR(50) NOT NULL CHECK (category IN ('WBC','CPBL','NPB','MLB','NBA','田徑','其他')),
   summary TEXT,
   content TEXT NOT NULL,
   image_url VARCHAR(1000),
