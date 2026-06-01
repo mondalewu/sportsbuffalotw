@@ -45,7 +45,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
   try {
     let query = `
-      SELECT a.id, a.title, a.slug, a.category, a.summary, a.image_url, a.is_hot, a.published_at,
+      SELECT a.id, a.title, a.slug, a.category, a.summary, a.content, a.image_url, a.is_hot, a.published_at,
              u.username as author_name
       FROM articles a
       LEFT JOIN users u ON a.author_id = u.id
