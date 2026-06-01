@@ -109,7 +109,9 @@ export default function ArticleDetail({ article, onBack }: Props) {
     setLightboxOpen(true);
   };
 
-  const pageUrl = typeof window !== 'undefined' ? window.location.href : '';
+  const pageUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/article/${article.slug}`
+    : '';
   const encodedUrl = encodeURIComponent(pageUrl);
   const encodedTitle = encodeURIComponent(article.title);
 

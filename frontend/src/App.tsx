@@ -31,6 +31,7 @@ export default function App() {
             <Route path="/athletics" element={<AthleticsPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/article" element={<ArticlePage />} />
+            <Route path="/article/:slug" element={<ArticlePage />} />
           </Route>
         </Routes>
       </AppProvider>
