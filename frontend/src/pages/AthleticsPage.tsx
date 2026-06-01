@@ -96,7 +96,7 @@ export default function AthleticsPage() {
       <div className="relative rounded-2xl overflow-hidden mb-8 text-white" style={{ minHeight: 260 }}>
         {/* 背景：官方海報圖（若不存在則 fallback 漸層） */}
         <img
-          src="/athletics-2026.jpg"
+          src="/athletics-2026.jpg.jpg"
           alt="新北國際田徑公開賽 2026 官方海報"
           className="absolute inset-0 w-full h-full object-cover object-center"
           onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
