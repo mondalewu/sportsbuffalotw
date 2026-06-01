@@ -6,7 +6,10 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getArticles } from '../api/articles';
 import { useApp } from '../context/AppContext';
+import { API_BASE } from '../api/client';
 import type { Article } from '../types';
+
+interface AthleteRow { id: number; name: string; country: string; event: string; pb: string; note: string; image_url: string; }
 
 const EVENT_NAME = '新北國際田徑公開賽';
 const EVENT_SUBTITLE = 'NEW TAIPEI CITY ATHLETICS OPEN 2026';
@@ -74,6 +77,7 @@ const TAG_COLORS: Record<string, string> = {
 export default function AthleticsPage() {
   const [activeDay, setActiveDay] = useState(0);
   const [news, setNews] = useState<Article[]>([]);
+  const [apiAthletes, setApiAthletes] = useState<AthleteRow[]>([]);
   const { setSelectedArticle } = useApp();
   const navigate = useNavigate();
 
@@ -82,6 +86,7 @@ export default function AthleticsPage() {
       const filtered = data.filter(a => a.category === '田徑' || a.category === 'athletics');
       setNews(filtered.length > 0 ? filtered : data.slice(0, 4));
     }).catch(() => {});
+    fetch(`${API_BASE}/api/v1/athletes`).then(r => r.json()).then(setApiAthletes).catch(() => {});
   }, []);
 
   const handleArticleClick = (article: Article) => {
@@ -204,8 +209,15 @@ export default function AthleticsPage() {
         <div>
           <h2 className="text-lg font-black text-gray-800 mb-3">注目選手</h2>
           <div className="flex flex-col gap-3">
-            {ATHLETES.map((a, i) => (
+            {(apiAthletes.length > 0 ? apiAthletes : ATHLETES).map((a, i) => (
               <div key={i} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                {/* 選手照片（API 資料才有）*/}
+                {'image_url' in a && a.image_url && (
+                  <div className="w-full h-32 overflow-hidden rounded-xl mb-3 bg-gray-100">
+                    <img src={a.image_url} alt={a.name} referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover object-top" />
+                  </div>
+                )}
                 <div className="flex items-start justify-between mb-1">
                   <span className="font-black text-gray-900">{a.name}</span>
                   <span className="text-xs text-gray-400">{a.country}</span>

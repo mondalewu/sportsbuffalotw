@@ -18,6 +18,7 @@ import npbRoutes from './routes/npb';
 import cpblRoutes from './routes/cpbl';
 import storiesRoutes from './routes/stories';
 import videosRoutes from './routes/videos';
+import athletesRoutes from './routes/athletes';
 import { runScraper, runCpblFullScheduleScraper, runCpblFarmScheduleScraper, runFarmScoreScraper, runCpblStandingsScraper } from './services/cpblScraper';
 import { runNpbScraper, runLiveBoxScoreUpdate, populateNpbUrls } from './services/npbScraper';
 import { runNpbFarmScraperMonth } from './services/npbFarmScraper';
@@ -94,6 +95,7 @@ app.use('/api/v1/npb', npbRoutes);
 app.use('/api/v1/cpbl', cpblRoutes);
 app.use('/api/v1/stories', storiesRoutes);
 app.use('/api/v1/videos', videosRoutes);
+app.use('/api/v1/athletes', athletesRoutes);
 
 // Analytics endpoint (editor+)
 app.get('/api/v1/admin/analytics', verifyToken, requireRole('editor', 'admin'), async (_req: any, res: any) => {

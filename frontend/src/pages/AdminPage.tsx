@@ -24,12 +24,12 @@ export default function AdminPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const [adminTab, setAdminTab] = useState<'article' | 'game' | 'pbp' | 'poll' | 'analytics' | 'scraper' | 'ad' | 'stories' | 'videos'>('article');
+  const [adminTab, setAdminTab] = useState<'article' | 'game' | 'pbp' | 'poll' | 'analytics' | 'scraper' | 'ad' | 'stories' | 'videos' | 'athletes'>('article');
 
   // 支援 ?tab= URL 參數直接切換 tab
   useEffect(() => {
     const t = searchParams.get('tab');
-    if (t && ['article','game','pbp','poll','analytics','scraper','ad','stories','videos'].includes(t)) {
+    if (t && ['article','game','pbp','poll','analytics','scraper','ad','stories','videos','athletes'].includes(t)) {
       setAdminTab(t as typeof adminTab);
     }
   }, [searchParams]);
@@ -65,6 +65,13 @@ export default function AdminPage() {
   const [imgUploading, setImgUploading] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
   const [imgUrlInput, setImgUrlInput] = useState('');
+
+  // Athletes state
+  interface AthleteRow { id: number; name: string; country: string; event: string; pb: string; note: string; image_url: string; sort_order: number; is_active: boolean; }
+  const [athletes, setAthletes] = useState<AthleteRow[]>([]);
+  const [athleteForm, setAthleteForm] = useState({ name: '', country: 'TW 台灣', event: '', pb: '', note: '', image_url: '', sort_order: 0 });
+  const [editingAthleteId, setEditingAthleteId] = useState<number | null>(null);
+  const loadAthletes = () => fetch(`${API_BASE}/api/v1/athletes/all`, { credentials: 'include' }).then(r => r.json()).then(setAthletes).catch(() => {});
   const [versions, setVersions] = useState<{id:number;title:string;summary:string;content:string;category:string;image_url:string;saved_at:string;saved_by_name:string}[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [previewVersion, setPreviewVersion] = useState<number | null>(null);
@@ -219,6 +226,7 @@ export default function AdminPage() {
     if (tab === 'poll') getAllPolls().then(setAdminPolls).catch(() => {});
     if (tab === 'analytics') { setAnalyticsLoading(true); getAdminAnalytics().then(setAnalytics).finally(() => setAnalyticsLoading(false)); }
     if (tab === 'scraper') { setScraperLoading(true); getScraperStatus().then(setScraperStatus).finally(() => setScraperLoading(false)); }
+    if (tab === 'athletes') loadAthletes();
     if (tab === 'ad') loadAds();
     if (tab === 'stories') loadStories();
   };
@@ -333,7 +341,7 @@ export default function AdminPage() {
       <div className="space-y-6">
         {/* Tab bar */}
         <div className="flex flex-wrap gap-2">
-          {([['article','📰 文章管理'], ['game','⚾ 比賽管理'], ['pbp','📡 文本速報'], ['poll','🗳️ 投票管理'], ['analytics','📊 數據分析'], ['scraper','🤖 爬蟲控制'], ['ad','📢 廣告管理'], ['stories','🎬 限時動態'], ['videos','▶️ 影片管理']] as const).map(([tab, label]) => (
+          {([['article','📰 文章管理'], ['game','⚾ 比賽管理'], ['pbp','📡 文本速報'], ['poll','🗳️ 投票管理'], ['analytics','📊 數據分析'], ['scraper','🤖 爬蟲控制'], ['ad','📢 廣告管理'], ['stories','🎬 限時動態'], ['videos','▶️ 影片管理'], ['athletes','🏃 選手管理']] as const).map(([tab, label]) => (
             <button key={tab} onClick={() => handleTabChange(tab)}
               className={`px-5 py-2 rounded-xl font-black text-sm border transition-all ${adminTab === tab ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}>
               {label}
@@ -2009,6 +2017,135 @@ export default function AdminPage() {
             )}
           </div>
         )}
+        {/* === 選手管理 === */}
+        {adminTab === 'athletes' && (
+          <div className="space-y-6">
+            {/* 新增/編輯表單 */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+              <h2 className="text-2xl font-black mb-6">{editingAthleteId ? '✏️ 編輯選手' : '➕ 新增選手'}</h2>
+              <form onSubmit={async e => {
+                e.preventDefault();
+                try {
+                  if (editingAthleteId) {
+                    await fetch(`${API_BASE}/api/v1/athletes/${editingAthleteId}`, {
+                      method: 'PUT', credentials: 'include',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(athleteForm),
+                    });
+                    showMsg('✅ 選手已更新');
+                    setEditingAthleteId(null);
+                  } else {
+                    await fetch(`${API_BASE}/api/v1/athletes`, {
+                      method: 'POST', credentials: 'include',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(athleteForm),
+                    });
+                    showMsg('✅ 選手已新增');
+                  }
+                  setAthleteForm({ name: '', country: 'TW 台灣', event: '', pb: '', note: '', image_url: '', sort_order: 0 });
+                  loadAthletes();
+                } catch { showMsg('❌ 操作失敗'); }
+              }} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <input required placeholder="選手姓名 *" value={athleteForm.name}
+                    onChange={e => setAthleteForm(f => ({ ...f, name: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                  <input placeholder="國籍（如：TW 台灣）" value={athleteForm.country}
+                    onChange={e => setAthleteForm(f => ({ ...f, country: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                </div>
+                <input required placeholder="參賽項目 * （如：男子 100 公尺）" value={athleteForm.event}
+                  onChange={e => setAthleteForm(f => ({ ...f, event: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                <div className="grid grid-cols-2 gap-4">
+                  <input placeholder="個人最佳成績（如：10.03）" value={athleteForm.pb}
+                    onChange={e => setAthleteForm(f => ({ ...f, pb: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                  <input placeholder="備註（如：亞運代表）" value={athleteForm.note}
+                    onChange={e => setAthleteForm(f => ({ ...f, note: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                </div>
+                <input placeholder="選手照片 URL" value={athleteForm.image_url}
+                  onChange={e => setAthleteForm(f => ({ ...f, image_url: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                <div className="flex items-center gap-4">
+                  <input type="number" placeholder="排序（數字小排前）" value={athleteForm.sort_order}
+                    onChange={e => setAthleteForm(f => ({ ...f, sort_order: parseInt(e.target.value) || 0 }))}
+                    className="w-40 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                  <button type="submit" className="flex-1 py-3 rounded-xl font-black text-white bg-red-600 hover:bg-red-700 transition">
+                    {editingAthleteId ? '儲存更新' : '新增選手'}
+                  </button>
+                  {editingAthleteId && (
+                    <button type="button" onClick={() => { setEditingAthleteId(null); setAthleteForm({ name: '', country: 'TW 台灣', event: '', pb: '', note: '', image_url: '', sort_order: 0 }); }}
+                      className="px-6 py-3 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition">
+                      取消
+                    </button>
+                  )}
+                </div>
+              </form>
+            </div>
+
+            {/* 選手列表 */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-black">選手列表（{athletes.length}）</h2>
+                <button onClick={loadAthletes} className="text-sm font-bold text-gray-400 hover:text-red-600 transition">↻ 重新整理</button>
+              </div>
+              <div className="space-y-3">
+                {athletes.map(a => (
+                  <div key={a.id} className={`flex items-center gap-4 p-4 rounded-2xl border ${a.is_active ? 'border-gray-100 bg-gray-50' : 'border-gray-100 bg-gray-50 opacity-50'}`}>
+                    {/* 照片 */}
+                    <div className="w-14 h-14 rounded-xl overflow-hidden bg-gray-200 shrink-0">
+                      {a.image_url ? (
+                        <img src={a.image_url} alt={a.name} className="w-full h-full object-cover object-top" referrerPolicy="no-referrer"
+                          onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-400 text-lg font-black">{a.name.slice(0, 1)}</div>
+                      )}
+                    </div>
+                    {/* 資訊 */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="font-black text-gray-800">{a.name}</span>
+                        <span className="text-xs text-gray-400">{a.country}</span>
+                        {!a.is_active && <span className="text-[10px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded font-bold">停用</span>}
+                      </div>
+                      <p className="text-xs text-gray-500 truncate">{a.event}</p>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        {a.pb && <span className="text-xs font-black text-red-600">{a.pb}</span>}
+                        {a.note && <span className="text-xs text-gray-400">{a.note}</span>}
+                      </div>
+                    </div>
+                    {/* 操作 */}
+                    <div className="flex flex-col gap-1 shrink-0">
+                      <button onClick={() => {
+                        setEditingAthleteId(a.id);
+                        setAthleteForm({ name: a.name, country: a.country, event: a.event, pb: a.pb, note: a.note, image_url: a.image_url, sort_order: a.sort_order });
+                      }} className="text-xs font-bold px-3 py-1 rounded-lg border border-blue-200 text-blue-500 hover:bg-blue-50 transition">✏️ 編輯</button>
+                      <button onClick={async () => {
+                        await fetch(`${API_BASE}/api/v1/athletes/${a.id}`, {
+                          method: 'PUT', credentials: 'include',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ is_active: !a.is_active }),
+                        });
+                        loadAthletes();
+                      }} className="text-xs font-bold px-3 py-1 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition">
+                        {a.is_active ? '停用' : '啟用'}
+                      </button>
+                      <button onClick={async () => {
+                        if (!confirm(`刪除「${a.name}」？`)) return;
+                        await fetch(`${API_BASE}/api/v1/athletes/${a.id}`, { method: 'DELETE', credentials: 'include' });
+                        loadAthletes();
+                      }} className="text-xs font-bold px-3 py-1 rounded-lg border border-red-200 text-red-400 hover:bg-red-50 transition">🗑 刪除</button>
+                    </div>
+                  </div>
+                ))}
+                {athletes.length === 0 && <p className="text-gray-400 text-sm text-center py-8">尚無選手資料，請新增</p>}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* === 廣告管理 === */}
         {adminTab === 'ad' && (
           <div className="space-y-6">
