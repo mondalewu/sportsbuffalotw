@@ -420,29 +420,49 @@ export default function AdminPage() {
                 <div className="mt-6 pt-6 border-t border-gray-100">
                   <h3 className="font-black text-gray-700 mb-3">相關圖片管理</h3>
 
-                  {/* 已上傳圖片預覽 */}
-                  {articleImages.length > 0 && (
-                    <div className="grid grid-cols-3 gap-2 mb-4">
-                      {articleImages.map(img => (
-                        <div key={img.id} className="relative group aspect-video bg-gray-100 rounded-xl overflow-hidden">
-                          <img src={img.image_url} alt={img.caption || ''} className="w-full h-full object-cover" />
-                          <button
-                            onClick={async () => {
-                              if (!confirm('刪除此圖片？')) return;
-                              try {
-                                await deleteArticleImage(editingAdminArticle.id, img.id);
-                                setArticleImages(prev => prev.filter(i => i.id !== img.id));
-                                showMsg('✅ 圖片已刪除');
-                              } catch { showMsg('❌ 刪除失敗'); }
-                            }}
-                            className="absolute top-1 right-1 bg-red-600/80 hover:bg-red-700 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition"
-                          >
-                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  {/* 已上傳圖片 + 內文中的圖片（去重合併）*/}
+                  {(() => {
+                    // 從內文 Markdown 解析圖片 URL
+                    const contentUrls = [...(newArticle.content.matchAll(/!\[.*?\]\((https?:\/\/[^)]+)\)/g))]
+                      .map(m => m[1]);
+                    const uploadedUrls = new Set(articleImages.map(i => i.image_url));
+                    // 內文圖片中未出現在已上傳列表的
+                    const contentOnlyUrls = contentUrls.filter(u => !uploadedUrls.has(u));
+                    const totalCount = articleImages.length + contentOnlyUrls.length;
+
+                    if (totalCount === 0) return null;
+                    return (
+                      <div className="grid grid-cols-3 gap-2 mb-4">
+                        {/* 已上傳圖片（可刪除）*/}
+                        {articleImages.map(img => (
+                          <div key={img.id} className="relative group aspect-video bg-gray-100 rounded-xl overflow-hidden">
+                            <img src={img.image_url} alt={img.caption || ''} className="w-full h-full object-cover" />
+                            <div className="absolute bottom-0 left-0 right-0 bg-black/40 text-white text-[9px] font-bold px-1 py-0.5 text-center opacity-0 group-hover:opacity-100 transition">相關圖片</div>
+                            <button
+                              onClick={async () => {
+                                if (!confirm('刪除此圖片？')) return;
+                                try {
+                                  await deleteArticleImage(editingAdminArticle.id, img.id);
+                                  setArticleImages(prev => prev.filter(i => i.id !== img.id));
+                                  showMsg('✅ 圖片已刪除');
+                                } catch { showMsg('❌ 刪除失敗'); }
+                              }}
+                              className="absolute top-1 right-1 bg-red-600/80 hover:bg-red-700 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition"
+                            >
+                              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                            </button>
+                          </div>
+                        ))}
+                        {/* 內文圖片（僅顯示，標示來源）*/}
+                        {contentOnlyUrls.map((url, i) => (
+                          <div key={`content-${i}`} className="relative group aspect-video bg-gray-100 rounded-xl overflow-hidden">
+                            <img src={url} alt="" className="w-full h-full object-cover" />
+                            <div className="absolute bottom-0 left-0 right-0 bg-blue-600/70 text-white text-[9px] font-bold px-1 py-0.5 text-center">來自內文</div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
 
                   {/* 貼入圖片網址（多張）*/}
                   <div className="mb-3">
