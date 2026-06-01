@@ -365,7 +365,7 @@ export default function AdminPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <select value={newArticle.category} onChange={e => setNewArticle(f => ({ ...f, category: e.target.value }))}
                     className="border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400">
-                    {['CPBL', 'NPB', 'WBC', 'MLB', 'NBA', '其他'].map(c => <option key={c} value={c}>{c}</option>)}
+                    {['CPBL', 'NPB', 'WBC', 'MLB', 'NBA', '田徑', '其他'].map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                   <div className="flex gap-2">
                     <input type="text" placeholder="封面圖 URL（選填）" value={newArticle.imageUrl}

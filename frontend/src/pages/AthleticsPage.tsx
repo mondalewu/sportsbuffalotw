@@ -2,7 +2,11 @@
  * AthleticsPage — 田徑賽事頁
  * 新北國際田徑公開賽 2026（World Athletics Continental Tour）
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { getArticles } from '../api/articles';
+import { useApp } from '../context/AppContext';
+import type { Article } from '../types';
 
 const EVENT_NAME = '新北國際田徑公開賽';
 const EVENT_SUBTITLE = 'NEW TAIPEI CITY ATHLETICS OPEN 2026';
@@ -69,6 +73,21 @@ const TAG_COLORS: Record<string, string> = {
 
 export default function AthleticsPage() {
   const [activeDay, setActiveDay] = useState(0);
+  const [news, setNews] = useState<Article[]>([]);
+  const { setSelectedArticle } = useApp();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    getArticles({ limit: 6 }).then(data => {
+      const filtered = data.filter(a => a.category === '田徑' || a.category === 'athletics');
+      setNews(filtered.length > 0 ? filtered : data.slice(0, 4));
+    }).catch(() => {});
+  }, []);
+
+  const handleArticleClick = (article: Article) => {
+    setSelectedArticle(article);
+    navigate('/article');
+  };
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -178,6 +197,41 @@ export default function AthleticsPage() {
           </div>
         </div>
       </div>
+
+      {/* 相關新聞 */}
+      {news.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-lg font-black text-gray-800 mb-4 flex items-center gap-2">
+            <span className="w-1 h-5 bg-red-600 rounded-full inline-block" />
+            相關新聞
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            {news.map(article => (
+              <div
+                key={article.id}
+                className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition group"
+                onClick={() => handleArticleClick(article)}
+              >
+                <div className="h-36 overflow-hidden">
+                  <img
+                    src={article.image_url || 'https://picsum.photos/seed/athletics/400/300'}
+                    alt={article.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+                <div className="p-3">
+                  {article.category && (
+                    <span className="text-[10px] font-black text-red-600 bg-red-50 px-2 py-0.5 rounded-full mb-1 inline-block">{article.category}</span>
+                  )}
+                  <h3 className="text-sm font-black text-gray-800 leading-tight line-clamp-2 group-hover:text-red-600 transition">{article.title}</h3>
+                  <p className="text-[11px] text-gray-400 mt-1">{article.published_at?.split('T')[0]}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
