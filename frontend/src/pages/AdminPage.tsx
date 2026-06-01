@@ -64,6 +64,7 @@ export default function AdminPage() {
   const [articleImages, setArticleImages] = useState<ArticleImage[]>([]);
   const [imgUploading, setImgUploading] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
+  const [imgUrlInput, setImgUrlInput] = useState('');
 
   // Game state
   const [adminGames, setAdminGames] = useState<Game[]>([]);
@@ -442,6 +443,43 @@ export default function AdminPage() {
                       ))}
                     </div>
                   )}
+
+                  {/* 貼入圖片網址（多張）*/}
+                  <div className="mb-3">
+                    <p className="text-xs font-black text-gray-400 mb-1">貼入圖片網址（每行一張，可多行）</p>
+                    <textarea
+                      value={imgUrlInput}
+                      onChange={e => setImgUrlInput(e.target.value)}
+                      placeholder={'https://example.com/photo1.jpg\nhttps://example.com/photo2.jpg'}
+                      rows={3}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:border-red-400 resize-none"
+                    />
+                    <button
+                      type="button"
+                      disabled={!imgUrlInput.trim()}
+                      onClick={async () => {
+                        const urls = imgUrlInput.split('\n').map(u => u.trim()).filter(u => u.startsWith('http'));
+                        if (!urls.length) { showMsg('❌ 請輸入有效的圖片網址'); return; }
+                        try {
+                          const added: ArticleImage[] = [];
+                          for (const url of urls) {
+                            const res = await fetch(`${API_BASE}/api/v1/articles/${editingAdminArticle.id}/images`, {
+                              method: 'POST', credentials: 'include',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ image_url: url }),
+                            });
+                            if (res.ok) added.push(await res.json());
+                          }
+                          setArticleImages(prev => [...prev, ...added]);
+                          setImgUrlInput('');
+                          showMsg(`✅ 新增 ${added.length} 張圖片`);
+                        } catch { showMsg('❌ 新增失敗'); }
+                      }}
+                      className="mt-2 px-4 py-2 rounded-xl text-xs font-black bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 transition"
+                    >
+                      新增網址圖片
+                    </button>
+                  </div>
 
                   {/* 上傳按鈕 */}
                   <label className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl border-2 border-dashed cursor-pointer transition
