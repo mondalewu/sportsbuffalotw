@@ -86,12 +86,19 @@ export default function ArticleDetail({ article, onBack }: Props) {
     ? new Date(article.published_at).toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric' })
     : '';
 
-  // Build full image list for lightbox: hero + additional images
+  // Build full image list for lightbox: hero + content images + additional images (deduped)
   const extraImages = article.images ?? [];
-  const allImages = [
+  const contentImageUrls = [...(article.content?.matchAll(/!\[.*?\]\((https?:\/\/[^)]+)\)/g) ?? [])]
+    .map(m => m[1]);
+  const seenUrls = new Set<string>();
+  const allImages: string[] = [];
+  for (const url of [
     ...(article.image_url ? [article.image_url] : []),
+    ...contentImageUrls,
     ...extraImages.map(img => img.image_url),
-  ];
+  ]) {
+    if (!seenUrls.has(url)) { seenUrls.add(url); allImages.push(url); }
+  }
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -236,7 +243,23 @@ export default function ArticleDetail({ article, onBack }: Props) {
           prose-code:bg-gray-100 prose-code:px-1 prose-code:rounded prose-code:text-sm prose-code:font-mono
           prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:rounded-2xl prose-pre:p-4
         ">
-          <Markdown remarkPlugins={[remarkGfm]}>
+          <Markdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              img: ({ src, alt }) => {
+                const idx = allImages.indexOf(src ?? '');
+                return (
+                  <img
+                    src={src}
+                    alt={alt ?? ''}
+                    className="rounded-2xl shadow-md cursor-zoom-in hover:opacity-90 transition"
+                    onClick={() => idx >= 0 && openLightbox(idx)}
+                    style={{ cursor: idx >= 0 ? 'zoom-in' : 'default' }}
+                  />
+                );
+              },
+            }}
+          >
             {article.content}
           </Markdown>
         </div>
