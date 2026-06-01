@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
+import MDEditor from '@uiw/react-md-editor';
 import VideoUploadTrimmer from '../components/VideoUploadTrimmer';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
@@ -400,9 +401,14 @@ export default function AdminPage() {
                 <textarea placeholder="文章摘要" value={newArticle.summary} rows={2}
                   onChange={e => setNewArticle(f => ({ ...f, summary: e.target.value }))}
                   className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400 resize-none" />
-                <textarea placeholder="文章內文（支援 Markdown）" value={newArticle.content} required rows={8}
-                  onChange={e => setNewArticle(f => ({ ...f, content: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400 resize-none font-mono" />
+                <div data-color-mode="light">
+                  <MDEditor
+                    value={newArticle.content}
+                    onChange={v => setNewArticle(f => ({ ...f, content: v ?? '' }))}
+                    height={320}
+                    preview="edit"
+                  />
+                </div>
                 <button type="submit" className={`w-full py-3 rounded-xl font-black transition ${editingAdminArticle ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}`}>
                   {editingAdminArticle ? '儲存更新' : '發布文章'}
                 </button>
@@ -528,8 +534,14 @@ export default function AdminPage() {
                     {expandedArticleId === a.id && (
                       <div className="bg-white p-4 border-t border-gray-100">
                         <p className="text-xs font-black text-gray-400 mb-2">內文（直接編輯後儲存）</p>
-                        <textarea value={expandedContent} onChange={e => setExpandedContent(e.target.value)} rows={8}
-                          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-400 resize-none font-mono" />
+                        <div data-color-mode="light">
+                          <MDEditor
+                            value={expandedContent}
+                            onChange={v => setExpandedContent(v ?? '')}
+                            height={360}
+                            preview="edit"
+                          />
+                        </div>
                         <div className="flex gap-2 mt-2">
                           <button onClick={async () => {
                             try {
