@@ -444,35 +444,41 @@ const NPBSchedule: React.FC = () => {
         )}
       </div>
 
-      {/* 球隊 logo + 名冊按鈕 */}
+      {/* 球隊 logo + 名冊按鈕（中央 + 太平洋整合顯示）*/}
       {teams.length > 0 && leagueTab === 'NPB' && (
         <div className="mb-5">
-          {[
-            { label: 'セントラル・リーグ（中央聯盟）', list: central },
-            { label: 'パシフィック・リーグ（太平洋聯盟）', list: pacific },
-          ].map(league => (
-            <div key={league.label} className="mb-3">
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">{league.label}</p>
-              <div className="flex flex-wrap gap-2">
-                {league.list.map(team => (
-                  <button
-                    key={team.code}
-                    onClick={() => setRosterTeam(team)}
-                    title={`${team.name_full} 名冊`}
-                    className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl px-2.5 py-1.5 hover:border-red-300 hover:shadow-sm transition"
-                  >
-                    <img
-                      src={team.logo_url} alt={team.name}
-                      className="w-6 h-6 object-contain"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
-                    <span className="text-xs font-bold text-gray-700">{team.name}</span>
-                    <Users className="w-3 h-3 text-gray-400" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
+          <div className="flex flex-wrap gap-2">
+            {/* 中央聯盟 */}
+            {central.map(team => (
+              <button
+                key={team.code}
+                onClick={() => setRosterTeam(team)}
+                title={`${team.name_full} 名冊`}
+                className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl px-2.5 py-1.5 hover:border-red-300 hover:shadow-sm transition"
+              >
+                <img src={team.logo_url} alt={team.name} className="w-6 h-6 object-contain"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                <span className="text-xs font-bold text-gray-700">{team.name}</span>
+                <Users className="w-3 h-3 text-gray-400" />
+              </button>
+            ))}
+            {/* 分隔線 */}
+            <div className="w-px bg-gray-200 self-stretch mx-1" />
+            {/* 太平洋聯盟 */}
+            {pacific.map(team => (
+              <button
+                key={team.code}
+                onClick={() => setRosterTeam(team)}
+                title={`${team.name_full} 名冊`}
+                className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl px-2.5 py-1.5 hover:border-red-300 hover:shadow-sm transition"
+              >
+                <img src={team.logo_url} alt={team.name} className="w-6 h-6 object-contain"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                <span className="text-xs font-bold text-gray-700">{team.name}</span>
+                <Users className="w-3 h-3 text-gray-400" />
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

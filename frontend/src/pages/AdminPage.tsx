@@ -71,7 +71,10 @@ export default function AdminPage() {
   const [athletes, setAthletes] = useState<AthleteRow[]>([]);
   const [athleteForm, setAthleteForm] = useState({ name: '', country: 'TW 台灣', event: '', pb: '', note: '', image_url: '', sort_order: 0 });
   const [editingAthleteId, setEditingAthleteId] = useState<number | null>(null);
-  const loadAthletes = () => fetch(`${API_BASE}/api/v1/athletes/all`, { credentials: 'include' }).then(r => r.json()).then(setAthletes).catch(() => {});
+  const loadAthletes = () => fetch(`${API_BASE}/api/v1/athletes/all`, { credentials: 'include' })
+    .then(r => r.ok ? r.json() : [])
+    .then(data => setAthletes(Array.isArray(data) ? data : []))
+    .catch(() => setAthletes([]));
   const [versions, setVersions] = useState<{id:number;title:string;summary:string;content:string;category:string;image_url:string;saved_at:string;saved_by_name:string}[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [previewVersion, setPreviewVersion] = useState<number | null>(null);

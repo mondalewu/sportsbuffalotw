@@ -4,6 +4,22 @@ import { verifyToken, requireRole } from '../middleware/auth';
 
 const router = Router();
 
+// 自動建表（若不存在）
+pool.query(`
+  CREATE TABLE IF NOT EXISTS athletes (
+    id         SERIAL PRIMARY KEY,
+    name       VARCHAR(100) NOT NULL,
+    country    VARCHAR(50)  NOT NULL DEFAULT 'TW 台灣',
+    event      VARCHAR(200) NOT NULL,
+    pb         VARCHAR(50),
+    note       VARCHAR(300),
+    image_url  VARCHAR(1000),
+    sort_order INT          NOT NULL DEFAULT 0,
+    is_active  BOOLEAN      NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+  )
+`).catch(err => console.error('athletes table init error:', err));
+
 // GET /api/v1/athletes — 公開
 router.get('/', async (_req: Request, res: Response): Promise<void> => {
   try {
