@@ -130,6 +130,23 @@ router.put('/:id', verifyToken, requireRole('editor', 'admin'), async (req: Requ
   const { title, category, summary, content, image_url, is_hot } = req.body;
 
   try {
+    // 更新前先儲存當前版本
+    const current = await pool.query('SELECT * FROM articles WHERE id = $1', [req.params.id]);
+    if (current.rows.length === 0) { res.status(404).json({ message: '文章不存在' }); return; }
+    const cur = current.rows[0];
+    await pool.query(
+      `INSERT INTO article_versions (article_id, title, category, summary, content, image_url, saved_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [cur.id, cur.title, cur.category, cur.summary, cur.content, cur.image_url, req.user!.userId]
+    );
+    // 只保留最新 20 筆版本
+    await pool.query(
+      `DELETE FROM article_versions WHERE article_id = $1 AND id NOT IN (
+        SELECT id FROM article_versions WHERE article_id = $1 ORDER BY saved_at DESC LIMIT 20
+      )`,
+      [cur.id]
+    );
+
     const result = await pool.query(
       `UPDATE articles
        SET title = COALESCE($1, title),
@@ -142,14 +159,56 @@ router.put('/:id', verifyToken, requireRole('editor', 'admin'), async (req: Requ
        RETURNING *`,
       [title, category, summary, content, image_url, is_hot, req.params.id]
     );
-    if (result.rows.length === 0) {
-      res.status(404).json({ message: '文章不存在' });
-      return;
-    }
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Update article error:', err);
     res.status(500).json({ message: '更新文章失敗' });
+  }
+});
+
+// GET /api/v1/articles/:id/versions  [editor+]
+router.get('/:id/versions', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(
+      `SELECT v.id, v.article_id, v.title, v.category, v.summary, v.content, v.image_url, v.saved_at,
+              u.username as saved_by_name
+       FROM article_versions v
+       LEFT JOIN users u ON v.saved_by = u.id
+       WHERE v.article_id = $1
+       ORDER BY v.saved_at DESC`,
+      [req.params.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ message: '無法取得版本紀錄' });
+  }
+});
+
+// POST /api/v1/articles/:id/versions/:versionId/restore  [editor+]
+router.post('/:id/versions/:versionId/restore', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const ver = await pool.query('SELECT * FROM article_versions WHERE id = $1 AND article_id = $2', [req.params.versionId, req.params.id]);
+    if (ver.rows.length === 0) { res.status(404).json({ message: '版本不存在' }); return; }
+    const v = ver.rows[0];
+
+    // 還原前先存一筆目前版本
+    const cur = await pool.query('SELECT * FROM articles WHERE id = $1', [req.params.id]);
+    if (cur.rows.length > 0) {
+      const c = cur.rows[0];
+      await pool.query(
+        `INSERT INTO article_versions (article_id, title, category, summary, content, image_url, saved_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [c.id, c.title, c.category, c.summary, c.content, c.image_url, req.user!.userId]
+      );
+    }
+
+    const result = await pool.query(
+      `UPDATE articles SET title=$1, category=$2, summary=$3, content=$4, image_url=$5 WHERE id=$6 RETURNING *`,
+      [v.title, v.category, v.summary, v.content, v.image_url, req.params.id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ message: '還原失敗' });
   }
 });
 

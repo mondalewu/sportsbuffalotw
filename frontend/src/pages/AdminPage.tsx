@@ -65,6 +65,9 @@ export default function AdminPage() {
   const [imgUploading, setImgUploading] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
   const [imgUrlInput, setImgUrlInput] = useState('');
+  const [versions, setVersions] = useState<{id:number;title:string;summary:string;content:string;category:string;image_url:string;saved_at:string;saved_by_name:string}[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [previewVersion, setPreviewVersion] = useState<number | null>(null);
 
   // Game state
   const [adminGames, setAdminGames] = useState<Game[]>([]);
@@ -610,7 +613,75 @@ export default function AdminPage() {
                             } catch { showMsg('❌ 更新失敗'); }
                           }} className="text-xs font-black px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition">💾 儲存內文</button>
                           <button onClick={() => setExpandedArticleId(null)} className="text-xs font-bold px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition">取消</button>
+                          <button
+                            onClick={async () => {
+                              setVersionsLoading(true);
+                              setPreviewVersion(null);
+                              try {
+                                const res = await fetch(`${API_BASE}/api/v1/articles/${a.id}/versions`, { credentials: 'include' });
+                                setVersions(await res.json());
+                              } finally { setVersionsLoading(false); }
+                            }}
+                            className="text-xs font-bold px-4 py-2 bg-gray-50 hover:bg-gray-100 text-gray-500 border border-gray-200 rounded-lg transition ml-auto">
+                            🕐 歷史紀錄
+                          </button>
                         </div>
+
+                        {/* 版本歷史面板 */}
+                        {versions.length > 0 && expandedArticleId === a.id && (
+                          <div className="mt-4 border border-gray-100 rounded-xl overflow-hidden">
+                            <div className="bg-gray-50 px-4 py-2 flex items-center justify-between">
+                              <span className="text-xs font-black text-gray-600">版本歷史（最多 20 筆）</span>
+                              <button onClick={() => { setVersions([]); setPreviewVersion(null); }} className="text-xs text-gray-400 hover:text-red-500">✕ 關閉</button>
+                            </div>
+                            <div className="divide-y divide-gray-50 max-h-64 overflow-y-auto">
+                              {versionsLoading ? (
+                                <div className="p-4 text-center text-xs text-gray-400">載入中...</div>
+                              ) : versions.map(v => (
+                                <div key={v.id} className={`flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition ${previewVersion === v.id ? 'bg-blue-50' : ''}`}>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-bold text-gray-700 truncate">{v.title}</p>
+                                    <p className="text-[10px] text-gray-400">
+                                      {new Date(v.saved_at).toLocaleString('zh-TW')}
+                                      {v.saved_by_name && ` · ${v.saved_by_name}`}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => setPreviewVersion(previewVersion === v.id ? null : v.id)}
+                                    className="text-[10px] font-bold px-2 py-1 rounded border border-gray-200 text-gray-500 hover:border-blue-400 hover:text-blue-600 transition shrink-0">
+                                    {previewVersion === v.id ? '收起' : '預覽'}
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      if (!confirm(`還原到此版本？\n（${new Date(v.saved_at).toLocaleString('zh-TW')}）`)) return;
+                                      try {
+                                        await fetch(`${API_BASE}/api/v1/articles/${a.id}/versions/${v.id}/restore`, {
+                                          method: 'POST', credentials: 'include',
+                                        });
+                                        showMsg('✅ 已還原至選定版本');
+                                        loadArticles();
+                                        setVersions([]);
+                                        setExpandedArticleId(null);
+                                      } catch { showMsg('❌ 還原失敗'); }
+                                    }}
+                                    className="text-[10px] font-black px-2 py-1 rounded bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition shrink-0">
+                                    還原
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                            {/* 預覽選定版本的內文 */}
+                            {previewVersion !== null && (() => {
+                              const v = versions.find(x => x.id === previewVersion);
+                              return v ? (
+                                <div className="border-t border-gray-100 p-4 bg-yellow-50">
+                                  <p className="text-[10px] font-black text-yellow-700 mb-2">預覽版本內文：{new Date(v.saved_at).toLocaleString('zh-TW')}</p>
+                                  <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono bg-white rounded-lg p-3 border border-yellow-200 max-h-48 overflow-y-auto">{v.content}</pre>
+                                </div>
+                              ) : null;
+                            })()}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
