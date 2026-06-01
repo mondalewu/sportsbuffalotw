@@ -86,7 +86,10 @@ export default function AthleticsPage() {
       const filtered = data.filter(a => a.category === '田徑' || a.category === 'athletics');
       setNews(filtered.length > 0 ? filtered : data.slice(0, 4));
     }).catch(() => {});
-    fetch(`${API_BASE}/api/v1/athletes`).then(r => r.json()).then(setApiAthletes).catch(() => {});
+    fetch(`${API_BASE}/api/v1/athletes`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setApiAthletes(Array.isArray(data) ? data : []))
+      .catch(() => {});
   }, []);
 
   const handleArticleClick = (article: Article) => {

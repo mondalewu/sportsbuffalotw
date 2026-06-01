@@ -344,7 +344,20 @@ export default function AdminPage() {
       <div className="space-y-6">
         {/* Tab bar */}
         <div className="flex flex-wrap gap-2">
-          {([['article','📰 文章管理'], ['game','⚾ 比賽管理'], ['pbp','📡 文本速報'], ['poll','🗳️ 投票管理'], ['analytics','📊 數據分析'], ['scraper','🤖 爬蟲控制'], ['ad','📢 廣告管理'], ['stories','🎬 限時動態'], ['videos','▶️ 影片管理'], ['athletes','🏃 選手管理']] as const).map(([tab, label]) => (
+          {(
+            [
+              ['article',   '📰 文章管理'],
+              ['game',      '⚾ 比賽管理'],
+              ['pbp',       '📡 文本速報'],
+              ['poll',      '🗳️ 投票管理'],
+              ['analytics', '📊 數據分析'],
+              ['scraper',   '🤖 爬蟲控制'],
+              ['ad',        '📢 廣告管理'],
+              ['stories',   '🎬 限時動態'],
+              ['videos',    '▶️ 影片管理'],
+              ['athletes',  '🏃 選手管理'],
+            ] as [typeof adminTab, string][]
+          ).map(([tab, label]) => (
             <button key={tab} onClick={() => handleTabChange(tab)}
               className={`px-5 py-2 rounded-xl font-black text-sm border transition-all ${adminTab === tab ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}>
               {label}
