@@ -19,6 +19,7 @@ export default function Layout() {
   const [cpblGames, setCpblGames] = useState<Game[]>([]);
   const [scoreCategory, setScoreCategory] = useState('LIVE');
   const [isBaseballDropdownOpen, setIsBaseballDropdownOpen] = useState(false);
+  const [scoreBarOpen, setScoreBarOpen] = useState(true);
 
   const baseballDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -133,8 +134,31 @@ export default function Layout() {
       </header>
 
       {/* Score Bar */}
-      <div className="score-bar-container py-3">
-        <div className="max-w-7xl mx-auto px-4">
+      <div className="score-bar-container">
+        {/* 收合切換列 */}
+        <button
+          onClick={() => setScoreBarOpen(v => !v)}
+          className="w-full flex items-center justify-between px-4 py-2 hover:bg-gray-50 transition group border-b border-gray-100"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">即時比分</span>
+            {games.some(g => g.status === 'live') && (
+              <span className="flex items-center gap-1 text-[10px] font-black text-red-500">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse inline-block" />
+                LIVE
+              </span>
+            )}
+          </div>
+          <span className={`text-gray-400 group-hover:text-gray-600 transition-transform duration-300 ${scoreBarOpen ? 'rotate-0' : 'rotate-180'}`}>
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+            </svg>
+          </span>
+        </button>
+
+        {/* 收合內容 */}
+        <div className={`overflow-hidden transition-all duration-300 ease-in-out ${scoreBarOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
+        <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex flex-wrap gap-2 mb-3">
             {['LIVE', 'CPBL', 'NPB', 'MLB', 'NBA'].map(cat => (
               <button key={cat} onClick={() => setScoreCategory(cat)} className={`filter-btn ${scoreCategory === cat ? 'score-tab-active text-white' : 'text-gray-500'}`}>
@@ -224,6 +248,7 @@ export default function Layout() {
             </div>
           )}
         </div>
+        </div>{/* end 收合內容 */}
       </div>
 
       <Outlet />
