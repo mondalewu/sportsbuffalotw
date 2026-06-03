@@ -287,13 +287,17 @@ const NPBSchedule: React.FC = () => {
   };
 
   useEffect(() => {
-    const firstDate = `${today.getFullYear()}-${String(selectedMonth).padStart(2, '0')}-01`;
-    setSelectedDate(todayStr);
-    setWindowStart(getCenterStart(today));
-    // ensure windowStart fits in selected month
-    if (toJSTDate(today.toISOString()) === todayStr) {
+    const year = today.getFullYear();
+    const firstDate = `${year}-${String(selectedMonth).padStart(2, '0')}-01`;
+    const currentMonth = today.getMonth() + 1;
+
+    if (selectedMonth === currentMonth) {
+      // 當月：顯示今天所在的週
+      setSelectedDate(todayStr);
       setWindowStart(getCenterStart(today));
     } else {
+      // 其他月份：從該月第一天開始顯示
+      setSelectedDate(firstDate);
       setWindowStart(new Date(firstDate + 'T12:00:00'));
     }
     fetchGames(leagueTab, selectedMonth);
