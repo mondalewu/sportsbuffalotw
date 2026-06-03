@@ -19,9 +19,11 @@ export default function Layout() {
   const [cpblGames, setCpblGames] = useState<Game[]>([]);
   const [scoreCategory, setScoreCategory] = useState('LIVE');
   const [isBaseballDropdownOpen, setIsBaseballDropdownOpen] = useState(false);
+  const [isSoccerDropdownOpen, setIsSoccerDropdownOpen] = useState(false);
   const [scoreBarOpen, setScoreBarOpen] = useState(true);
 
   const baseballDropdownRef = useRef<HTMLDivElement>(null);
+  const soccerDropdownRef = useRef<HTMLDivElement>(null);
 
   const fetchLive = () => {
     const today = new Date().toISOString().slice(0, 10);
@@ -44,6 +46,8 @@ export default function Layout() {
     const handleClickOutside = (e: MouseEvent) => {
       if (baseballDropdownRef.current && !baseballDropdownRef.current.contains(e.target as Node))
         setIsBaseballDropdownOpen(false);
+      if (soccerDropdownRef.current && !soccerDropdownRef.current.contains(e.target as Node))
+        setIsSoccerDropdownOpen(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -106,7 +110,25 @@ export default function Layout() {
               </div>
 
               <button className="hover:text-red-600 transition h-full flex items-center px-2">籃球</button>
-              <button onClick={() => navigate('/soccer')} className={`h-full flex items-center px-2 transition ${path === '/soccer' ? 'nav-active' : 'hover:text-red-600'}`}>足球</button>
+
+              <div className="relative h-full flex items-center" ref={soccerDropdownRef}>
+                <button onClick={() => setIsSoccerDropdownOpen(!isSoccerDropdownOpen)} className={`h-full flex items-center px-2 transition gap-1 ${path === '/soccer' ? 'nav-active' : 'hover:text-red-600'}`}>
+                  足球 <ChevronDown className="w-4 h-4" />
+                </button>
+                {isSoccerDropdownOpen && (
+                  <div className="absolute top-full left-0 mt-1 w-52 bg-white border border-gray-100 rounded-xl shadow-lg py-2 z-50">
+                    <button onClick={() => { navigate('/soccer?section=worldcup'); setIsSoccerDropdownOpen(false); }} className={`w-full text-left px-4 py-2 hover:bg-gray-50 transition text-sm ${path === '/soccer' ? 'hover:text-red-600' : 'hover:text-red-600'}`}>
+                      🌍 2026 FIFA 世界盃
+                    </button>
+                    <button onClick={() => { navigate('/soccer?section=jleague'); setIsSoccerDropdownOpen(false); }} className="w-full text-left px-4 py-2 hover:bg-gray-50 hover:text-red-600 transition text-sm">
+                      🇯🇵 J League
+                    </button>
+                    <button onClick={() => { navigate('/soccer?section=tpsl'); setIsSoccerDropdownOpen(false); }} className="w-full text-left px-4 py-2 hover:bg-gray-50 hover:text-red-600 transition text-sm">
+                      🇹🇼 台灣企業甲級聯賽
+                    </button>
+                  </div>
+                )}
+              </div>
               <button onClick={() => navigate('/athletics')} className={`h-full flex items-center px-2 transition ${path === '/athletics' ? 'nav-active' : 'hover:text-red-600'}`}>田徑</button>
             </nav>
 

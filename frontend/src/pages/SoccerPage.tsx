@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 // ════════════════════════════════════════════════════════
 //  2026 FIFA World Cup 資料
@@ -169,8 +169,14 @@ type WcTab = 'groups' | 'schedule' | 'venues';
 
 export default function SoccerPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [section, setSection] = useState<Section>('worldcup');
   const [wcTab, setWcTab] = useState<WcTab>('groups');
+
+  useEffect(() => {
+    const s = searchParams.get('section');
+    if (s === 'worldcup' || s === 'jleague' || s === 'tpsl') setSection(s);
+  }, [searchParams]);
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
