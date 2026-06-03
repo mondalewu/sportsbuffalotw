@@ -105,6 +105,7 @@ export default function Layout() {
               </div>
 
               <button className="hover:text-red-600 transition h-full flex items-center px-2">籃球</button>
+              <button onClick={() => navigate('/soccer')} className={`h-full flex items-center px-2 transition ${path === '/soccer' ? 'nav-active' : 'hover:text-red-600'}`}>足球</button>
               <button onClick={() => navigate('/athletics')} className={`h-full flex items-center px-2 transition ${path === '/athletics' ? 'nav-active' : 'hover:text-red-600'}`}>田徑</button>
             </nav>
 

@@ -13,6 +13,7 @@ import ArticlePage from './pages/ArticlePage';
 import AthleticsPage from './pages/AthleticsPage';
 import NpbGamePage from './pages/NpbGamePage';
 import CpblGamePage from './pages/CpblGamePage';
+import SoccerPage from './pages/SoccerPage';
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="/players" element={<PlayersPage />} />
             <Route path="/poll" element={<PollPage />} />
             <Route path="/athletics" element={<AthleticsPage />} />
+            <Route path="/soccer" element={<SoccerPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/article" element={<ArticlePage />} />
             <Route path="/article/:slug" element={<ArticlePage />} />
