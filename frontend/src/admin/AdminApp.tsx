@@ -9,7 +9,10 @@ import type { Poll, AdminAnalytics } from '../api/polls';
 import type { ScraperStatus } from '../api/scraper';
 import { API_BASE } from '../api/client';
 
-type AdminTab = 'article' | 'game' | 'pbp' | 'scraper' | 'poll' | 'analytics' | 'stories';
+type AdminTab = 'article' | 'game' | 'pbp' | 'scraper' | 'poll' | 'analytics' | 'stories' | 'athletes';
+
+// ── Athletes 型別 ─────────────────────────────────────────
+interface AthleteRow { id: number; name: string; country: string; event: string; pb: string; note: string; image_url: string; sort_order: number; is_active: boolean; }
 
 // ── Stories 型別 ──────────────────────────────────────────
 interface StoryClipForm {
@@ -139,6 +142,17 @@ export default function AdminApp() {
   const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
+  // Athletes
+  const [athletes, setAthletes] = useState<AthleteRow[]>([]);
+  const [athleteForm, setAthleteForm] = useState({ name: '', country: 'TW 台灣', event: '', pb: '', note: '', image_url: '', sort_order: 0 });
+  const [editingAthleteId, setEditingAthleteId] = useState<number | null>(null);
+
+  const loadAthletes = () =>
+    fetch(`${API_BASE}/api/v1/athletes/all`, { credentials: 'include', headers: { Authorization: `Bearer ${localStorage.getItem('token') ?? ''}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setAthletes(Array.isArray(data) ? data : []))
+      .catch(() => setAthletes([]));
+
   // Stories
   const [stories, setStories] = useState<StoryForm[]>([]);
   const [storiesLoading, setStoriesLoading] = useState(false);
@@ -174,6 +188,7 @@ export default function AdminApp() {
       getAdminAnalytics().then(setAnalytics).finally(() => setAnalyticsLoading(false));
     }
     if (tab === 'stories') loadStories();
+    if (tab === 'athletes') loadAthletes();
   }, [tab, currentUser]);
 
   const loadStories = () => {
@@ -301,6 +316,7 @@ export default function AdminApp() {
     { key: 'article', label: '📰 文章管理' },
     { key: 'poll', label: '🗳️ 投票管理' },
     { key: 'analytics', label: '📊 數據分析' },
+    { key: 'athletes', label: '🏃 選手管理' },
   ];
 
   return (
@@ -1248,6 +1264,132 @@ export default function AdminApp() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── 選手管理 ── */}
+        {tab === 'athletes' && (
+          <div className="space-y-6">
+            {/* 新增 / 編輯表單 */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+              <h2 className="text-2xl font-black mb-6">{editingAthleteId ? '✏️ 編輯選手' : '➕ 新增選手'}</h2>
+              <form onSubmit={async e => {
+                e.preventDefault();
+                const token = localStorage.getItem('token') ?? '';
+                const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+                try {
+                  if (editingAthleteId) {
+                    await fetch(`${API_BASE}/api/v1/athletes/${editingAthleteId}`, { method: 'PUT', credentials: 'include', headers, body: JSON.stringify(athleteForm) });
+                    flash('✅ 選手已更新');
+                    setEditingAthleteId(null);
+                  } else {
+                    await fetch(`${API_BASE}/api/v1/athletes`, { method: 'POST', credentials: 'include', headers, body: JSON.stringify(athleteForm) });
+                    flash('✅ 選手已新增');
+                  }
+                  setAthleteForm({ name: '', country: 'TW 台灣', event: '', pb: '', note: '', image_url: '', sort_order: 0 });
+                  loadAthletes();
+                } catch { flash('❌ 操作失敗'); }
+              }} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <input required placeholder="選手姓名 *" value={athleteForm.name}
+                    onChange={e => setAthleteForm(f => ({ ...f, name: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                  <input placeholder="國籍（如：TW 台灣）" value={athleteForm.country}
+                    onChange={e => setAthleteForm(f => ({ ...f, country: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                </div>
+                <input required placeholder="參賽項目 * （如：男子 100 公尺）" value={athleteForm.event}
+                  onChange={e => setAthleteForm(f => ({ ...f, event: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                <div className="grid grid-cols-2 gap-4">
+                  <input placeholder="個人最佳成績（如：10.03）" value={athleteForm.pb}
+                    onChange={e => setAthleteForm(f => ({ ...f, pb: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                  <input placeholder="備註（如：亞運代表）" value={athleteForm.note}
+                    onChange={e => setAthleteForm(f => ({ ...f, note: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                </div>
+                <input placeholder="選手照片 URL" value={athleteForm.image_url}
+                  onChange={e => setAthleteForm(f => ({ ...f, image_url: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                <div className="flex items-center gap-4">
+                  <input type="number" placeholder="排序（數字小排前）" value={athleteForm.sort_order}
+                    onChange={e => setAthleteForm(f => ({ ...f, sort_order: parseInt(e.target.value) || 0 }))}
+                    className="w-40 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
+                  <button type="submit" className="flex-1 py-3 rounded-xl font-black text-white bg-red-600 hover:bg-red-700 transition">
+                    {editingAthleteId ? '儲存更新' : '新增選手'}
+                  </button>
+                  {editingAthleteId && (
+                    <button type="button" onClick={() => { setEditingAthleteId(null); setAthleteForm({ name: '', country: 'TW 台灣', event: '', pb: '', note: '', image_url: '', sort_order: 0 }); }}
+                      className="px-6 py-3 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition">
+                      取消
+                    </button>
+                  )}
+                </div>
+              </form>
+            </div>
+
+            {/* 選手列表 */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-black">選手列表（{athletes.length}）</h2>
+                <button onClick={loadAthletes} className="text-sm font-bold text-gray-400 hover:text-red-600 transition">↻ 重新整理</button>
+              </div>
+              <div className="space-y-3">
+                {athletes.map(a => (
+                  <div key={a.id} className={`flex items-center gap-4 p-4 rounded-2xl border ${a.is_active ? 'border-gray-100 bg-gray-50' : 'border-gray-100 bg-gray-50 opacity-50'}`}>
+                    <div className="w-14 h-14 rounded-xl overflow-hidden bg-gray-200 shrink-0">
+                      {a.image_url ? (
+                        <img src={a.image_url} alt={a.name} className="w-full h-full object-cover object-top" referrerPolicy="no-referrer"
+                          onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-400 text-lg font-black">{a.name.slice(0, 1)}</div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="font-black text-gray-800">{a.name}</span>
+                        <span className="text-xs text-gray-400">{a.country}</span>
+                        {!a.is_active && <span className="text-[10px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded font-bold">停用</span>}
+                      </div>
+                      <p className="text-xs text-gray-500 truncate">{a.event}</p>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        {a.pb && <span className="text-xs font-black text-red-600">{a.pb}</span>}
+                        {a.note && <span className="text-xs text-gray-400">{a.note}</span>}
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      <button onClick={() => {
+                        setEditingAthleteId(a.id);
+                        setAthleteForm({ name: a.name, country: a.country, event: a.event, pb: a.pb, note: a.note, image_url: a.image_url, sort_order: a.sort_order });
+                      }} className="text-xs font-bold px-3 py-1 rounded-lg border border-blue-200 text-blue-500 hover:bg-blue-50 transition">✏️ 編輯</button>
+                      <button onClick={async () => {
+                        const token = localStorage.getItem('token') ?? '';
+                        await fetch(`${API_BASE}/api/v1/athletes/${a.id}`, {
+                          method: 'PUT', credentials: 'include',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ is_active: !a.is_active }),
+                        });
+                        loadAthletes();
+                      }} className="text-xs font-bold px-3 py-1 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition">
+                        {a.is_active ? '停用' : '啟用'}
+                      </button>
+                      <button onClick={async () => {
+                        if (!confirm(`刪除「${a.name}」？`)) return;
+                        const token = localStorage.getItem('token') ?? '';
+                        await fetch(`${API_BASE}/api/v1/athletes/${a.id}`, {
+                          method: 'DELETE', credentials: 'include',
+                          headers: { Authorization: `Bearer ${token}` },
+                        });
+                        flash('✅ 已刪除');
+                        loadAthletes();
+                      }} className="text-xs font-bold px-3 py-1 rounded-lg border border-red-200 text-red-400 hover:bg-red-50 transition">🗑 刪除</button>
+                    </div>
+                  </div>
+                ))}
+                {athletes.length === 0 && <p className="text-gray-400 text-sm text-center py-8">尚無選手資料，請新增</p>}
+              </div>
+            </div>
           </div>
         )}
 
