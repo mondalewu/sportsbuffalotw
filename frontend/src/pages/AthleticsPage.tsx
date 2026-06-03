@@ -240,9 +240,9 @@ export default function AthleticsPage() {
             {(apiAthletes.length > 0 ? apiAthletes : ATHLETES).map((a, i) => (
               <div key={i} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
                 {/* 選手照片（API 資料才有）*/}
-                {'image_url' in a && a.image_url && (
+                {'image_url' in a && !!(a as AthleteRow).image_url && (
                   <div className="w-full h-32 overflow-hidden rounded-xl mb-3 bg-gray-100">
-                    <img src={a.image_url} alt={a.name} referrerPolicy="no-referrer"
+                    <img src={(a as AthleteRow).image_url} alt={a.name} referrerPolicy="no-referrer"
                       className="w-full h-full object-cover object-top" />
                   </div>
                 )}
