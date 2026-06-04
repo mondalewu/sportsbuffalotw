@@ -181,22 +181,6 @@ export default function SoccerPage() {
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
 
-      {/* 頂層區塊切換 */}
-      <div className="flex gap-3 mb-6 flex-wrap">
-        <button onClick={() => setSection('worldcup')}
-          className={`px-5 py-2.5 rounded-xl font-black text-sm border-2 transition-all ${section === 'worldcup' ? 'bg-green-800 text-white border-green-800' : 'bg-white text-gray-500 border-gray-200 hover:border-green-600 hover:text-green-700'}`}>
-          🌍 2026 FIFA 世界盃
-        </button>
-        <button onClick={() => setSection('jleague')}
-          className={`px-5 py-2.5 rounded-xl font-black text-sm border-2 transition-all ${section === 'jleague' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-500 border-gray-200 hover:border-red-400 hover:text-red-600'}`}>
-          🇯🇵 J League
-        </button>
-        <button onClick={() => setSection('tpsl')}
-          className={`px-5 py-2.5 rounded-xl font-black text-sm border-2 transition-all ${section === 'tpsl' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-500 border-gray-200 hover:border-blue-400 hover:text-blue-600'}`}>
-          🇹🇼 台灣企業甲級聯賽
-        </button>
-      </div>
-
       {/* ════════════════════════════════════════
           2026 FIFA 世界盃
       ════════════════════════════════════════ */}
