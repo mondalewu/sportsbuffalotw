@@ -122,7 +122,7 @@ function GameCell({ game, onClick }: { game: CPBLGame; onClick: () => void }) {
   const venueShort = game.venue?.replace(/棒球場|棒球|球場|台北|臺北|台中|高雄/g, '').slice(0, 3) || '';
   const isLive = game.status === 'live';
   const isFinal = game.status === 'final';
-  const isRainout = isFinal && (game.game_detail === '雨天延賽' || game.game_detail?.includes('雨天') || game.game_detail?.includes('延賽'));
+  const isRainout = game.game_detail?.includes('延賽') || game.game_detail?.includes('雨天') || game.game_detail === '雨天延賽';
   return (
     <button onClick={onClick} className={`w-full text-left p-1.5 rounded mb-1 ${isRainout ? 'bg-blue-50 border-blue-200' : bg} hover:brightness-95 transition border border-black/5 relative`}>
       <div className="flex items-center gap-1">
@@ -148,7 +148,7 @@ function GameCell({ game, onClick }: { game: CPBLGame; onClick: () => void }) {
 function CPBLScoreCard({ game, onClick }: { game: CPBLGame; onClick: () => void }) {
   const isLive = game.status === 'live';
   const isFinal = game.status === 'final';
-  const isRainout = isFinal && (game.game_detail === '雨天延賽' || game.game_detail?.includes('雨天') || game.game_detail?.includes('延賽'));
+  const isRainout = game.game_detail?.includes('延賽') || game.game_detail?.includes('雨天') || game.game_detail === '雨天延賽';
   const time = new Date(game.game_date).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Taipei' });
   const bg = getVenueBg(game.venue);
   return (
