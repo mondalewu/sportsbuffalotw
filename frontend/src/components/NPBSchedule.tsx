@@ -448,44 +448,49 @@ const NPBSchedule: React.FC = () => {
         )}
       </div>
 
-      {/* 球隊 logo + 名冊按鈕（中央 + 太平洋整合顯示）*/}
+      {/* 球隊 logo + 名冊按鈕（中央 / 太平洋 分兩列）*/}
       {teams.length > 0 && leagueTab === 'NPB' && (
-        <div className="mb-5">
-          <div className="flex flex-nowrap overflow-x-auto scrollbar-hide gap-2">
-            {/* 中央聯盟 */}
-            {central.map(team => (
-              <button
-                key={team.code}
-                onClick={() => setRosterTeam(team)}
-                title={`${team.name_full} 名冊`}
-                className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl px-2.5 py-1.5 hover:border-red-300 hover:shadow-sm transition"
-              >
-                <img src={team.logo_url} alt={team.name} className="w-6 h-6 object-contain"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                <span className="text-xs font-bold text-gray-700">{team.name}</span>
-                <Users className="w-3 h-3 text-gray-400" />
-              </button>
-            ))}
-            {/* 分隔線 */}
-            <div className="w-px bg-gray-200 self-stretch mx-1" />
-            {/* 太平洋聯盟 */}
-            {pacific.map(team => (
-              <button
-                key={team.code}
-                onClick={() => setRosterTeam(team)}
-                title={`${team.name_full} 名冊`}
-                className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl px-2.5 py-1.5 hover:border-red-300 hover:shadow-sm transition"
-              >
-                <img src={team.logo_url} alt={team.name} className="w-6 h-6 object-contain"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                <span className="text-xs font-bold text-gray-700">{team.name}</span>
-                <Users className="w-3 h-3 text-gray-400" />
-              </button>
-            ))}
+        <div className="mb-5 space-y-2">
+          {/* 中央聯盟 */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black text-gray-400 w-10 shrink-0">中央</span>
+            <div className="flex flex-nowrap overflow-x-auto scrollbar-hide gap-2">
+              {central.map(team => (
+                <button
+                  key={team.code}
+                  onClick={() => setRosterTeam(team)}
+                  title={`${team.name_full} 名冊`}
+                  className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl px-2.5 py-1.5 hover:border-red-300 hover:shadow-sm transition shrink-0"
+                >
+                  <img src={team.logo_url} alt={team.name} className="w-6 h-6 object-contain"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  <span className="text-xs font-bold text-gray-700">{team.name}</span>
+                  <Users className="w-3 h-3 text-gray-400" />
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* 太平洋聯盟 */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black text-gray-400 w-10 shrink-0">太平洋</span>
+            <div className="flex flex-nowrap overflow-x-auto scrollbar-hide gap-2">
+              {pacific.map(team => (
+                <button
+                  key={team.code}
+                  onClick={() => setRosterTeam(team)}
+                  title={`${team.name_full} 名冊`}
+                  className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl px-2.5 py-1.5 hover:border-red-300 hover:shadow-sm transition shrink-0"
+                >
+                  <img src={team.logo_url} alt={team.name} className="w-6 h-6 object-contain"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  <span className="text-xs font-bold text-gray-700">{team.name}</span>
+                  <Users className="w-3 h-3 text-gray-400" />
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
-
 
       {/* 二軍：依分區顯示球隊名冊 */}
       {teams.length > 0 && leagueTab === 'NPB2' && (
