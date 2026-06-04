@@ -195,38 +195,44 @@ export default function Layout() {
             {filteredScores.length === 0 && scoreCategory === 'LIVE' && cpblGames.length === 0 && (
               <span className="text-xs text-gray-400 font-bold">目前無比賽資料</span>
             )}
-            {filteredScores.map((g, idx) => (
+            {filteredScores.map((g, idx) => {
+              const isRainout = g.game_detail?.includes('延賽') || g.game_detail?.includes('雨天');
+              return (
               <button
                 key={g.id ?? idx}
                 onClick={() => handleScoreCardClick(g)}
-                className="score-card p-3 flex-shrink-0 text-left hover:border-red-300 hover:shadow-md transition cursor-pointer"
+                className={`score-card p-3 flex-shrink-0 text-left hover:shadow-md transition cursor-pointer ${isRainout ? 'border-blue-200 bg-blue-50' : 'hover:border-red-300'}`}
               >
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-[9px] font-black text-gray-400 uppercase italic">{g.league}</span>
-                  <span className={`text-[9px] font-bold ${g.status === 'live' ? 'text-red-600' : 'text-gray-400'}`}>
-                    {g.status === 'live' && <span className="live-indicator"></span>}
-                    {g.status === 'live' ? g.game_detail :
-                     g.status === 'scheduled'
-                       ? new Date(g.game_date).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Taipei' })
-                       : g.game_detail}
-                  </span>
+                  {isRainout
+                    ? <span className="text-[9px] font-bold text-blue-500">🌧 因雨延賽</span>
+                    : <span className={`text-[9px] font-bold ${g.status === 'live' ? 'text-red-600' : 'text-gray-400'}`}>
+                        {g.status === 'live' && <span className="live-indicator"></span>}
+                        {g.status === 'live' ? g.game_detail :
+                         g.status === 'scheduled'
+                           ? new Date(g.game_date).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Taipei' })
+                           : g.game_detail}
+                      </span>
+                  }
                 </div>
                 <div className="flex justify-between items-center text-xs mb-1">
                   <div className="flex items-center gap-2">
                     <img src={teamLogos[g.team_home]} className="w-5 h-5 object-contain flex-shrink-0" alt={g.team_home} onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
                     <span className="font-bold">{g.team_home}</span>
                   </div>
-                  <span className="font-black">{g.score_home ?? '-'}</span>
+                  <span className="font-black">{isRainout ? '—' : (g.score_home ?? '-')}</span>
                 </div>
                 <div className="flex justify-between items-center text-xs">
                   <div className="flex items-center gap-2">
                     <img src={teamLogos[g.team_away]} className="w-5 h-5 object-contain flex-shrink-0" alt={g.team_away} onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
                     <span className="font-bold">{g.team_away}</span>
                   </div>
-                  <span className="font-black">{g.score_away ?? '-'}</span>
+                  <span className="font-black">{isRainout ? '—' : (g.score_away ?? '-')}</span>
                 </div>
               </button>
-            ))}
+              );
+            })}
           </div>
 
           {/* CPBL games row shown below LIVE section */}
@@ -234,38 +240,44 @@ export default function Layout() {
             <div className="mt-2 pt-2 border-t border-gray-100">
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 inline-block">CPBL 中華職棒</span>
               <div className="flex overflow-x-auto scrollbar-hide items-center py-1">
-                {cpblGames.map((g, idx) => (
+                {cpblGames.map((g, idx) => {
+                  const isRainout = g.game_detail?.includes('延賽') || g.game_detail?.includes('雨天');
+                  return (
                   <button
                     key={g.id ?? idx}
                     onClick={() => handleScoreCardClick(g)}
-                    className="score-card p-3 flex-shrink-0 text-left hover:border-red-300 hover:shadow-md transition cursor-pointer"
+                    className={`score-card p-3 flex-shrink-0 text-left hover:shadow-md transition cursor-pointer ${isRainout ? 'border-blue-200 bg-blue-50' : 'hover:border-red-300'}`}
                   >
                     <div className="flex justify-between items-center mb-1">
                       <span className="text-[9px] font-black text-gray-400 uppercase italic">{g.league}</span>
-                      <span className={`text-[9px] font-bold ${g.status === 'live' ? 'text-red-600' : 'text-gray-400'}`}>
-                        {g.status === 'live' && <span className="live-indicator"></span>}
-                        {g.status === 'live' ? g.game_detail :
-                         g.status === 'scheduled'
-                           ? new Date(g.game_date).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Taipei' })
-                           : g.game_detail}
-                      </span>
+                      {isRainout
+                        ? <span className="text-[9px] font-bold text-blue-500">🌧 因雨延賽</span>
+                        : <span className={`text-[9px] font-bold ${g.status === 'live' ? 'text-red-600' : 'text-gray-400'}`}>
+                            {g.status === 'live' && <span className="live-indicator"></span>}
+                            {g.status === 'live' ? g.game_detail :
+                             g.status === 'scheduled'
+                               ? new Date(g.game_date).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Taipei' })
+                               : g.game_detail}
+                          </span>
+                      }
                     </div>
                     <div className="flex justify-between items-center text-xs mb-1">
                       <div className="flex items-center gap-2">
                         <img src={teamLogos[g.team_home]} className="w-5 h-5 object-contain flex-shrink-0" alt={g.team_home} onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
                         <span className="font-bold">{g.team_home}</span>
                       </div>
-                      <span className="font-black">{g.score_home ?? '-'}</span>
+                      <span className="font-black">{isRainout ? '—' : (g.score_home ?? '-')}</span>
                     </div>
                     <div className="flex justify-between items-center text-xs">
                       <div className="flex items-center gap-2">
                         <img src={teamLogos[g.team_away]} className="w-5 h-5 object-contain flex-shrink-0" alt={g.team_away} onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
                         <span className="font-bold">{g.team_away}</span>
                       </div>
-                      <span className="font-black">{g.score_away ?? '-'}</span>
+                      <span className="font-black">{isRainout ? '—' : (g.score_away ?? '-')}</span>
                     </div>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
