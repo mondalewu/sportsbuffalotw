@@ -451,7 +451,7 @@ const NPBSchedule: React.FC = () => {
       {/* 球隊 logo + 名冊按鈕（中央 + 太平洋整合顯示）*/}
       {teams.length > 0 && leagueTab === 'NPB' && (
         <div className="mb-5">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-nowrap overflow-x-auto scrollbar-hide gap-2">
             {/* 中央聯盟 */}
             {central.map(team => (
               <button
