@@ -122,8 +122,9 @@ function GameCell({ game, onClick }: { game: CPBLGame; onClick: () => void }) {
   const venueShort = game.venue?.replace(/棒球場|棒球|球場|台北|臺北|台中|高雄/g, '').slice(0, 3) || '';
   const isLive = game.status === 'live';
   const isFinal = game.status === 'final';
+  const isRainout = isFinal && (game.game_detail === '雨天延賽' || game.game_detail?.includes('雨天') || game.game_detail?.includes('延賽'));
   return (
-    <button onClick={onClick} className={`w-full text-left p-1.5 rounded mb-1 ${bg} hover:brightness-95 transition border border-black/5 relative`}>
+    <button onClick={onClick} className={`w-full text-left p-1.5 rounded mb-1 ${isRainout ? 'bg-blue-50 border-blue-200' : bg} hover:brightness-95 transition border border-black/5 relative`}>
       <div className="flex items-center gap-1">
         <span className="text-gray-400 font-mono text-[10px] w-7 flex-shrink-0">
           {game.game_detail?.padStart(3, '0') || '—'}
@@ -135,7 +136,8 @@ function GameCell({ game, onClick }: { game: CPBLGame; onClick: () => void }) {
       <div className="flex items-center justify-between mt-0.5">
         <span className="text-[10px] text-gray-500 ml-7">{venueShort}</span>
         {isLive && <span className="text-[9px] font-black text-red-600 animate-pulse">LIVE</span>}
-        {isFinal && <span className="text-[10px] font-bold text-gray-700">{game.score_away}-{game.score_home}</span>}
+        {isRainout && <span className="text-[9px] font-bold text-blue-500">🌧 延賽</span>}
+        {isFinal && !isRainout && <span className="text-[10px] font-bold text-gray-700">{game.score_away}-{game.score_home}</span>}
       </div>
     </button>
   );
@@ -146,37 +148,41 @@ function GameCell({ game, onClick }: { game: CPBLGame; onClick: () => void }) {
 function CPBLScoreCard({ game, onClick }: { game: CPBLGame; onClick: () => void }) {
   const isLive = game.status === 'live';
   const isFinal = game.status === 'final';
+  const isRainout = isFinal && (game.game_detail === '雨天延賽' || game.game_detail?.includes('雨天') || game.game_detail?.includes('延賽'));
   const time = new Date(game.game_date).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Taipei' });
   const bg = getVenueBg(game.venue);
   return (
     <button
       onClick={onClick}
       className={`w-full text-left rounded-2xl border p-4 shadow-sm transition hover:shadow-md ${
-        isLive ? 'border-red-300 shadow-red-100' : 'border-gray-100'
-      } ${bg || 'bg-white'}`}
+        isLive ? 'border-red-300 shadow-red-100' :
+        isRainout ? 'border-blue-200 bg-blue-50/60' :
+        'border-gray-100'
+      } ${!isRainout ? (bg || 'bg-white') : ''}`}
     >
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs text-gray-400 font-mono">{time}</span>
         {isLive && <span className="text-xs font-black text-red-600 animate-pulse bg-red-50 px-2 py-0.5 rounded-full">● LIVE {game.game_detail || ''}</span>}
-        {isFinal && <span className="text-xs font-bold text-gray-500 bg-white/80 px-2 py-0.5 rounded-full">終場</span>}
+        {isRainout && <span className="text-xs font-bold text-blue-500 bg-blue-100 px-2 py-0.5 rounded-full">🌧 雨天延賽</span>}
+        {isFinal && !isRainout && <span className="text-xs font-bold text-gray-500 bg-white/80 px-2 py-0.5 rounded-full">終場</span>}
         {!isLive && !isFinal && <span className="text-xs text-gray-400">{game.venue?.slice(0, 3) || ''}</span>}
       </div>
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <TeamBadge name={game.team_away} size="sm" />
-          <span className="font-bold text-sm text-gray-800">{game.team_away}</span>
+          <span className={`font-bold text-sm ${isRainout ? 'text-gray-400' : 'text-gray-800'}`}>{game.team_away}</span>
         </div>
-        <span className={`text-2xl font-black tabular-nums ${isFinal || isLive ? 'text-gray-900' : 'text-gray-300'}`}>
-          {isFinal || isLive ? (game.score_away ?? '–') : '–'}
+        <span className={`text-2xl font-black tabular-nums ${isRainout ? 'text-gray-300' : isFinal || isLive ? 'text-gray-900' : 'text-gray-300'}`}>
+          {!isRainout && (isFinal || isLive) ? (game.score_away ?? '–') : '–'}
         </span>
       </div>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <TeamBadge name={game.team_home} size="sm" />
-          <span className="font-bold text-sm text-gray-800">{game.team_home}</span>
+          <span className={`font-bold text-sm ${isRainout ? 'text-gray-400' : 'text-gray-800'}`}>{game.team_home}</span>
         </div>
-        <span className={`text-2xl font-black tabular-nums ${isFinal || isLive ? 'text-gray-900' : 'text-gray-300'}`}>
-          {isFinal || isLive ? (game.score_home ?? '–') : '–'}
+        <span className={`text-2xl font-black tabular-nums ${isRainout ? 'text-gray-300' : isFinal || isLive ? 'text-gray-900' : 'text-gray-300'}`}>
+          {!isRainout && (isFinal || isLive) ? (game.score_home ?? '–') : '–'}
         </span>
       </div>
       {game.venue && <div className="mt-2 text-[10px] text-gray-400 text-right">{game.venue}</div>}
