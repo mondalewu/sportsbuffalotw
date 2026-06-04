@@ -1887,6 +1887,24 @@ function EmptyState({ text }: { text: string }) {
   return <p className="text-center py-10 text-gray-400 font-bold">{text}</p>;
 }
 
+// ── 打席結果日文→中文翻譯 ──────────────────────────────────────────────────────
+const JA_TO_ZH: Record<string, string> = {
+  '三ゴロ': '三滾', '二ゴロ': '二滾', '一ゴロ': '一滾', '遊ゴロ': '游滾', '投ゴロ': '投滾',
+  '左飛': '左飛', '右飛': '右飛', '中飛': '中飛', '一飛': '一飛', '二飛': '二飛', '三飛': '三飛', '遊飛': '游飛', '投飛': '投飛',
+  '一邪飛': '一界飛', '二邪飛': '二界飛', '三邪飛': '三界飛', '捕邪飛': '捕界飛', '左邪飛': '左界飛', '右邪飛': '右界飛',
+  '遊直': '游直', '二直': '二直', '三直': '三直', '一直': '一直', '投直': '投直', '左直': '左直', '右直': '右直', '中直': '中直',
+  '中安': '中安', '左安': '左安', '右安': '右安', '三安': '三壘安', '内安': '內野安',
+  '二塁打': '二壘打', '三塁打': '三壘打',
+  '右本': '右全壘', '左本': '左全壘', '中本': '中全壘', '右中本': '右中全壘', '左中本': '左中全壘',
+  '空三振': '揮三振', '見三振': '看三振',
+  '四球': '四壞球', '死球': '觸身球',
+  '遊失': '游失', '一失': '一失', '二失': '二失', '三失': '三失', '左失': '左失', '右失': '右失', '中失': '中失', '捕失': '捕失', '投失': '投失',
+  '犠打': '犧牲打', '犠飛': '犧牲飛',
+  '三併打': '三雙殺', '二併打': '二雙殺', '遊併打': '游雙殺',
+  '振逃': '三振跑', '野選': '野手選',
+};
+const translateResult = (r: string) => JA_TO_ZH[r] ?? r;
+
 // ── 打者成績表（安打・全壘打 → 紅色，其他無色）────────────────────────────────
 
 function BatterTable({ title, batters }: { title: string; batters: BatterStat[] }) {
@@ -1949,6 +1967,7 @@ function BatterTable({ title, batters }: { title: string; batters: BatterStat[] 
                   <td className="px-1.5 py-1.5 text-center tabular-nums">{b.stolen_bases}</td>
                   {inningCols.map(n => {
                     const result = b.at_bat_results?.[n - 1] ?? '';
+                    const translated = translateResult(result);
                     const isHr  = result.includes('本');
                     const isHit = !isHr && (result.includes('安') || result.includes('二塁') || result.includes('三塁') || /[123]$/.test(result));
                     return (
@@ -1959,7 +1978,7 @@ function BatterTable({ title, batters }: { title: string; batters: BatterStat[] 
                             isHit ? 'inline-block px-1 rounded font-bold text-red-600 bg-red-50' :
                             'text-gray-500'
                           }>
-                            {result}
+                            {translated}
                           </span>
                         ) : (
                           <span className="text-gray-200">·</span>
