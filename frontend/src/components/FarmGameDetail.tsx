@@ -1558,43 +1558,67 @@ function PitchReviewMode({ pitchData, awayName, homeName, batters, pitchers, inn
 
 // ── 打者成績表 ────────────────────────────────────────────────────────────────
 
-/** 將 Docomo 最終投球結果轉換為短版打席結果標籤 */
+/** 將 Docomo 最終投球結果轉換為短版打席結果標籤（中文） */
 function shortAtBatResult(r: string): string {
   if (!r) return '';
-  if (/本塁打|ホームラン/.test(r)) return '本塁打';
-  if (/三塁打/.test(r)) return '三安';
-  if (/二塁打/.test(r)) return '二安';
-  if (/内野安打/.test(r)) return '内安';
+  if (/本塁打|ホームラン/.test(r)) return '全壘打';
+  if (/三塁打/.test(r)) return '三壘安';
+  if (/二塁打/.test(r)) return '二壘打';
+  if (/内野安打/.test(r)) return '內野安';
   if (/ヒット|安打/.test(r)) return '安打';
-  if (/見逃し三振/.test(r)) return '見三振';
-  if (/空振り三振/.test(r)) return '空三振';
+  if (/見逃し三振/.test(r)) return '看三振';
+  if (/空振り三振/.test(r)) return '揮三振';
   if (/三振/.test(r)) return '三振';
-  if (/四球/.test(r)) return '四球';
-  if (/死球/.test(r)) return '死球';
-  if (/犠飛/.test(r)) return '犠飛';
-  if (/犠打/.test(r)) return '犠打';
-  if (/併殺/.test(r)) return '併殺';
-  if (/野手選択/.test(r)) return '野選';
-  if (/失策/.test(r)) return '失策';
-  if (/ショートゴロ/.test(r)) return '遊ゴ';
-  if (/セカンドゴロ/.test(r)) return '二ゴ';
-  if (/ファーストゴロ/.test(r)) return '一ゴ';
-  if (/サードゴロ/.test(r)) return '三ゴ';
-  if (/ピッチャーゴロ/.test(r)) return '投ゴ';
-  if (/キャッチャーゴロ/.test(r)) return '捕ゴ';
-  if (/ゴロ/.test(r)) return 'ゴロ';
+  if (/四球/.test(r)) return '四壞球';
+  if (/死球/.test(r)) return '觸身球';
+  if (/犠飛/.test(r)) return '犧牲飛';
+  if (/犠打/.test(r)) return '犧打';
+  if (/併殺/.test(r)) return '雙殺打';
+  if (/野手選択/.test(r)) return '野手選';
+  if (/失策/.test(r)) return '失誤';
+  if (/ショートゴロ/.test(r)) return '游滾';
+  if (/セカンドゴロ/.test(r)) return '二滾';
+  if (/ファーストゴロ/.test(r)) return '一滾';
+  if (/サードゴロ/.test(r)) return '三滾';
+  if (/ピッチャーゴロ/.test(r)) return '投滾';
+  if (/キャッチャーゴロ/.test(r)) return '捕滾';
+  if (/ゴロ/.test(r)) return '滾地';
   if (/センターフライ/.test(r)) return '中飛';
   if (/ライトフライ/.test(r)) return '右飛';
   if (/レフトフライ/.test(r)) return '左飛';
-  if (/ファウルフライ/.test(r)) return '邪飛';
-  if (/内野フライ/.test(r)) return '内飛';
+  if (/ファウルフライ/.test(r)) return '界外飛';
+  if (/内野フライ/.test(r)) return '內野飛';
   if (/フライ/.test(r)) return '飛球';
   if (/センターライナー/.test(r)) return '中直';
   if (/ライトライナー/.test(r)) return '右直';
   if (/レフトライナー/.test(r)) return '左直';
-  if (/ライナー/.test(r)) return '直球';
+  if (/ライナー/.test(r)) return '直飛';
   return r.slice(0, 4);
 }
+
+/** Yahoo 短格式打席結果 → 中文對照表 */
+const SHORT_JA_TO_ZH: Record<string, string> = {
+  '三ゴロ': '三滾', '二ゴロ': '二滾', '一ゴロ': '一滾', '遊ゴロ': '游滾', '投ゴロ': '投滾', '捕ゴロ': '捕滾',
+  '三ゴ': '三滾', '二ゴ': '二滾', '一ゴ': '一滾', '遊ゴ': '游滾', '投ゴ': '投滾', '捕ゴ': '捕滾',
+  '左飛': '左飛', '右飛': '右飛', '中飛': '中飛', '一飛': '一飛', '二飛': '二飛', '三飛': '三飛', '遊飛': '游飛', '投飛': '投飛',
+  '一邪飛': '一界飛', '二邪飛': '二界飛', '三邪飛': '三界飛', '捕邪飛': '捕界飛', '左邪飛': '左界飛', '右邪飛': '右界飛', '邪飛': '界外飛',
+  '遊直': '游直', '二直': '二直', '三直': '三直', '一直': '一直', '投直': '投直', '左直': '左直', '右直': '右直', '中直': '中直',
+  '中安': '中安', '左安': '左安', '右安': '右安', '三安': '三壘安', '内安': '內野安',
+  '右2': '右二壘打', '左2': '左二壘打', '中2': '中二壘打', '右中2': '右中二壘打', '左中2': '左中二壘打',
+  '右３': '右三壘打', '左３': '左三壘打', '中３': '中三壘打',
+  '右3': '右三壘打', '左3': '左三壘打', '中3': '中三壘打',
+  '右本': '右全壘', '左本': '左全壘', '中本': '中全壘', '右中本': '右中全壘', '左中本': '左中全壘',
+  '空三振': '揮三振', '見三振': '看三振',
+  '四球': '四壞球', '死球': '觸身球',
+  '遊失': '游失', '一失': '一失', '二失': '二失', '三失': '三失', '左失': '左失', '右失': '右失', '中失': '中失', '捕失': '捕失', '投失': '投失', '失策': '失誤',
+  '犠打': '犧打', '犠飛': '犧牲飛',
+  '三併打': '三雙殺', '二併打': '二雙殺', '遊併打': '游雙殺', '併殺': '雙殺打',
+  '振逃': '三振跑', '野選': '野手選',
+};
+const translateShortResult = (r: string) => SHORT_JA_TO_ZH[r] ?? r;
+
+/** 守備位置日文→中文（遊→游） */
+const translatePosZh = (pos: string) => pos.replace(/遊/g, '游');
 
 /** 從 pitchData 為每位打者推算各打席結果 */
 // 判斷是否為打席終結結果（非中途投球）
@@ -1693,7 +1717,7 @@ function BatterTable({ title, batters, pitchData }: {
                 <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                   <td className="px-1.5 py-1.5 text-center tabular-nums font-bold text-gray-400 sticky left-0 bg-inherit">{orderDisplay}</td>
                   <td className="px-2 py-1.5 font-bold text-gray-800 whitespace-nowrap sticky left-8 bg-inherit">
-                    {b.position && <span className="text-gray-400 mr-1 font-normal">{b.position}</span>}
+                    {b.position && <span className="text-gray-400 mr-1 font-normal">{translatePosZh(b.position)}</span>}
                     {b.player_name}
                   </td>
                   <td className="px-1.5 py-1.5 text-center tabular-nums text-gray-500">{avg}</td>
@@ -1709,10 +1733,9 @@ function BatterTable({ title, batters, pitchData }: {
                   <td className="px-1.5 py-1.5 text-center tabular-nums">{b.stolen_bases}</td>
                   {inningCols.map(n => {
                     const result = b.at_bat_results?.[n - 1] ?? '';
-                    // 本壘打：Yahoo 格式「左本」「右本」「中本」/ 長格式「本塁打」「ホームラン」
-                    const isHr  = /本$|本塁打|ホームラン/.test(result);
-                    // 安打（含長打）：「右安」「左安」/ 「中２」「右中2」/ 「右３」/ 「安打」
-                    const isHit = !isHr && (/安$|安打|ヒット/.test(result) || /[１1２2３3]$/.test(result));
+                    const translated = translateShortResult(result);
+                    const isHr  = /本$|本塁打|ホームラン|全壘/.test(result);
+                    const isHit = !isHr && (/安$|安打|ヒット|二壘打|三壘安/.test(result) || /[１1２2３3]$/.test(result));
                     return (
                       <td key={n} className="px-1 py-1 text-center whitespace-nowrap">
                         {result ? (
@@ -1721,7 +1744,7 @@ function BatterTable({ title, batters, pitchData }: {
                             isHit ? 'inline-block px-1 rounded font-bold text-red-600 bg-red-50' :
                             'text-gray-500'
                           }>
-                            {result}
+                            {translated}
                           </span>
                         ) : <span className="text-gray-200">·</span>}
                       </td>
