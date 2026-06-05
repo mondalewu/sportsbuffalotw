@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import { AppProvider } from './context/AppContext';
 import Layout from './components/Layout';
+import SplashScreen from './components/SplashScreen';
 import HomePage from './pages/HomePage';
 import NPBPage from './pages/NPBPage';
 import CPBLPage from './pages/CPBLPage';
@@ -20,6 +21,7 @@ export default function App() {
     <HelmetProvider>
     <BrowserRouter>
       <AppProvider>
+        <SplashScreen />
         <Routes>
           {/* NPB/CPBL 比賽獨立頁（無 Layout）*/}
           <Route path="/npb/game/:id" element={<NpbGamePage />} />
