@@ -1570,9 +1570,28 @@ function RichAtBatCard({ entry, order, avg, score, b1, b2, b3, pitchRows, pitche
             {avg && <span className="text-[11px] font-bold bg-yellow-50 text-yellow-700 border border-yellow-200 px-1.5 py-0.5 rounded">{avg}</span>}
           </div>
 
-          {/* BSO dots + result badge + base diamond + score */}
+          {/* 逐球圓點 + 結果 badge + 比分 */}
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            <NpbBSODots balls={finalBalls} strikes={finalStrikes} outs={entry.outsB4} />
+            {/* 每球圓點：有 pitchRows 用實際資料，否則用 BSO 狀態 */}
+            {hasPitches ? (
+              <div className="flex items-center gap-1 flex-wrap">
+                {pitchRows!.map((p, pi) => {
+                  const isFinalPitch = pi === pitchRows!.length - 1;
+                  let dotClass = '';
+                  if (isFinalPitch) {
+                    if (/安打|ヒット|本塁打|ホームラン|二塁打|三塁打/.test(p.result ?? '')) dotClass = 'bg-blue-500';
+                    else if (/四球|死球/.test(p.result ?? '')) dotClass = 'bg-green-400';
+                    else if (/三振|ゴロ|フライ|ライナー|犠打|犠飛|併殺/.test(p.result ?? '')) dotClass = 'bg-red-500';
+                    else dotClass = p.is_strike ? 'bg-red-400' : 'bg-gray-300';
+                  } else {
+                    dotClass = p.is_strike ? 'bg-red-400' : 'bg-gray-300';
+                  }
+                  return <span key={pi} className={`inline-block w-3 h-3 rounded-full flex-shrink-0 ${dotClass}`} />;
+                })}
+              </div>
+            ) : (
+              <NpbBSODots balls={finalBalls} strikes={finalStrikes} outs={entry.outsB4} />
+            )}
             {badge && (
               <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full tracking-wide ${badge.color}`}>
                 {badge.label}
