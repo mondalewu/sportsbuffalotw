@@ -230,10 +230,11 @@ const LiveGameText: React.FC<LiveGameTextProps> = ({ gameId, awayTeam, homeTeam,
     }
     halvesMap.get(key)!.atBats.push(ab);
   }
-  // Show latest inning first; within same inning: top (上/先攻) before bottom (下/後攻)
+  // 最新在上：局降冪，同局內下半(bottom)先於上半(top)，各局打席也反序
   const sortedHalves = halvesOrder
     .map(k => halvesMap.get(k)!)
-    .sort((a, b) => b.inning - a.inning || (a.is_top === b.is_top ? 0 : a.is_top ? -1 : 1));
+    .sort((a, b) => b.inning - a.inning || (a.is_top === b.is_top ? 0 : a.is_top ? 1 : -1))
+    .map(h => ({ ...h, atBats: [...h.atBats].reverse() }));
 
   return (
     <div className="max-w-4xl mx-auto">
