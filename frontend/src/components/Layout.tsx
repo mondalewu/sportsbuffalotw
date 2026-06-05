@@ -74,11 +74,16 @@ export default function Layout() {
     setCurrentUser(null);
   };
 
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
+
   const handleInstall = async () => {
-    if (!installPrompt) return;
-    (installPrompt as BeforeInstallPromptEvent).prompt();
-    const { outcome } = await (installPrompt as BeforeInstallPromptEvent).userChoice;
-    if (outcome === 'accepted') { setIsAppInstalled(true); setInstallPrompt(null); }
+    if (installPrompt) {
+      (installPrompt as BeforeInstallPromptEvent).prompt();
+      const { outcome } = await (installPrompt as BeforeInstallPromptEvent).userChoice;
+      if (outcome === 'accepted') { setIsAppInstalled(true); setInstallPrompt(null); }
+    } else {
+      setShowInstallGuide(true);
+    }
   };
 
   const filteredScores =
@@ -102,6 +107,35 @@ export default function Layout() {
           onClose={() => setAuthModal(null)}
           onSuccess={user => { setCurrentUser(user); setAuthModal(null); }}
         />
+      )}
+
+      {showInstallGuide && (
+        <div className="fixed inset-0 z-[9998] bg-black/50 flex items-end md:items-center justify-center" onClick={() => setShowInstallGuide(false)}>
+          <div className="bg-white rounded-t-2xl md:rounded-2xl w-full md:max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-black text-lg">安裝水牛體育 APP</h3>
+              <button onClick={() => setShowInstallGuide(false)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+            </div>
+            <div className="space-y-4 text-sm text-gray-600">
+              <div className="bg-gray-50 rounded-xl p-4">
+                <p className="font-bold text-gray-800 mb-2">📱 iPhone / iPad (Safari)</p>
+                <ol className="space-y-1 list-decimal list-inside">
+                  <li>點擊下方工具列的「分享」按鈕 <span className="text-blue-500">⬆</span></li>
+                  <li>選擇「加入主畫面」</li>
+                  <li>點擊右上角「新增」</li>
+                </ol>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-4">
+                <p className="font-bold text-gray-800 mb-2">🤖 Android (Chrome)</p>
+                <ol className="space-y-1 list-decimal list-inside">
+                  <li>點擊右上角選單 <span className="text-gray-500">⋮</span></li>
+                  <li>選擇「新增至主畫面」</li>
+                  <li>點擊「新增」確認</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Navbar */}
@@ -156,7 +190,7 @@ export default function Layout() {
             </nav>
 
             <div className="flex items-center space-x-3">
-              {installPrompt && !isAppInstalled && (
+              {!isAppInstalled && (
                 <button
                   onClick={handleInstall}
                   className="hidden md:flex items-center gap-1.5 bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-full hover:bg-red-700 transition"
