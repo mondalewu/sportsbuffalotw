@@ -1328,21 +1328,31 @@ function translatePitchText(text: string): string {
     .replace(/四球/g, '四壞球').replace(/死球/g, '觸身球');
 }
 
-// 逐球結果短文翻譯（用於 pitch list 欄）
+// 逐球結果翻譯（用於 pitch list 欄）
 function translatePitchShort(result: string): string {
   if (!result) return '';
-  if (result.includes('ボール')) return '壞球';
-  if (result.includes('空振')) return '揮空';
-  if (result.includes('見逃')) return '見逃';
-  if (result.includes('ファウル')) return '界外';
+  if (result.includes('空振り三振') || result.includes('空振三振')) return '揮空三振';
+  if (result.includes('見逃し三振') || result.includes('見逃三振')) return '見逃三振';
   if (result.includes('三振')) return '三振';
-  if (result.includes('安打') || result.includes('ヒット')) return '安打';
+  if (result.includes('ファウル')) return '界外球';
+  if (result.includes('空振')) return '揮空';
+  if (result.includes('見逃')) return '見逃好球';
+  if (result.includes('ボール')) return '壞球';
   if (result.includes('本塁打') || result.includes('ホームラン')) return '全壘打';
-  if (result.includes('ゴロ')) return '滾地';
+  if (result.includes('三塁打')) return '三壘安打';
+  if (result.includes('二塁打')) return '二壘安打';
+  if (result.includes('内野安打')) return '內野安打';
+  if (result.includes('安打') || result.includes('ヒット')) return '安打';
+  if (result.includes('四球')) return '四壞球';
+  if (result.includes('死球')) return '觸身球';
+  if (result.includes('犠飛')) return '犧牲飛球';
+  if (result.includes('犠打')) return '犧打';
+  if (result.includes('併殺')) return '雙殺打';
+  if (result.includes('ゴロ')) return '滾地球';
   if (result.includes('フライ')) return '飛球';
-  if (result.includes('ライナー')) return '平飛';
-  if (result.includes('四球')) return '四壞';
-  if (result.includes('死球')) return '觸身';
+  if (result.includes('ライナー')) return '平飛球';
+  if (result.includes('野手選択')) return '野手選擇';
+  if (result.includes('失策')) return '失誤';
   return result;
 }
 
@@ -1570,27 +1580,9 @@ function RichAtBatCard({ entry, order, avg, score, b1, b2, b3, pitchRows, pitche
             {avg && <span className="text-[11px] font-bold bg-yellow-50 text-yellow-700 border border-yellow-200 px-1.5 py-0.5 rounded">{avg}</span>}
           </div>
 
-          {/* 逐球圓點 + result badge + base diamond + score */}
+          {/* BSO dots + result badge + base diamond + score */}
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            {hasPitches ? (
-              <div className="flex items-center gap-1 flex-wrap">
-                {pitchRows!.map((p, pi) => {
-                  const isLast = pi === pitchRows!.length - 1;
-                  let cls = '';
-                  if (isLast) {
-                    if (/安打|ヒット|本塁打|ホームラン|二塁打|三塁打/.test(p.result ?? '')) cls = 'bg-blue-500';
-                    else if (/四球|死球/.test(p.result ?? '')) cls = 'bg-green-400';
-                    else if (/三振|ゴロ|フライ|ライナー|犠打|犠飛|併殺/.test(p.result ?? '')) cls = 'bg-red-500';
-                    else cls = p.is_strike ? 'bg-yellow-400' : 'bg-green-400';
-                  } else {
-                    cls = p.is_strike ? 'bg-yellow-400' : 'bg-green-400';
-                  }
-                  return <span key={pi} className={`inline-block w-3 h-3 rounded-full flex-shrink-0 ${cls}`} />;
-                })}
-              </div>
-            ) : (
-              <NpbBSODots balls={finalBalls} strikes={finalStrikes} outs={entry.outsB4} />
-            )}
+            <NpbBSODots balls={finalBalls} strikes={finalStrikes} outs={entry.outsB4} />
             {badge && (
               <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full tracking-wide ${badge.color}`}>
                 {badge.label}
