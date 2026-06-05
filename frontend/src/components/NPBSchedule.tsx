@@ -105,7 +105,7 @@ function TeamLogo({ name, size = 28 }: { name: string; size?: number }) {
 function ScoreCard({ game, onSelect }: { game: NPBGame; onSelect: () => void }) {
   const isLive = game.status === 'live';
   const isFinal = game.status === 'final';
-  const isRainout = isFinal && game.game_detail === '雨天延賽';
+  const isRainout = game.game_detail?.includes('雨天') || game.game_detail?.includes('延賽');
   const time = new Date(game.game_date).toLocaleTimeString('ja-JP', {
     hour: '2-digit', minute: '2-digit', hour12: false,
   });
