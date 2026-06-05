@@ -1698,19 +1698,32 @@ function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings, pitc
   }
 
   // Build pitch lookup: "${inning}_${isTop ? 1 : 0}_${abSeq}" → PitchData[] sorted by pitch_num
-  // Sanspo at_bat_key format: s{globalId}_{inning}_{tob}_{abSeq}  (tob: 1=top, 2=bottom)
+  // DB at_bat_key format: {inning:02d}{tob}{abSeq:02d}  e.g. "01101" = inning1, top, ab1
   const pitchMap = new Map<string, PitchData[]>();
   for (const p of pitchData) {
     const key = p.at_bat_key ?? '';
-    if (!key.startsWith('s')) continue;
-    const parts = key.split('_');
-    if (parts.length < 4) continue;
-    const inn = parseInt(parts[1]);
-    const tobNum = parseInt(parts[2]);        // 1=top, 2=bottom
-    const abSeq = parseInt(parts[3]);
-    const mapKey = `${inn}_${tobNum === 1 ? 1 : 0}_${abSeq}`;
-    if (!pitchMap.has(mapKey)) pitchMap.set(mapKey, []);
-    pitchMap.get(mapKey)!.push(p);
+    if (key.length < 4) continue;
+    // Try new numeric format first: XXYYZZ (inning 2 digits, tob 1 digit, abSeq 2 digits)
+    const inn = parseInt(key.substring(0, 2));
+    const tobChar = key[2];                   // '1' = top, '2' = bottom
+    const abSeq = parseInt(key.substring(3));
+    if (!isNaN(inn) && (tobChar === '1' || tobChar === '2') && !isNaN(abSeq)) {
+      const mapKey = `${inn}_${tobChar === '1' ? 1 : 0}_${abSeq}`;
+      if (!pitchMap.has(mapKey)) pitchMap.set(mapKey, []);
+      pitchMap.get(mapKey)!.push(p);
+      continue;
+    }
+    // Fallback: Sanspo format s{globalId}_{inning}_{tob}_{abSeq}
+    if (key.startsWith('s')) {
+      const parts = key.split('_');
+      if (parts.length < 4) continue;
+      const inn2 = parseInt(parts[1]);
+      const tobNum = parseInt(parts[2]);
+      const abSeq2 = parseInt(parts[3]);
+      const mapKey = `${inn2}_${tobNum === 1 ? 1 : 0}_${abSeq2}`;
+      if (!pitchMap.has(mapKey)) pitchMap.set(mapKey, []);
+      pitchMap.get(mapKey)!.push(p);
+    }
   }
   for (const arr of pitchMap.values()) arr.sort((a, b) => a.pitch_num - b.pitch_num);
 
