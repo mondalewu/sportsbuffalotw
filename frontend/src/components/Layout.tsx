@@ -192,7 +192,7 @@ export default function Layout() {
             {filteredScores.length === 0 && scoreCategory !== 'LIVE' && (
               <span className="text-xs text-gray-400 font-bold">目前無比賽資料</span>
             )}
-            {filteredScores.length === 0 && scoreCategory === 'LIVE' && cpblGames.length === 0 && (
+            {filteredScores.length === 0 && scoreCategory === 'LIVE' && !cpblGames.some(g => g.status === 'live' || g.status === 'final') && (
               <span className="text-xs text-gray-400 font-bold">目前無比賽資料</span>
             )}
             {filteredScores.map((g, idx) => {
@@ -236,7 +236,7 @@ export default function Layout() {
           </div>
 
           {/* CPBL games row shown below LIVE section */}
-          {scoreCategory === 'LIVE' && cpblGames.length > 0 && (
+          {scoreCategory === 'LIVE' && cpblGames.some(g => g.status === 'live' || g.status === 'final') && (
             <div className="mt-2 pt-2 border-t border-gray-100">
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 inline-block">CPBL 中華職棒</span>
               <div className="flex overflow-x-auto scrollbar-hide items-center py-1">
