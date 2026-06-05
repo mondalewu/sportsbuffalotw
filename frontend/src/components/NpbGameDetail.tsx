@@ -1757,11 +1757,12 @@ function NpbPlayByPlayCards({ events, awayName, homeName, batters, innings, pitc
     grouped.get(key)!.push(e);
   }
 
-  // 最新局在上（倒序）：最新局 → ... → 1局下 → 1局上
+  // 最新在上：先依局數升冪，同局內上半(true)→下半(false)，再整體 reverse
+  // 升冪結果：1上, 1下, 2上, 2下 → reverse → 2下, 2上, 1下, 1上（最新在頂）
   const sortedKeys = [...grouped.keys()].sort((a, b) => {
     const [ai, at] = a.split('-'); const [bi, bt] = b.split('-');
     const d = parseInt(ai) - parseInt(bi);
-    return d !== 0 ? d : (at === 'true' ? 1 : 0) - (bt === 'true' ? 1 : 0);
+    return d !== 0 ? d : (at === 'true' ? 0 : 1) - (bt === 'true' ? 0 : 1);
   }).reverse();
 
   return (
