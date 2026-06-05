@@ -47,6 +47,10 @@ export default defineConfig(({ mode }) => ({
         ],
         categories: ['sports', 'news'],
       },
+      devOptions: {
+        enabled: true,
+        type: 'module',
+      },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,jpg,svg,woff2}'],
         runtimeCaching: [
