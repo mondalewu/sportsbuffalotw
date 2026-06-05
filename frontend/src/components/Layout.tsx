@@ -1,4 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Search, ChevronDown, LogOut, User } from 'lucide-react';
 import { useApp } from '../context/AppContext';
@@ -21,6 +26,8 @@ export default function Layout() {
   const [isBaseballDropdownOpen, setIsBaseballDropdownOpen] = useState(false);
   const [isSoccerDropdownOpen, setIsSoccerDropdownOpen] = useState(false);
   const [scoreBarOpen, setScoreBarOpen] = useState(true);
+  const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
+  const [isAppInstalled, setIsAppInstalled] = useState(false);
 
   const baseballDropdownRef = useRef<HTMLDivElement>(null);
   const soccerDropdownRef = useRef<HTMLDivElement>(null);
@@ -43,6 +50,14 @@ export default function Layout() {
   }, []);
 
   useEffect(() => {
+    const handler = (e: Event) => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    window.addEventListener('appinstalled', () => { setIsAppInstalled(true); setInstallPrompt(null); });
+    if (window.matchMedia('(display-mode: standalone)').matches) setIsAppInstalled(true);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (baseballDropdownRef.current && !baseballDropdownRef.current.contains(e.target as Node))
         setIsBaseballDropdownOpen(false);
@@ -56,6 +71,13 @@ export default function Layout() {
   const handleLogout = async () => {
     await logout();
     setCurrentUser(null);
+  };
+
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    (installPrompt as BeforeInstallPromptEvent).prompt();
+    const { outcome } = await (installPrompt as BeforeInstallPromptEvent).userChoice;
+    if (outcome === 'accepted') { setIsAppInstalled(true); setInstallPrompt(null); }
   };
 
   const filteredScores =
@@ -133,6 +155,17 @@ export default function Layout() {
             </nav>
 
             <div className="flex items-center space-x-3">
+              {installPrompt && !isAppInstalled && (
+                <button
+                  onClick={handleInstall}
+                  className="hidden md:flex items-center gap-1.5 bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-full hover:bg-red-700 transition"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  下載 APP
+                </button>
+              )}
               {currentUser ? (
                 <div className="flex items-center gap-2">
                   {(currentUser.role === 'editor' || currentUser.role === 'admin') && (
