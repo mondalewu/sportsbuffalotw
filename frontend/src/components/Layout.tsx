@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import BottomNav from './BottomNav';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -318,7 +319,11 @@ export default function Layout() {
         </div>{/* end 收合內容 */}
       </div>
 
-      <Outlet />
+      <div className="pb-16 md:pb-0">
+        <Outlet />
+      </div>
+
+      <BottomNav />
 
       {/* Footer */}
       <footer className="bg-gray-900 text-white mt-16 py-10">
