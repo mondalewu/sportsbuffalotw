@@ -435,7 +435,7 @@ function CpblLineupPanel({
             return (
               <div key={i} className="flex items-center gap-2 py-[3px] px-2 text-xs hover:bg-gray-50">
                 <span className="w-4 shrink-0 text-center font-black text-[11px] text-gray-700">
-                  {b.batting_order ?? '–'}
+                  {i + 1}
                 </span>
                 <span className="flex-1 truncate text-[11px] font-bold text-gray-800">{b.player_name}</span>
                 <span className="shrink-0 text-[10px] w-5 text-center text-gray-400">
