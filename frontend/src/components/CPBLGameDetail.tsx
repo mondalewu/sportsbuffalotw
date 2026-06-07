@@ -411,8 +411,43 @@ function CpblLineupPanel({
     }
   }
 
+  // Fallback: no lineups but have batter stats — show by batting order from pbp
   if (grouped.length === 0) {
-    return <div className="text-center py-6 text-gray-400 text-xs">打序尚未公布</div>;
+    if (batters.length === 0) {
+      return <div className="text-center py-6 text-gray-400 text-xs">打序尚未公布</div>;
+    }
+    // Sort batters by batting order if available, else by name
+    const sorted = [...batters].sort((a, b) => (a.batting_order ?? 99) - (b.batting_order ?? 99));
+    return (
+      <div>
+        <div className="font-black text-xs text-gray-700 mb-2 px-1">{name}</div>
+        <div className="flex items-center gap-2 px-2 pb-1 border-b border-gray-100 text-[9px] text-gray-400 font-bold">
+          <span className="w-4 shrink-0 text-center">棒</span>
+          <span className="flex-1">選手</span>
+          <span className="w-5 shrink-0 text-center">打</span>
+          <span className="w-10 shrink-0 text-right">打率</span>
+        </div>
+        <div className="space-y-0">
+          {sorted.map((b, i) => {
+            const avg = b.season_avg != null && b.season_avg > 0
+              ? Number(b.season_avg).toFixed(3)
+              : b.at_bats > 0 ? (b.hits / b.at_bats).toFixed(3) : '.---';
+            return (
+              <div key={i} className="flex items-center gap-2 py-[3px] px-2 text-xs hover:bg-gray-50">
+                <span className="w-4 shrink-0 text-center font-black text-[11px] text-gray-700">
+                  {b.batting_order ?? '–'}
+                </span>
+                <span className="flex-1 truncate text-[11px] font-bold text-gray-800">{b.player_name}</span>
+                <span className="shrink-0 text-[10px] w-5 text-center text-gray-400">
+                  {b.at_bats > 0 ? b.at_bats : '–'}
+                </span>
+                <span className="text-gray-500 tabular-nums text-[11px] shrink-0 w-10 text-right">{avg}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -1034,12 +1069,12 @@ const CPBLGameDetail: React.FC<Props> = ({
           ) : tab === 'home' ? (
             /* 首頁：先發名單 */
             <div className="p-4">
-              {lineups.length === 0 ? (
+              {lineups.length === 0 && awayBatters.length === 0 && homeBatters.length === 0 ? (
                 <p className="text-center py-10 text-gray-400">賽前打序尚未公布</p>
               ) : (
                 <div className="space-y-4">
-                  {/* 先發投手 */}
-                  {(() => {
+                  {/* 先發投手（有 lineup 才顯示） */}
+                  {lineups.length > 0 && (() => {
                     const awayPitcher = lineups.find(l => !l.is_home && l.batting_order === 0);
                     const homePitcher = lineups.find(l => l.is_home && l.batting_order === 0);
                     if (!awayPitcher && !homePitcher) return null;
@@ -1055,7 +1090,7 @@ const CPBLGameDetail: React.FC<Props> = ({
                       </div>
                     );
                   })()}
-                  {/* 打者陣容 */}
+                  {/* 打者陣容：有 lineup 用 lineup，否則直接用 batter stats */}
                   <div className="grid grid-cols-2 gap-6">
                     <CpblLineupPanel
                       name={game.team_away}
