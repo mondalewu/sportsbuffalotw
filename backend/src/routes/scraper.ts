@@ -8,7 +8,7 @@ import { runNpbRosterScraper, npbRosterScraperStatus, initNpbTeams } from '../se
 import { runNpbFarmScraper, npbFarmScraperStatus, runNpbFarmScraperMonth } from '../services/npbFarmScraper';
 import { runYahooFarmScraper, yahooFarmScraperStatus, runYahooFarmScheduleScraper, yahooFarmScheduleStatus, scrapeYahooGameById } from '../services/yahooFarmScraper';
 import { runYahooFarmRosterScraper, farmRosterScraperStatus } from '../services/npbYahooFarmRosterScraper';
-import { runNpbStandingsScraper, npbStandingsScraperStatus } from '../services/npbStandingsScraper';
+import { runNpbStandingsScraper, npbStandingsScraperStatus, runNpbFarmStandingsScraper, npbFarmStandingsScraperStatus } from '../services/npbStandingsScraper';
 import { runDocomoFarmScraper, docomoScraperStatus, rescrapeDocomoByDbGameId, backfillPitchDataByDocomoId, backfillYahooBatterStats, previewYahooBatterStats, runBatchYahooBackfill, batchYahooBackfillStatus } from '../services/docomoFarmScraper';
 import { scrapeDocomoNpbGame, scrapeDocomoNpbGameAuto, runDocomoNpbDailyScraper, docomoNpbDailyStatus } from '../services/docomoNpbScraper';
 import { scrapeSanspoGame, scrapeSanspoGameAuto, runSanspoNpbDailyScraper, sanspoNpbScraperStatus, mergeNamesIntoSanspoPitchData, fetchGameList, parseSanspoDate, normalizeSanspoTeam } from '../services/sanspoNpbScraper';
@@ -442,6 +442,12 @@ router.post('/trigger-npb-farm-roster', verifyToken, requireRole('editor', 'admi
 router.post('/trigger-npb-standings', verifyToken, requireRole('editor', 'admin'), async (_req: Request, res: Response): Promise<void> => {
   const result = await runNpbStandingsScraper();
   res.json({ ...result, status: npbStandingsScraperStatus });
+});
+
+// POST /api/v1/scraper/trigger-npb-farm-standings — 爬取 NPB 二軍順位表
+router.post('/trigger-npb-farm-standings', verifyToken, requireRole('editor', 'admin'), async (_req: Request, res: Response): Promise<void> => {
+  const result = await runNpbFarmStandingsScraper();
+  res.json({ ...result, status: npbFarmStandingsScraperStatus });
 });
 
 // POST /api/v1/scraper/trigger-npb-farm-month — 爬取二軍指定月份賽程

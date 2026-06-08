@@ -26,6 +26,7 @@ import { runYahooFarmScraper, runYahooFarmScheduleScraper } from './services/yah
 import { runDocomoFarmScraper, runDocomoLiveUpdate } from './services/docomoFarmScraper';
 import { initNpbTeams } from './services/npbRosterScraper';
 import { runCpblWikiRosterScraper } from './services/cpblRosterScraper';
+import { runNpbStandingsScraper, runNpbFarmStandingsScraper } from './services/npbStandingsScraper';
 import { verifyToken, requireRole } from './middleware/auth';
 import bcrypt from 'bcryptjs';
 
@@ -267,6 +268,10 @@ function startScraperCron() {
     // CPBL 例行賽 + 熱身賽順位表
     console.log('[Cron] 更新 CPBL 順位表...');
     await runCpblStandingsScraper(year);
+    // NPB 一軍 + 二軍順位表
+    console.log('[Cron] 更新 NPB 順位表...');
+    await runNpbStandingsScraper();
+    await runNpbFarmStandingsScraper();
     await fixStuckLiveGames();
   });
 
