@@ -185,44 +185,27 @@ export async function runNpbStandingsScraper(): Promise<{ message: string }> {
   }
 }
 
-// ─── NPB 二軍順位表爬蟲 ────────────────────────────────────────────────────────
+// ─── NPB 二軍順位表（Yahoo Sports gameKindIds=389,390,391）─────────────────────
 
-const FARM_STANDINGS_URL = 'https://baseball.yahoo.co.jp/npb/standings/farm/';
+const FARM_STANDINGS_URL = 'https://baseball.yahoo.co.jp/npb/standings/?gameKindIds=389,390,391';
 
-// Yahoo Sports 二軍分組名稱 → DB league key
-const FARM_DIVISION_MAP: Record<string, string> = {
-  '東地区': 'NPB2-East',
-  '中地区': 'NPB2-Central',
-  '西地区': 'NPB2-West',
+// Table 順序固定：0=東地区, 1=中地区, 2=西地区（第3表以後為打者/投手個人成績）
+const FARM_TABLE_LEAGUE: Record<number, string> = {
+  0: 'NPB2-East',
+  1: 'NPB2-Central',
+  2: 'NPB2-West',
 };
 
-const FARM_TEAM_NORMALIZE: Record<string, string> = {
-  '北海道日本ハムファイターズ': '日本ハム',
-  '千葉ロッテマリーンズ': 'ロッテ',
-  '東北楽天ゴールデンイーグルス': '楽天',
-  '埼玉西武ライオンズ': '西武',
-  'オリックス・バファローズ': 'オリックス',
-  '福岡ソフトバンクホークス': 'ソフトバンク',
-  '読売ジャイアンツ': '巨人',
-  '横浜DeNAベイスターズ': 'DeNA',
-  '横浜ＤｅＮＡベイスターズ': 'DeNA',
-  '阪神タイガース': '阪神',
-  '広島東洋カープ': '広島',
-  '中日ドラゴンズ': '中日',
-  '東京ヤクルトスワローズ': 'ヤクルト',
-  'オイシックス・アルビレックス新潟ベースボールクラブ': 'オイシックス',
-  'オイシックス': 'オイシックス',
-  'くふうハヤテベンチャーズ静岡': 'くふうハヤテ',
+// チーム名正規化（Yahoo Sports 表示名 → DB 統一名）
+const FARM_TEAM_SHORT: Record<string, string> = {
+  'ハヤテ': 'くふうハヤテ',
   'くふうハヤテ': 'くふうハヤテ',
+  'オイシックス': 'オイシックス',
 };
 
 function normFarmTeam(raw: string): string {
-  const t = raw.trim().replace(/\s+/g, '');
-  if (FARM_TEAM_NORMALIZE[t]) return FARM_TEAM_NORMALIZE[t];
-  for (const [k, v] of Object.entries(FARM_TEAM_NORMALIZE)) {
-    if (t.includes(k) || k.includes(t)) return v;
-  }
-  return t;
+  const t = raw.trim();
+  return FARM_TEAM_SHORT[t] ?? t;
 }
 
 export interface NpbFarmStandingsScraperStatus {
@@ -248,94 +231,39 @@ export async function fetchNpbFarmStandings(): Promise<NpbStanding[]> {
   });
   const $ = cheerio.load(res.data as string);
 
-  // Yahoo Sports farm standings: each division is a section with a heading and a table
-  // Try multiple selectors to handle page structure changes
-  $('section, .standings-table, [class*="standings"]').each((_, section) => {
-    const headingText = $(section).find('h2, h3, th, .title, [class*="title"]').first().text().trim();
-    const leagueKey = FARM_DIVISION_MAP[headingText] ?? null;
-
-    const table = $(section).find('table').first();
-    if (!table.length) return;
+  $('table').each((tableIdx, table) => {
+    const leagueKey = FARM_TABLE_LEAGUE[tableIdx];
+    if (!leagueKey) return; // 第3表以後是個人成績，跳過
 
     let rank = 0;
-    table.find('tbody tr').each((_, tr) => {
+    $(table).find('tr').each((_, tr) => {
       const cells = $(tr).find('td');
-      if (cells.length < 5) return;
-
-      const rawName = cells.eq(0).text().trim() || $(tr).find('.team-name, [class*="team"]').first().text().trim();
-      if (!rawName) return;
+      if (cells.length < 6) return;
+      const rawName = cells.eq(1).text().trim(); // col0=順位, col1=チーム名
+      if (!rawName || /^チーム/.test(rawName)) return;
       const teamName = normFarmTeam(rawName);
-      if (!teamName) return;
-
       rank++;
-      const wins    = parseInt(cells.eq(1).text().trim()) || 0;
-      const losses  = parseInt(cells.eq(2).text().trim()) || 0;
-      const draws   = parseInt(cells.eq(3).text().trim()) || 0;
-      const winRate = parseFloat(cells.eq(4).text().trim()) || 0;
-      const gbRaw   = cells.eq(5)?.text().trim() ?? '--';
+      const wins    = parseInt(cells.eq(3).text().trim()) || 0;
+      const losses  = parseInt(cells.eq(4).text().trim()) || 0;
+      const draws   = parseInt(cells.eq(5).text().trim()) || 0;
+      const winRate = parseFloat(cells.eq(6).text().trim()) || 0;
+      const gbRaw   = cells.eq(7)?.text().trim() ?? '--';
       const gb      = /^[\-–—]+$/.test(gbRaw) || gbRaw === '' ? null : parseFloat(gbRaw);
 
-      if (leagueKey) {
-        all.push({
-          league: leagueKey,
-          division: headingText,
-          team: teamName,
-          games: wins + losses + draws,
-          wins, losses, draws,
-          win_rate: winRate,
-          games_behind: gb,
-          rank,
-        });
-      }
+      all.push({
+        league: leagueKey,
+        division: leagueKey,
+        team: teamName,
+        games: wins + losses + draws,
+        wins, losses, draws,
+        win_rate: winRate,
+        games_behind: gb,
+        rank,
+      });
     });
+    console.log(`[NPB Farm Standings] ${leagueKey}: ${rank} 支球隊`);
   });
 
-  // Fallback: if section-based parsing failed, try table-by-table
-  if (all.length === 0) {
-    const divisionNames = Object.keys(FARM_DIVISION_MAP);
-    let divisionIdx = 0;
-
-    $('table').each((tableIdx, table) => {
-      if (divisionIdx >= divisionNames.length) return;
-      const heading = $(table).prev('h2, h3, p, div').first().text().trim()
-        || $(table).closest('section').find('h2, h3').first().text().trim();
-      const divName = divisionNames.find(d => heading.includes(d)) ?? divisionNames[divisionIdx];
-      const leagueKey = FARM_DIVISION_MAP[divName];
-      if (!leagueKey) { divisionIdx++; return; }
-
-      let rank = 0;
-      $(table).find('tbody tr, tr').each((_, tr) => {
-        const cells = $(tr).find('td');
-        if (cells.length < 5) return;
-        const rawName = cells.eq(0).text().trim();
-        if (!rawName || /^(球隊|チーム|順位)/.test(rawName)) return;
-        const teamName = normFarmTeam(rawName);
-        if (!teamName) return;
-
-        rank++;
-        const wins    = parseInt(cells.eq(1).text().trim()) || 0;
-        const losses  = parseInt(cells.eq(2).text().trim()) || 0;
-        const draws   = parseInt(cells.eq(3).text().trim()) || 0;
-        const winRate = parseFloat(cells.eq(4).text().trim()) || 0;
-        const gbRaw   = cells.eq(5)?.text().trim() ?? '--';
-        const gb      = /^[\-–—]+$/.test(gbRaw) || gbRaw === '' ? null : parseFloat(gbRaw);
-
-        all.push({
-          league: leagueKey,
-          division: divName,
-          team: teamName,
-          games: wins + losses + draws,
-          wins, losses, draws,
-          win_rate: winRate,
-          games_behind: gb,
-          rank,
-        });
-      });
-      if (rank > 0) divisionIdx++;
-    });
-  }
-
-  console.log(`[NPB Farm Standings] 取得 ${all.length} 條順位資料`);
   return all;
 }
 
