@@ -520,7 +520,7 @@ async function updateGame(gameId: number, item: GameApiItem): Promise<boolean> {
     status = 'final';
   } else if (item.GameStatus === 4) {
     status = 'scheduled';
-    gameDetail = `${gameDetail}-延賽`;
+    gameDetail = item.GameStatusChi?.trim() || '雨天延賽';
   }
 
   // 更新 games 主表
