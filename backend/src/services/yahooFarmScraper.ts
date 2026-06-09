@@ -329,12 +329,13 @@ const TEAM_CODES: Record<string, string> = {
 // 獨立聯盟球隊（くふうハヤテ・オイシックス）：只有這兩隊才允許 Yahoo 新增場次
 const INDEPENDENT_TEAMS = new Set(['くふうハヤテ', 'オイシックス']);
 
-async function upsertFarmGame(data: YahooFarmGameData, allowScheduled = false): Promise<number | null> {
+async function upsertFarmGame(rawData: YahooFarmGameData, allowScheduled = false): Promise<number | null> {
+  let data = rawData;
   const yahooPath = `/npb/game/${data.gameId}`;
 
   // 找現有比賽（by date + teams，允許 home/away 互換）
-  const existing = await pool.query<{ id: number }>(
-    `SELECT id FROM games
+  const existing = await pool.query<{ id: number; team_away: string }>(
+    `SELECT id, team_away FROM games
      WHERE league = 'NPB2'
        AND ((team_away = $1 AND team_home = $2) OR (team_away = $2 AND team_home = $1))
        AND DATE(game_date AT TIME ZONE 'Asia/Tokyo') = $3::date
@@ -346,14 +347,35 @@ async function upsertFarmGame(data: YahooFarmGameData, allowScheduled = false): 
 
   if (existing.rows.length > 0) {
     gameId = existing.rows[0].id;
+    // DB 與 Yahoo 先後攻可能相反（npb.jp 建立的場次順序不同），需對齊
+    const isSwapped = existing.rows[0].team_away !== data.awayTeam;
+    const scoreAway = isSwapped ? data.totalHome : data.totalAway;
+    const scoreHome = isSwapped ? data.totalAway : data.totalHome;
     await pool.query(
       `UPDATE games
        SET score_away = $1, score_home = $2, status = $3,
            venue = COALESCE($4, venue),
            npb_url = COALESCE(npb_url, $5)
        WHERE id = $6`,
-      [data.totalAway, data.totalHome, data.status, data.venue, yahooPath, gameId],
+      [scoreAway, scoreHome, data.status, data.venue, yahooPath, gameId],
     );
+    // 先後攻互換時，innings / stats 也需對調
+    if (isSwapped) {
+      data = {
+        ...data,
+        totalAway: scoreAway,
+        totalHome: scoreHome,
+        hitsAway: data.hitsHome,
+        hitsHome: data.hitsAway,
+        errorsAway: data.errorsHome,
+        errorsHome: data.errorsAway,
+        innings: data.innings.map(inn => ({
+          inning: inn.inning,
+          score_away: inn.score_home,
+          score_home: inn.score_away,
+        })),
+      };
+    }
   } else {
     if (!allowScheduled && data.status === 'scheduled') return null;
 

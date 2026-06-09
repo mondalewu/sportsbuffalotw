@@ -38,7 +38,7 @@ export default function HomePage() {
   useEffect(() => {
     loadArticles();
     getAds('sidebar').then(setSidebarAds).catch(() => {});
-    getPolls().then(data => { const active = data.filter(p => p.is_active); if (active.length > 0) setHomePoll(active[0]); }).catch(() => {});
+    getPolls().then(data => { if (data.length > 0) setHomePoll(data[0]); }).catch(() => {});
   }, []);
 
   const handleSelectArticle = async (article: Article) => {

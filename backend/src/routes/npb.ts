@@ -399,4 +399,66 @@ router.get('/games/:id/pitch-data', async (req: Request, res: Response): Promise
   }
 });
 
+// GET /api/v1/npb/games/:id/youtube-highlight
+// 用 YouTube Data API v3 搜尋賽後精華，結果快取 1 小時
+const ytCache = new Map<string, { data: object; at: number }>();
+
+router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): Promise<void> => {
+  const apiKey = process.env.YOUTUBE_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ message: 'YOUTUBE_API_KEY 未設定' });
+    return;
+  }
+
+  // 快取：60 分鐘
+  const cached = ytCache.get(req.params.id);
+  if (cached && Date.now() - cached.at < 60 * 60 * 1000) {
+    res.json(cached.data);
+    return;
+  }
+
+  try {
+    const gameRes = await pool.query(
+      `SELECT team_away, team_home, game_date, status FROM games WHERE id = $1`,
+      [req.params.id],
+    );
+    if (!gameRes.rows.length) { res.status(404).json({ message: '找不到比賽' }); return; }
+    const { team_away, team_home, game_date, status } = gameRes.rows[0];
+
+    const dateStr = new Date(game_date).toLocaleDateString('ja-JP', {
+      timeZone: 'Asia/Tokyo', year: 'numeric', month: 'long', day: 'numeric',
+    });
+    const query = `${team_away} ${team_home} ハイライト ${dateStr}`;
+
+    const url = new URL('https://www.googleapis.com/youtube/v3/search');
+    url.searchParams.set('part', 'snippet');
+    url.searchParams.set('q', query);
+    url.searchParams.set('type', 'video');
+    url.searchParams.set('maxResults', '3');
+    url.searchParams.set('order', 'relevance');
+    url.searchParams.set('key', apiKey);
+
+    const ytRes = await fetch(url.toString());
+    if (!ytRes.ok) {
+      res.status(502).json({ message: 'YouTube API 錯誤', detail: await ytRes.text() });
+      return;
+    }
+    const ytJson = await ytRes.json() as {
+      items?: { id: { videoId: string }; snippet: { title: string; thumbnails: { medium: { url: string } } } }[];
+    };
+
+    const items = (ytJson.items ?? []).map(v => ({
+      videoId: v.id.videoId,
+      title: v.snippet.title,
+      thumbnail: v.snippet.thumbnails?.medium?.url ?? '',
+    }));
+
+    const data = { query, items, status };
+    ytCache.set(req.params.id, { data, at: Date.now() });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ message: '無法取得 YouTube 精華', detail: (err as Error).message });
+  }
+});
+
 export default router;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import {
   getGameInnings, getGameStats, getGameBatters, getGamePitchers, getGamePlayByPlay,
   getGamePitchData,
@@ -878,6 +878,7 @@ export default function NpbGameDetail({ game, awayCode, homeCode, onClose, stand
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tab,          setTab]          = useState<MainTab>('score');
   const [statsTab,     setStatsTab]     = useState<StatsSubTab>('batter');
+  const [ytHighlights, setYtHighlights] = useState<{videoId:string;title:string}[]>([]);
   // Local state 追蹤即時比分——不依賴父層 prop，避免父層未刷新時畫面停滯
   const [awayScore, setAwayScore] = useState<number | null>(game.score_away);
   const [homeScore, setHomeScore] = useState<number | null>(game.score_home);
@@ -931,6 +932,18 @@ export default function NpbGameDetail({ game, awayCode, homeCode, onClose, stand
       intervalRef.current = null;
     }
   }, [isFinal]);
+
+  // 比賽結束後抓 YouTube 精華（只跑一次，API key 未設定時靜默失敗）
+  useEffect(() => {
+    if (!isFinal) return;
+    if (ytHighlights.length > 0) return;
+    fetch(`/api/v1/npb/games/${game.id}/youtube-highlight`)
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { items?: {videoId:string;title:string}[] } | null) => {
+        if (d?.items?.length) setYtHighlights(d.items);
+      })
+      .catch(() => {});
+  }, [isFinal, game.id]);
 
   // 同步父層 prop 狀態變更（例如父層查到 final 後傳入）
   useEffect(() => {
@@ -1140,6 +1153,28 @@ export default function NpbGameDetail({ game, awayCode, homeCode, onClose, stand
                   pitchCount={homePitchers[0]?.pitch_count}
                 />
               </div>
+
+
+              {/* YouTube 賽後精華 */}
+              {ytHighlights.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-bold text-gray-400 tracking-wide">賽後精華</div>
+                  {ytHighlights.slice(0, 1).map(v => (
+                    <div key={v.videoId} className="rounded-xl overflow-hidden border border-gray-100 shadow-sm">
+                      <div className="relative w-full" style={{paddingBottom:'56.25%'}}>
+                        <iframe
+                          className="absolute inset-0 w-full h-full"
+                          src={`https://www.youtube.com/embed/${v.videoId}`}
+                          title={v.title}
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
+                      </div>
+                      <div className="px-3 py-2 text-[11px] text-gray-500 truncate">{v.title}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* 打撃陣容 */}
               <div className="grid grid-cols-2 gap-6">
@@ -1547,7 +1582,7 @@ function RichAtBatCard({ entry, order, avg, score, b1, b2, b3, pitchRows, pitche
   pitchRows?: PitchData[];
   pitcherInfo?: { name: string; pitch_count?: number; era?: string } | null;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const badge = npbResultBadge(entry.result);
   const initial = entry.batterName.charAt(0) || '?';
 

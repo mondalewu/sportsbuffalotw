@@ -27,3 +27,4 @@ nul
 
 # Uploaded media files
 backend/uploads/
+.vercel
