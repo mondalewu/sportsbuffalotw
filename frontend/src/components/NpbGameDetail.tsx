@@ -2028,7 +2028,7 @@ function BatterTable({ title, batters }: { title: string; batters: BatterStat[] 
                     const result = b.at_bat_results?.[n - 1] ?? '';
                     const translated = translateResult(result);
                     const isHr  = result.includes('本');
-                    const isHit = !isHr && (result.includes('安') || result.includes('二塁') || result.includes('三塁') || /[123]$/.test(result));
+                    const isHit = !isHr && (result.includes('安') || result.includes('二塁') || result.includes('三塁') || /[123]$/.test(result) || /[23][①②③④⑤⑥⑦⑧⑨]/.test(result));
                     return (
                       <td key={n} className="px-1 py-1 text-center whitespace-nowrap">
                         {result ? (
