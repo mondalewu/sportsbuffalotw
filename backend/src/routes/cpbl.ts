@@ -4,6 +4,22 @@ import pool from '../db/pool';
 const router = Router();
 
 const cpblYtCache = new Map<string, { data: object; at: number }>();
+let cpblChannelId: string | null = null;
+
+async function getCpblChannelId(apiKey: string): Promise<string | null> {
+  if (cpblChannelId) return cpblChannelId;
+  try {
+    const url = new URL('https://www.googleapis.com/youtube/v3/channels');
+    url.searchParams.set('part', 'id');
+    url.searchParams.set('forHandle', 'CPBL');
+    url.searchParams.set('key', apiKey);
+    const res = await fetch(url.toString());
+    if (!res.ok) return null;
+    const json = await res.json() as { items?: { id: string }[] };
+    cpblChannelId = json.items?.[0]?.id ?? null;
+    return cpblChannelId;
+  } catch { return null; }
+}
 
 router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): Promise<void> => {
   const apiKey = process.env.YOUTUBE_API_KEY;
@@ -31,6 +47,9 @@ router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): 
     url.searchParams.set('maxResults', '3');
     url.searchParams.set('order', 'relevance');
     url.searchParams.set('key', apiKey);
+
+    const chId = await getCpblChannelId(apiKey);
+    if (chId) url.searchParams.set('channelId', chId);
 
     const ytRes = await fetch(url.toString());
     if (!ytRes.ok) { res.status(502).json({ message: 'YouTube API 錯誤', detail: await ytRes.text() }); return; }
