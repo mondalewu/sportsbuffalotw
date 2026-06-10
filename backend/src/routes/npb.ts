@@ -400,27 +400,43 @@ router.get('/games/:id/pitch-data', async (req: Request, res: Response): Promise
 });
 
 // GET /api/v1/npb/games/:id/youtube-highlight
-// 主場為太平洋聯盟球隊時從 PacificLeagueTV 頻道搜尋，否則全域搜尋
+// 主場球隊對應官方 YouTube 頻道，在該頻道內搜尋賽後精華
 const ytCache = new Map<string, { data: object; at: number }>();
 
-// 太平洋聯盟球隊（主場時使用 PacificLeagueTV 頻道）
-const PACIFIC_TEAMS = new Set(['ソフトバンク','日本ハム','楽天','ロッテ','西武','オリックス']);
+// 主場球隊 → YouTube handle 對照表
+const TEAM_YT_HANDLE: Record<string, string> = {
+  // 太平洋聯盟
+  'ソフトバンク': 'PacificLeagueTVofficial',
+  '日本ハム':     'PacificLeagueTVofficial',
+  '楽天':         'PacificLeagueTVofficial',
+  'ロッテ':       'PacificLeagueTVofficial',
+  '西武':         'PacificLeagueTVofficial',
+  'オリックス':   'PacificLeagueTVofficial',
+  // 中央聯盟
+  '巨人':   'ntv_baseball',
+  '阪神':   'hanshintigers_official',
+  '中日':   'jsports_yakyu',
+  '広島':   'jsports_yakyu',
+  'DeNA':   'baystarsofficial',
+  // ヤクルト 無官方頻道，fallback 全域搜尋
+};
 
-// @PacificLeagueTVofficial 的 channelId（由 YouTube API channels?forHandle 取得後快取）
-let pacificChannelId: string | null = null;
+// handle → channelId 快取（啟動後只 fetch 一次）
+const handleToChannelId = new Map<string, string>();
 
-async function getPacificChannelId(apiKey: string): Promise<string | null> {
-  if (pacificChannelId) return pacificChannelId;
+async function getChannelId(handle: string, apiKey: string): Promise<string | null> {
+  if (handleToChannelId.has(handle)) return handleToChannelId.get(handle)!;
   try {
     const url = new URL('https://www.googleapis.com/youtube/v3/channels');
     url.searchParams.set('part', 'id');
-    url.searchParams.set('forHandle', 'PacificLeagueTVofficial');
+    url.searchParams.set('forHandle', handle);
     url.searchParams.set('key', apiKey);
     const res = await fetch(url.toString());
     if (!res.ok) return null;
     const json = await res.json() as { items?: { id: string }[] };
-    pacificChannelId = json.items?.[0]?.id ?? null;
-    return pacificChannelId;
+    const id = json.items?.[0]?.id ?? null;
+    if (id) handleToChannelId.set(handle, id);
+    return id;
   } catch { return null; }
 }
 
@@ -459,9 +475,10 @@ router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): 
     url.searchParams.set('order', 'relevance');
     url.searchParams.set('key', apiKey);
 
-    // 主場為太平洋聯盟球隊時限定 PacificLeagueTV 頻道
-    if (PACIFIC_TEAMS.has(team_home)) {
-      const chId = await getPacificChannelId(apiKey);
+    // 依主場球隊查對應官方頻道
+    const handle = TEAM_YT_HANDLE[team_home];
+    if (handle) {
+      const chId = await getChannelId(handle, apiKey);
       if (chId) url.searchParams.set('channelId', chId);
     }
 
