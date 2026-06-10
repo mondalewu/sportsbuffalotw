@@ -868,8 +868,17 @@ const CPBLGameDetail: React.FC<Props> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tab,          setTab]          = useState<MainTab>('score');
   const [statsTab,     setStatsTab]     = useState<StatsSubTab>('batter');
+  const [ytHighlights, setYtHighlights] = useState<{videoId:string;title:string}[]>([]);
   const [pbpKey,       setPbpKey]       = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (!isFinal) return;
+    if (ytHighlights.length > 0) return;
+    fetch(API_BASE + '/api/v1/cpbl/games/' + game.id + '/youtube-highlight')
+      .then(r => r.ok ? r.json() : null)
+      .then((d) => { if (d && d.items && d.items.length) setYtHighlights(d.items); })
+      .catch(() => {});
+  }, [isFinal, game.id]);
 
   const isLive  = game.status === 'live';
   const isFinal = game.status === 'final';
@@ -1079,6 +1088,26 @@ const CPBLGameDetail: React.FC<Props> = ({
                 <p className="text-center py-10 text-gray-400">賽前打序尚未公布</p>
               ) : (
                 <div className="space-y-4">
+                  {/* YouTube 賽後精華 */}
+                  {ytHighlights.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-xs font-bold text-gray-400 tracking-wide">賽後精華</div>
+                      {ytHighlights.slice(0, 1).map(v => (
+                        <div key={v.videoId} className="rounded-xl overflow-hidden border border-gray-100 shadow-sm">
+                          <div className="relative w-full" style={{paddingBottom:'56.25%'}}>
+                            <iframe
+                              className="absolute inset-0 w-full h-full"
+                              src={'https://www.youtube.com/embed/' + v.videoId}
+                              title={v.title}
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                            />
+                          </div>
+                          <div className="px-3 py-2 text-[11px] text-gray-500 truncate">{v.title}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {/* 先發投手（有 lineup 才顯示） */}
                   {lineups.length > 0 && (() => {
                     const awayPitcher = lineups.find(l => !l.is_home && l.batting_order === 0);
