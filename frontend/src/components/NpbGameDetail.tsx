@@ -1141,21 +1141,6 @@ export default function NpbGameDetail({ game, awayCode, homeCode, onClose, stand
           ) : tab === 'home' ? (
             /* ── 首頁：先発投手 + 打撃陣容 ── */
             <div className="p-4 space-y-5">
-              {/* 先発投手 */}
-              <div className="grid grid-cols-2 gap-3">
-                <StarterCard
-                  label={awayName}
-                  name={awayPitchers[0]?.player_name ?? '未定'}
-                  pitchCount={awayPitchers[0]?.pitch_count}
-                />
-                <StarterCard
-                  label={homeName}
-                  name={homePitchers[0]?.player_name ?? '未定'}
-                  pitchCount={homePitchers[0]?.pitch_count}
-                />
-              </div>
-
-
               {/* YouTube 賽後精華 */}
               {ytHighlights.length > 0 && (
                 <div className="space-y-2">
@@ -1176,6 +1161,21 @@ export default function NpbGameDetail({ game, awayCode, homeCode, onClose, stand
                   ))}
                 </div>
               )}
+
+              {/* 先発投手 */}
+              <div className="grid grid-cols-2 gap-3">
+                <StarterCard
+                  label={awayName}
+                  name={awayPitchers[0]?.player_name ?? '未定'}
+                  pitchCount={awayPitchers[0]?.pitch_count}
+                />
+                <StarterCard
+                  label={homeName}
+                  name={homePitchers[0]?.player_name ?? '未定'}
+                  pitchCount={homePitchers[0]?.pitch_count}
+                />
+              </div>
+
 
               {/* 打撃陣容 */}
               <div className="grid grid-cols-2 gap-6">
