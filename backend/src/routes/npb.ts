@@ -400,8 +400,29 @@ router.get('/games/:id/pitch-data', async (req: Request, res: Response): Promise
 });
 
 // GET /api/v1/npb/games/:id/youtube-highlight
-// 用 YouTube Data API v3 搜尋賽後精華，結果快取 1 小時
+// 主場為太平洋聯盟球隊時從 PacificLeagueTV 頻道搜尋，否則全域搜尋
 const ytCache = new Map<string, { data: object; at: number }>();
+
+// 太平洋聯盟球隊（主場時使用 PacificLeagueTV 頻道）
+const PACIFIC_TEAMS = new Set(['ソフトバンク','日本ハム','楽天','ロッテ','西武','オリックス']);
+
+// @PacificLeagueTVofficial 的 channelId（由 YouTube API channels?forHandle 取得後快取）
+let pacificChannelId: string | null = null;
+
+async function getPacificChannelId(apiKey: string): Promise<string | null> {
+  if (pacificChannelId) return pacificChannelId;
+  try {
+    const url = new URL('https://www.googleapis.com/youtube/v3/channels');
+    url.searchParams.set('part', 'id');
+    url.searchParams.set('forHandle', 'PacificLeagueTVofficial');
+    url.searchParams.set('key', apiKey);
+    const res = await fetch(url.toString());
+    if (!res.ok) return null;
+    const json = await res.json() as { items?: { id: string }[] };
+    pacificChannelId = json.items?.[0]?.id ?? null;
+    return pacificChannelId;
+  } catch { return null; }
+}
 
 router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): Promise<void> => {
   const apiKey = process.env.YOUTUBE_API_KEY;
@@ -437,6 +458,12 @@ router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): 
     url.searchParams.set('maxResults', '3');
     url.searchParams.set('order', 'relevance');
     url.searchParams.set('key', apiKey);
+
+    // 主場為太平洋聯盟球隊時限定 PacificLeagueTV 頻道
+    if (PACIFIC_TEAMS.has(team_home)) {
+      const chId = await getPacificChannelId(apiKey);
+      if (chId) url.searchParams.set('channelId', chId);
+    }
 
     const ytRes = await fetch(url.toString());
     if (!ytRes.ok) {
