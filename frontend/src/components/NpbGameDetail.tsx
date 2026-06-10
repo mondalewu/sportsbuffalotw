@@ -1,4 +1,5 @@
 ﻿import { useEffect, useRef, useState } from 'react';
+import { API_BASE } from '../api/client';
 import {
   getGameInnings, getGameStats, getGameBatters, getGamePitchers, getGamePlayByPlay,
   getGamePitchData,
@@ -937,7 +938,7 @@ export default function NpbGameDetail({ game, awayCode, homeCode, onClose, stand
   useEffect(() => {
     if (!isFinal) return;
     if (ytHighlights.length > 0) return;
-    fetch(`/api/v1/npb/games/${game.id}/youtube-highlight`)
+    fetch(`${API_BASE}/api/v1/npb/games/${game.id}/youtube-highlight`)
       .then(r => r.ok ? r.json() : null)
       .then((d: { items?: {videoId:string;title:string}[] } | null) => {
         if (d?.items?.length) setYtHighlights(d.items);
