@@ -1422,8 +1422,10 @@ export async function runScraper(): Promise<{ updated: number; message: string }
     const year = now.getFullYear();
     let updated = 0;
 
-    // 同時抓 熱身賽(G) 和 例行賽(A)
-    for (const kindCode of ['G', 'A']) {
+    // 熱身賽(G) 僅 3-4 月，其他月份只抓例行賽(A)
+    const month = now.getMonth() + 1;
+    const kindCodes = month <= 4 ? ['G', 'A'] : ['A'];
+    for (const kindCode of kindCodes) {
       let games: GameApiItem[];
       try {
         games = await fetchDailyGames(now, kindCode);
@@ -1501,29 +1503,6 @@ export async function runScraper(): Promise<{ updated: number; message: string }
         }
       }
     }
-
-    // 補抓過去 2 天仍是 scheduled 的比賽（處理延賽未即時更新的情況）
-    try {
-      const pastScheduled = await pool.query<{ game_detail: string }>(
-        `SELECT DISTINCT DATE(game_date AT TIME ZONE 'Asia/Taipei') AS gdate
-         FROM games
-         WHERE league = 'CPBL' AND status = 'scheduled'
-           AND DATE(game_date AT TIME ZONE 'Asia/Taipei') < CURRENT_DATE
-           AND DATE(game_date AT TIME ZONE 'Asia/Taipei') >= CURRENT_DATE - INTERVAL '3 days'`,
-      );
-      for (const row of pastScheduled.rows) {
-        const pastDate = new Date((row as unknown as { gdate: string }).gdate + 'T12:00:00+09:00');
-        for (const kindCode of ['G', 'A']) {
-          try {
-            const pastGames = await fetchDailyGames(pastDate, kindCode);
-            for (const item of pastGames) {
-              const gameId = await ensureGameInDB(item);
-              if (gameId) { await updateGame(gameId, item); updated++; }
-            }
-          } catch { /* ignore */ }
-        }
-      }
-    } catch { /* ignore */ }
 
     scraperStatus.gamesUpdated = updated;
     scraperStatus.lastResult = `✅ CPBL 更新 ${updated} 場`;
