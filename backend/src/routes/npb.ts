@@ -462,10 +462,17 @@ router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): 
     if (!gameRes.rows.length) { res.status(404).json({ message: '找不到比賽' }); return; }
     const { team_away, team_home, game_date, status } = gameRes.rows[0];
 
-    const dateStr = new Date(game_date).toLocaleDateString('ja-JP', {
-      timeZone: 'Asia/Tokyo', year: 'numeric', month: 'long', day: 'numeric',
-    });
-    const query = `${team_away} ${team_home} ハイライト ${dateStr}`;
+    const gameDay = new Date(game_date);
+    const jstMonth = parseInt(new Date(gameDay.getTime() + 9 * 3600000).toISOString().slice(5, 7), 10);
+    const jstDate  = parseInt(new Date(gameDay.getTime() + 9 * 3600000).toISOString().slice(8, 10), 10);
+    // 關鍵字格式：「6/11 ロッテ」（月/日 + 主場球隊）
+    const query = `${jstMonth}/${jstDate} ${team_home}`;
+
+    // 限定上傳時間：比賽當天 00:00 JST ～ 隔天 23:59 JST
+    const dayStart = new Date(gameDay.getTime() + 9 * 3600000);
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const publishedAfter  = new Date(dayStart.getTime() - 9 * 3600000).toISOString();
+    const publishedBefore = new Date(dayStart.getTime() - 9 * 3600000 + 2 * 86400000).toISOString();
 
     const url = new URL('https://www.googleapis.com/youtube/v3/search');
     url.searchParams.set('part', 'snippet');
@@ -473,6 +480,8 @@ router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): 
     url.searchParams.set('type', 'video');
     url.searchParams.set('maxResults', '3');
     url.searchParams.set('order', 'relevance');
+    url.searchParams.set('publishedAfter',  publishedAfter);
+    url.searchParams.set('publishedBefore', publishedBefore);
     url.searchParams.set('key', apiKey);
 
     // 依主場球隊查對應官方頻道
