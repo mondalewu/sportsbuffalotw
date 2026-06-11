@@ -580,6 +580,8 @@ function BatterTable({ title, batters, lineups, inningResultMap }: {
   )].sort((a, b) => a - b);
   const displayOrderMap: Record<number, number> = {};
   uniqueOrders.forEach((o, i) => { displayOrderMap[o] = i + 1; });
+  // 推算 batting_order=0 打者的棒次（投手在非DH場）
+  const inferredOrderForZero = uniqueOrders.length + 1;
 
   return (
     <div>
@@ -640,7 +642,7 @@ function BatterTable({ title, batters, lineups, inningResultMap }: {
               return (
                 <tr key={i} className={rowBg}>
                   <td className="px-1.5 py-1.5 text-center tabular-nums font-black text-gray-700 sticky left-0 bg-inherit">
-                    {isStarter && order > 0 ? (displayOrderMap[order] ?? order) : ''}
+                    {order > 0 && isStarter ? (displayOrderMap[order] ?? order) : order === 0 && b.at_bats > 0 ? inferredOrderForZero : ''}
                   </td>
                   <td className="px-2 py-1.5 whitespace-nowrap sticky left-8 bg-inherit">
                     {isSub ? (
@@ -916,10 +918,18 @@ const CPBLGameDetail: React.FC<Props> = ({
   const homeCode = Object.entries(TEAM_CODE_MAP).find(([, name]) => name === game.team_home)?.[0];
   const awayBatters = batters
     .filter(b => b.team_code === awayCode || b.team_code === game.team_away)
-    .sort((a, b) => a.batting_order - b.batting_order);
+    .sort((a, b) => {
+    if (a.batting_order === 0 && b.batting_order !== 0) return 1;
+    if (b.batting_order === 0 && a.batting_order !== 0) return -1;
+    return a.batting_order - b.batting_order;
+  });
   const homeBatters = batters
     .filter(b => b.team_code === homeCode || b.team_code === game.team_home)
-    .sort((a, b) => a.batting_order - b.batting_order);
+    .sort((a, b) => {
+    if (a.batting_order === 0 && b.batting_order !== 0) return 1;
+    if (b.batting_order === 0 && a.batting_order !== 0) return -1;
+    return a.batting_order - b.batting_order;
+  });
 
   // 打者打率查詢表（名字 → 賽季打率，若無則用本場）
   const batterAvgMap: Record<string, string> = {};
