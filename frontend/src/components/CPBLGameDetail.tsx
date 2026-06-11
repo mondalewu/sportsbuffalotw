@@ -873,6 +873,10 @@ const CPBLGameDetail: React.FC<Props> = ({
   const [ytHighlights, setYtHighlights] = useState<{videoId:string;title:string}[]>([]);
   const [pbpKey,       setPbpKey]       = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const isLive  = game.status === 'live';
+  const isFinal = game.status === 'final';
+
   useEffect(() => {
     if (!isFinal) return;
     if (ytHighlights.length > 0) return;
@@ -881,9 +885,6 @@ const CPBLGameDetail: React.FC<Props> = ({
       .then((d) => { if (d && d.items && d.items.length) setYtHighlights(d.items); })
       .catch(() => {});
   }, [isFinal, game.id]);
-
-  const isLive  = game.status === 'live';
-  const isFinal = game.status === 'final';
 
   const loadData = async () => {
     const [inn, st, bat, lu, pit, pbp] = await Promise.all([
