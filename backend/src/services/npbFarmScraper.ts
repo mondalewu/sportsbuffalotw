@@ -114,7 +114,7 @@ interface FarmGameRow {
   homeTeam: string;
   scoreAway: number | null;
   scoreHome: number | null;
-  status: 'scheduled' | 'final';
+  status: 'scheduled' | 'final' | 'cancelled';
   venue: string | null;
   startTime: string | null;
   winPitcher: string | null;
@@ -183,9 +183,13 @@ async function fetchFarmScheduleMonth(year: number, month: number): Promise<Farm
       // ─ Scores ─────────────────────────────────────────────────────────
       const score1Text = trEl.find('.score1').first().text().trim();
       const score2Text = trEl.find('.score2').first().text().trim();
-      const scoreAway = score1Text !== '' && /^\d+$/.test(score1Text) ? parseInt(score1Text) : null;
-      const scoreHome = score2Text !== '' && /^\d+$/.test(score2Text) ? parseInt(score2Text) : null;
-      const status: 'scheduled' | 'final' = scoreAway !== null ? 'final' : 'scheduled';
+      // 中止/×/ノ(ーゲーム)/延(期) → cancelled; 含む .note や .result も確認
+      const rowText = trEl.text();
+      const isCancelled = /中止|ノーゲーム|ノゲ|×/.test(score1Text) || /中止|ノーゲーム|ノゲ|×/.test(score2Text)
+        || /中止|ノーゲーム/.test(rowText);
+      const scoreAway = !isCancelled && score1Text !== '' && /^\d+$/.test(score1Text) ? parseInt(score1Text) : null;
+      const scoreHome = !isCancelled && score2Text !== '' && /^\d+$/.test(score2Text) ? parseInt(score2Text) : null;
+      const status: 'scheduled' | 'final' | 'cancelled' = isCancelled ? 'cancelled' : (scoreAway !== null ? 'final' : 'scheduled');
 
       // ─ Game link: /bis/YYYY/games/fsNNNN.html ─────────────────────────
       let scoresUrl: string | null = null;
@@ -324,13 +328,13 @@ async function upsertFarmGameFromSchedule(row: FarmGameRow): Promise<number | nu
         `UPDATE games
          SET score_home  = COALESCE($1, score_home),
              score_away  = COALESCE($2, score_away),
-             status      = CASE WHEN $3 = 'final' THEN 'final'::text ELSE status END,
+             status      = CASE WHEN $3 IN ('final','cancelled') THEN $3::text ELSE status END,
              game_detail = COALESCE(NULLIF($4, '試合開始前'), game_detail),
              venue       = COALESCE($5, venue),
              npb_url     = COALESCE($6, npb_url)
          WHERE id = $7`,
         [sHome, sAway, row.status,
-         row.status === 'final' ? '試合終了' : '試合開始前',
+         row.status === 'final' ? '試合終了' : row.status === 'cancelled' ? '中止' : '試合開始前',
          row.venue, row.scoresUrl ?? null, ex.id],
       );
       return ex.id;
@@ -343,7 +347,7 @@ async function upsertFarmGameFromSchedule(row: FarmGameRow): Promise<number | nu
        ON CONFLICT (league, team_home, team_away, DATE(game_date AT TIME ZONE 'Asia/Tokyo')) DO UPDATE
          SET score_home  = COALESCE(EXCLUDED.score_home, games.score_home),
              score_away  = COALESCE(EXCLUDED.score_away, games.score_away),
-             status      = CASE WHEN EXCLUDED.status = 'final' THEN 'final'::text ELSE games.status END,
+             status      = CASE WHEN EXCLUDED.status IN ('final','cancelled') THEN EXCLUDED.status ELSE games.status END,
              game_detail = COALESCE(NULLIF(EXCLUDED.game_detail, '試合開始前'), games.game_detail),
              venue       = COALESCE(EXCLUDED.venue, games.venue),
              npb_url     = COALESCE(EXCLUDED.npb_url, games.npb_url)
@@ -352,7 +356,7 @@ async function upsertFarmGameFromSchedule(row: FarmGameRow): Promise<number | nu
         row.homeTeam, row.awayTeam,
         row.scoreHome, row.scoreAway,
         row.status,
-        row.status === 'final' ? '試合終了' : '試合開始前',
+        row.status === 'final' ? '試合終了' : row.status === 'cancelled' ? '中止' : '試合開始前',
         row.venue, gameTs,
         row.scoresUrl ?? null,
       ],

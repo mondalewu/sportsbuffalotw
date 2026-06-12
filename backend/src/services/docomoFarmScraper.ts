@@ -44,12 +44,15 @@ function normalizeTeam(name: string): string {
   return TEAM_MAP[name] ?? name;
 }
 
-// game_state: 0=scheduled, 1=live, 2/4=final
-const STATE_TO_STATUS: Record<number, 'scheduled' | 'live' | 'final'> = {
+// game_state: 0=scheduled, 1=live, 2/4=final, 3/5/9=cancelled(中止)
+const STATE_TO_STATUS: Record<number, 'scheduled' | 'live' | 'final' | 'cancelled'> = {
   0: 'scheduled',
   1: 'live',
   2: 'final',
+  3: 'cancelled',
   4: 'final',
+  5: 'cancelled',
+  9: 'cancelled',
 };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -265,13 +268,15 @@ async function updateGameScore(
   dbGameId: number,
   homeScore: number | null,
   visitScore: number | null,
-  status: 'scheduled' | 'live' | 'final',
+  status: 'scheduled' | 'live' | 'final' | 'cancelled',
   inning: number | null,
   tb: number | null,
 ): Promise<void> {
   let gameDetail: string;
   if (status === 'final') {
     gameDetail = '試合終了';
+  } else if (status === 'cancelled') {
+    gameDetail = '中止';
   } else if (status === 'live' && inning) {
     gameDetail = `${inning}回${tb === 1 ? '表' : '裏'}`;
   } else {
@@ -861,7 +866,7 @@ async function fetchAndSaveGame(
   const gid = gameInfo.game_id.toString();
   const homeTeam  = normalizeTeam(gameInfo.home_team_name_s);
   const visitTeam = normalizeTeam(gameInfo.visit_team_name_s);
-  const status    = STATE_TO_STATUS[gameInfo.game_state] ?? 'scheduled';
+  const status    = STATE_TO_STATUS[gameInfo.game_state] ?? 'cancelled';
 
   // Docomo home/visit might be swapped vs DB storage: adjust scores accordingly
   const dbHomeScore  = homeIsDocHome ? gameInfo.home_score  : gameInfo.visit_score;
@@ -877,7 +882,9 @@ async function fetchAndSaveGame(
     gameInfo.tb,
   );
 
-  // 2. Inning scores
+  // 2. Skip boxscore fetch for cancelled games
+  if (status === 'cancelled') return;
+
   const [docHomeData, docVisitData] = await Promise.all([
     fetchJson<DocomoTeamStats>(`${DOCOMO_API}/result/${gid}/home.json`),
     fetchJson<DocomoTeamStats>(`${DOCOMO_API}/result/${gid}/visit.json`),
