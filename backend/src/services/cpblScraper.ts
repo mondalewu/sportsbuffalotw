@@ -1504,13 +1504,13 @@ export async function runScraper(): Promise<{ updated: number; message: string }
       }
     }
 
-    // 補抓過去 3 天仍是 scheduled 的比賽（含完整箱型資料）
+    // 補抓過去 3 天（含今日已過開賽時間）仍是 scheduled 的比賽（含完整箱型資料）
     try {
       const pastScheduled = await pool.query<{ gdate: string }>(
         `SELECT DISTINCT DATE(game_date AT TIME ZONE 'Asia/Taipei') AS gdate
          FROM games
          WHERE league = 'CPBL' AND status = 'scheduled'
-           AND DATE(game_date AT TIME ZONE 'Asia/Taipei') < CURRENT_DATE
+           AND game_date <= NOW()
            AND DATE(game_date AT TIME ZONE 'Asia/Taipei') >= CURRENT_DATE - INTERVAL '3 days'`,
       );
       for (const row of pastScheduled.rows) {

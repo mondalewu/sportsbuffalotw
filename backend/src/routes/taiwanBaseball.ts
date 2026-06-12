@@ -12,6 +12,8 @@ async function ensureTables() {
     'migration_007_taiwan_baseball_category.sql',
     'migration_008_soccer_category.sql',
     'migration_009_basketball_category.sql',
+    'migration_010_tw_baseball_rosters.sql',
+    'seed_001_yushan2026.sql',
   ]) {
     const sql = fs.readFileSync(path.join(__dirname, '../db', file), 'utf8');
     await pool.query(sql);
@@ -64,6 +66,19 @@ router.get('/tournaments/:id/games', async (req: Request, res: Response): Promis
     res.json(rows);
   } catch (err) {
     res.status(500).json({ message: '無法取得賽程' });
+  }
+});
+
+// GET /api/v1/taiwan-baseball/tournaments/:id/rosters
+router.get('/tournaments/:id/rosters', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM tw_baseball_rosters WHERE tournament_id = $1 ORDER BY team_name ASC, id ASC`,
+      [req.params.id],
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ message: '無法取得名單' });
   }
 });
 

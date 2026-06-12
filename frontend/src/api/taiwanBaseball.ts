@@ -11,6 +11,17 @@ export interface TwTournament {
   status: 'upcoming' | 'ongoing' | 'completed';
 }
 
+export interface TwRosterPlayer {
+  id: number;
+  tournament_id: number;
+  team_name: string;
+  player_name: string;
+  jersey_number: string | null;
+  position: string | null;
+  school: string | null;
+  notes: string | null;
+}
+
 export interface TwGame {
   id: number;
   tournament_id: number;
@@ -48,3 +59,6 @@ export const updateGame = (id: number, data: Partial<TwGame>) =>
 
 export const deleteGame = (id: number) =>
   client.delete(`/taiwan-baseball/games/${id}`);
+
+export const getTournamentRosters = (id: number) =>
+  client.get<TwRosterPlayer[]>(`/taiwan-baseball/tournaments/${id}/rosters`).then(r => r.data);

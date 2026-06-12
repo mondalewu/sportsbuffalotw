@@ -6,8 +6,8 @@ import { useApp } from '../context/AppContext';
 import AdBanner from '../components/AdBanner';
 import { getArticles, getArticleBySlug } from '../api/articles';
 import { getAds } from '../api/ads';
-import { getTournaments, getTournamentGames } from '../api/taiwanBaseball';
-import type { TwTournament, TwGame } from '../api/taiwanBaseball';
+import { getTournaments, getTournamentGames, getTournamentRosters } from '../api/taiwanBaseball';
+import type { TwTournament, TwGame, TwRosterPlayer } from '../api/taiwanBaseball';
 import type { Article, AdPlacement } from '../types';
 
 const LEVELS = [
@@ -105,8 +105,11 @@ export default function TaiwanBaseballPage() {
   const [tournaments, setTournaments] = useState<TwTournament[]>([]);
   const [selectedId, setSelectedId]   = useState<number | null>(null);
   const [games, setGames]             = useState<TwGame[]>([]);
+  const [rosters, setRosters]         = useState<TwRosterPlayer[]>([]);
+  const [detailTab, setDetailTab]     = useState<'games' | 'rosters'>('games');
   const [loadingT, setLoadingT] = useState(false);
   const [loadingG, setLoadingG] = useState(false);
+  const [loadingR, setLoadingR] = useState(false);
 
   useEffect(() => {
     getArticles({ category: '三級棒球', limit: 3 }).then(setNews).catch(() => {});
@@ -124,12 +127,17 @@ export default function TaiwanBaseballPage() {
   }, [activeLevel]);
 
   useEffect(() => {
-    if (!selectedId) { setGames([]); return; }
+    if (!selectedId) { setGames([]); setRosters([]); return; }
     setLoadingG(true);
     getTournamentGames(selectedId)
       .then(setGames)
       .catch(() => setGames([]))
       .finally(() => setLoadingG(false));
+    setLoadingR(true);
+    getTournamentRosters(selectedId)
+      .then(setRosters)
+      .catch(() => setRosters([]))
+      .finally(() => setLoadingR(false));
   }, [selectedId]);
 
   const handleSelectArticle = async (article: Article) => {
@@ -339,7 +347,7 @@ export default function TaiwanBaseballPage() {
               </div>
             </div>
 
-            {/* Games panel */}
+            {/* Right panel */}
             <div className="flex-1 min-w-0">
               {selected && (
                 <div className="mb-4">
@@ -356,58 +364,122 @@ export default function TaiwanBaseballPage() {
                 </div>
               )}
 
-              {loadingG ? (
-                <div className="py-12 text-center text-gray-400 text-sm">載入賽程中...</div>
-              ) : games.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-gray-400 border border-dashed border-gray-200 rounded-2xl">
-                  <p className="text-sm font-bold">尚無賽程資料</p>
-                  <p className="text-xs mt-1">賽程公告後將即時更新</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {Object.entries(rounds).map(([round, roundGames]) => (
-                    <div key={round}>
-                      <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">{round}</p>
-                      <div className="space-y-2">
-                        {roundGames.map(g => {
-                          const isLive    = g.status === 'live';
-                          const isFinal   = g.status === 'final';
-                          const isCancelled = g.status === 'cancelled';
-                          const homeWin = isFinal && g.score_home !== null && g.score_away !== null && g.score_home > g.score_away;
-                          const awayWin = isFinal && g.score_home !== null && g.score_away !== null && g.score_away > g.score_home;
-                          return (
-                            <div key={g.id} className={`border rounded-xl p-4 ${isLive ? 'border-red-200 bg-red-50' : 'border-gray-100'}`}>
-                              <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2 text-xs text-gray-400">
-                                  {g.game_date && <span>{formatDate(g.game_date)}{!isFinal && !isCancelled && ` ${formatGameTime(g.game_date)}`}</span>}
-                                  {g.venue && <span>· {g.venue}</span>}
-                                </div>
-                                <span className={`text-[11px] font-bold ${GAME_STATUS_COLOR[g.status]}`}>
-                                  {isLive && <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse mr-1 align-middle" />}
-                                  {isCancelled ? '取消' : isLive ? (g.game_detail || 'LIVE') : isFinal ? '終場' : ''}
-                                </span>
-                              </div>
-                              <div className="flex flex-col gap-1">
-                                <div className={`flex items-center justify-between ${homeWin ? 'font-black' : ''}`}>
-                                  <span className="text-sm">{g.team_home}</span>
-                                  <span className="text-sm font-black tabular-nums">
-                                    {isFinal || isLive ? (g.score_home ?? '—') : '—'}
+              {/* Sub-tabs */}
+              <div className="flex gap-1 mb-4 border-b border-gray-200">
+                {(['games', 'rosters'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setDetailTab(tab)}
+                    className={`pb-2 px-3 text-sm font-bold transition border-b-2 -mb-px ${
+                      detailTab === tab
+                        ? 'border-red-600 text-red-600'
+                        : 'border-transparent text-gray-400 hover:text-gray-700'
+                    }`}
+                  >
+                    {tab === 'games' ? '賽程' : '選手名單'}
+                  </button>
+                ))}
+              </div>
+
+              {/* 賽程 */}
+              {detailTab === 'games' && (
+                loadingG ? (
+                  <div className="py-12 text-center text-gray-400 text-sm">載入賽程中...</div>
+                ) : games.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-gray-400 border border-dashed border-gray-200 rounded-2xl">
+                    <p className="text-sm font-bold">尚無賽程資料</p>
+                    <p className="text-xs mt-1">賽程公告後將即時更新</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {Object.entries(rounds).map(([round, roundGames]) => (
+                      <div key={round}>
+                        <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">{round}</p>
+                        <div className="space-y-2">
+                          {roundGames.map(g => {
+                            const isLive    = g.status === 'live';
+                            const isFinal   = g.status === 'final';
+                            const isCancelled = g.status === 'cancelled';
+                            const homeWin = isFinal && g.score_home !== null && g.score_away !== null && g.score_home > g.score_away;
+                            const awayWin = isFinal && g.score_home !== null && g.score_away !== null && g.score_away > g.score_home;
+                            return (
+                              <div key={g.id} className={`border rounded-xl p-4 ${isLive ? 'border-red-200 bg-red-50' : 'border-gray-100'}`}>
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2 text-xs text-gray-400">
+                                    {g.game_date && <span>{formatDate(g.game_date)}{!isFinal && !isCancelled && ` ${formatGameTime(g.game_date)}`}</span>}
+                                    {g.venue && <span>· {g.venue}</span>}
+                                  </div>
+                                  <span className={`text-[11px] font-bold ${GAME_STATUS_COLOR[g.status]}`}>
+                                    {isLive && <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse mr-1 align-middle" />}
+                                    {isCancelled ? '取消' : isLive ? (g.game_detail || 'LIVE') : isFinal ? '終場' : ''}
                                   </span>
                                 </div>
-                                <div className={`flex items-center justify-between ${awayWin ? 'font-black' : ''}`}>
-                                  <span className="text-sm">{g.team_away}</span>
-                                  <span className="text-sm font-black tabular-nums">
-                                    {isFinal || isLive ? (g.score_away ?? '—') : '—'}
-                                  </span>
+                                <div className="flex flex-col gap-1">
+                                  <div className={`flex items-center justify-between ${homeWin ? 'font-black' : ''}`}>
+                                    <span className="text-sm">{g.team_home}</span>
+                                    <span className="text-sm font-black tabular-nums">
+                                      {isFinal || isLive ? (g.score_home ?? '—') : '—'}
+                                    </span>
+                                  </div>
+                                  <div className={`flex items-center justify-between ${awayWin ? 'font-black' : ''}`}>
+                                    <span className="text-sm">{g.team_away}</span>
+                                    <span className="text-sm font-black tabular-nums">
+                                      {isFinal || isLive ? (g.score_away ?? '—') : '—'}
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )
+              )}
+
+              {/* 選手名單 */}
+              {detailTab === 'rosters' && (
+                loadingR ? (
+                  <div className="py-12 text-center text-gray-400 text-sm">載入名單中...</div>
+                ) : rosters.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-gray-400 border border-dashed border-gray-200 rounded-2xl">
+                    <p className="text-sm font-bold">尚無選手名單</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {Object.entries(
+                      rosters.reduce<Record<string, TwRosterPlayer[]>>((acc, p) => {
+                        if (!acc[p.team_name]) acc[p.team_name] = [];
+                        acc[p.team_name].push(p);
+                        return acc;
+                      }, {})
+                    ).map(([team, players]) => (
+                      <div key={team} className="border border-gray-100 rounded-xl overflow-hidden">
+                        <div className="bg-gray-50 px-4 py-2 flex items-center justify-between">
+                          <span className="font-black text-sm text-gray-800">{team}</span>
+                          <span className="text-xs text-gray-400">{players.length} 人</span>
+                        </div>
+                        <div className="divide-y divide-gray-50">
+                          {players.map(p => (
+                            <div key={p.id} className="flex items-center px-4 py-2 gap-3 text-sm">
+                              {p.jersey_number && (
+                                <span className="w-6 text-center font-black text-xs text-gray-400">{p.jersey_number}</span>
+                              )}
+                              <span className="font-bold text-gray-800 flex-1">{p.player_name}</span>
+                              {p.position && (
+                                <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{p.position}</span>
+                              )}
+                              {p.school && (
+                                <span className="text-xs text-gray-400">{p.school}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
               )}
             </div>
           </div>
