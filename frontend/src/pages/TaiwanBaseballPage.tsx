@@ -11,10 +11,50 @@ import type { TwTournament, TwGame } from '../api/taiwanBaseball';
 import type { Article, AdPlacement } from '../types';
 
 const LEVELS = [
+  { key: 'adult',  label: '成棒',   desc: '社會／大專階段' },
   { key: 'senior', label: '青棒',   desc: '高中階段（18歲以下）' },
   { key: 'junior', label: '青少棒', desc: '國中階段（15歲以下）' },
   { key: 'youth',  label: '少棒',   desc: '國小階段（12歲以下）' },
 ];
+
+type LevelKey = 'adult' | 'senior' | 'junior' | 'youth';
+
+interface TimelineEvent {
+  name: string;
+  start: number;
+  end: number;
+  bg: string;
+  text: string;
+  border?: string;
+}
+
+const TIMELINE_EVENTS: Record<LevelKey, TimelineEvent[]> = {
+  adult: [
+    { name: '全國成棒甲組春季聯賽', start: 3, end: 6, bg: 'bg-purple-100', text: 'text-purple-800', border: 'border border-purple-200' },
+    { name: '全國成棒錦標賽',       start: 8, end: 9, bg: 'bg-purple-600',  text: 'text-white' },
+    { name: '全國成棒甲組秋季聯賽', start: 9, end: 11, bg: 'bg-purple-100', text: 'text-purple-800', border: 'border border-purple-200' },
+  ],
+  senior: [
+    { name: '春季甲組聯賽',         start: 3, end: 6, bg: 'bg-red-100',    text: 'text-red-700',   border: 'border border-red-200' },
+    { name: '鳳凰旗',               start: 4, end: 4, bg: 'bg-red-500',    text: 'text-white' },
+    { name: '玉山盃全國青棒錦標賽', start: 6, end: 7, bg: 'bg-red-600',    text: 'text-white' },
+    { name: '黑豹旗',               start: 7, end: 8, bg: 'bg-red-800',    text: 'text-white' },
+    { name: '全中運',               start: 10, end: 10, bg: 'bg-gray-600', text: 'text-white' },
+  ],
+  junior: [
+    { name: '大魯閣盃',             start: 3, end: 3,  bg: 'bg-blue-400',  text: 'text-white' },
+    { name: '謝國城盃',             start: 4, end: 4,  bg: 'bg-blue-500',  text: 'text-white' },
+    { name: '全國青少棒錦標賽',     start: 7, end: 8,  bg: 'bg-blue-600',  text: 'text-white' },
+    { name: '全中運',               start: 10, end: 10, bg: 'bg-gray-600', text: 'text-white' },
+  ],
+  youth: [
+    { name: '統一盃',               start: 4, end: 5,  bg: 'bg-green-400', text: 'text-white' },
+    { name: '全國少棒錦標賽',       start: 6, end: 7,  bg: 'bg-green-500', text: 'text-white' },
+    { name: '威廉波特台灣賽',       start: 7, end: 7,  bg: 'bg-green-600', text: 'text-white' },
+    { name: 'LLWS',                 start: 8, end: 8,  bg: 'bg-emerald-700', text: 'text-white' },
+    { name: '全中運',               start: 10, end: 10, bg: 'bg-gray-600', text: 'text-white' },
+  ],
+};
 
 const STATUS_LABEL: Record<TwTournament['status'], string> = {
   upcoming:  '即將開始',
@@ -61,7 +101,7 @@ export default function TaiwanBaseballPage() {
   const [news, setNews]           = useState<Article[]>([]);
   const [headerAds, setHeaderAds] = useState<AdPlacement[]>([]);
 
-  const [activeLevel, setActiveLevel] = useState<'senior' | 'junior' | 'youth'>('senior');
+  const [activeLevel, setActiveLevel] = useState<LevelKey>('adult');
   const [tournaments, setTournaments] = useState<TwTournament[]>([]);
   const [selectedId, setSelectedId]   = useState<number | null>(null);
   const [games, setGames]             = useState<TwGame[]>([]);
@@ -212,7 +252,7 @@ export default function TaiwanBaseballPage() {
           {LEVELS.map(level => (
             <button
               key={level.key}
-              onClick={() => setActiveLevel(level.key as typeof activeLevel)}
+              onClick={() => setActiveLevel(level.key as LevelKey)}
               className={`pb-3 px-4 text-sm font-bold transition border-b-2 -mb-px ${
                 activeLevel === level.key
                   ? 'border-red-600 text-red-600'
@@ -222,6 +262,37 @@ export default function TaiwanBaseballPage() {
               {level.label}
             </button>
           ))}
+        </div>
+
+        {/* Timeline for the active level */}
+        <div className="mb-6 overflow-x-auto">
+          <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">年度賽事時間軸</p>
+          <div className="min-w-[480px]">
+            <div className="flex mb-1">
+              {Array.from({ length: 12 }, (_, i) => (
+                <div key={i} className="flex-1 text-center text-[10px] font-bold text-gray-300">{i + 1}月</div>
+              ))}
+            </div>
+            {TIMELINE_EVENTS[activeLevel].map((ev, i) => (
+              <div key={i} className="relative h-6 mb-1 last:mb-0">
+                <div className="absolute inset-0 flex pointer-events-none">
+                  {Array.from({ length: 12 }, (_, j) => (
+                    <div key={j} className="flex-1 border-l border-gray-100 first:border-l-0 h-full" />
+                  ))}
+                </div>
+                <div
+                  className={`absolute top-0.5 bottom-0.5 rounded flex items-center px-2 text-[10px] font-bold truncate ${ev.bg} ${ev.text} ${ev.border ?? ''}`}
+                  style={{
+                    left: `${(ev.start - 1) / 12 * 100}%`,
+                    width: `${(ev.end - ev.start + 1) / 12 * 100}%`,
+                    minWidth: '2.5rem',
+                  }}
+                >
+                  {ev.name}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {loadingT ? (
