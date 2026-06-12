@@ -1211,7 +1211,7 @@ export async function runCpblPitcherStatsScraper(year = 2026): Promise<{ updated
 // ─── 單場比賽重新爬蟲 ─────────────────────────────────────────────────────────
 
 export async function rescrapeGameByGameSno(
-  gameId: number, gameSno: number, kindCode: string, year: number, gameDate?: Date,
+  gameId: number, gameSno: number, kindCode: string, year: number, _gameDate?: Date,
 ): Promise<{ message: string }> {
   try {
     const { batters, liveLog, firstSno, pitchers, visitingScoreboards, homeScoreboards } = await fetchBoxLive(year, kindCode, gameSno);
@@ -1502,6 +1502,66 @@ export async function runScraper(): Promise<{ updated: number; message: string }
           console.warn(`[CPBL] 更新 ${item.VisitingTeamName} vs ${item.HomeTeamName} 失敗:`, (e as Error).message);
         }
       }
+    }
+
+    // 補抓過去 3 天仍是 scheduled 的比賽（含完整箱型資料）
+    try {
+      const pastScheduled = await pool.query<{ gdate: string }>(
+        `SELECT DISTINCT DATE(game_date AT TIME ZONE 'Asia/Taipei') AS gdate
+         FROM games
+         WHERE league = 'CPBL' AND status = 'scheduled'
+           AND DATE(game_date AT TIME ZONE 'Asia/Taipei') < CURRENT_DATE
+           AND DATE(game_date AT TIME ZONE 'Asia/Taipei') >= CURRENT_DATE - INTERVAL '3 days'`,
+      );
+      for (const row of pastScheduled.rows) {
+        // +08:00 = Taiwan local noon，確保 formatDate() 回傳正確日期
+        const pastDate = new Date(row.gdate + 'T12:00:00+08:00');
+        for (const kindCode of ['G', 'A']) {
+          try {
+            const pastGames = await fetchDailyGames(pastDate, kindCode);
+            for (const item of pastGames) {
+              const gameId = await ensureGameInDB(item);
+              if (!gameId) continue;
+              await updateGame(gameId, item);
+              updated++;
+              if (item.GameStatus === 2 || item.GameStatus === 3) {
+                try {
+                  const { batters, liveLog, firstSno, pitchers, visitingScoreboards, homeScoreboards } = await fetchBoxLive(year, kindCode, item.GameSno);
+                  if (firstSno.length > 0) await saveLineups(gameId, firstSno, item);
+                  if (batters.length > 0) await saveBatterStats(gameId, batters, item);
+                  if (pitchers.length > 0) await savePitcherStats(gameId, pitchers, item);
+                  if (visitingScoreboards.length > 0 || homeScoreboards.length > 0) {
+                    for (const inn of visitingScoreboards) {
+                      await pool.query(
+                        `INSERT INTO game_innings (game_id, inning, score_away, score_home)
+                         VALUES ($1, $2, $3, NULL)
+                         ON CONFLICT (game_id, inning) DO UPDATE SET score_away = EXCLUDED.score_away`,
+                        [gameId, inn.InningSeq, inn.ScoreCnt],
+                      );
+                    }
+                    for (const inn of homeScoreboards) {
+                      await pool.query(
+                        `INSERT INTO game_innings (game_id, inning, score_away, score_home)
+                         VALUES ($1, $2, NULL, $3)
+                         ON CONFLICT (game_id, inning) DO UPDATE SET score_home = EXCLUDED.score_home`,
+                        [gameId, inn.InningSeq, inn.ScoreCnt],
+                      );
+                    }
+                  } else if (liveLog.length > 0) {
+                    await saveInningsFromLiveLog(gameId, liveLog);
+                  }
+                  if (liveLog.length > 0) await saveLiveLog(gameId, liveLog);
+                } catch (e) {
+                  console.warn(`[CPBL] 補抓 fetchBoxLive(${item.GameSno}) 失敗:`, (e as Error).message);
+                }
+                await new Promise(r => setTimeout(r, 600));
+              }
+            }
+          } catch { /* ignore */ }
+        }
+      }
+    } catch (e) {
+      console.warn('[CPBL] 補抓過去比賽失敗:', (e as Error).message);
     }
 
     scraperStatus.gamesUpdated = updated;
