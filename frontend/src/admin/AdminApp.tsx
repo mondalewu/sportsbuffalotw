@@ -845,7 +845,7 @@ export default function AdminApp() {
                 <div className="grid grid-cols-2 gap-4">
                   <select value={newArticle.category} onChange={e => setNewArticle(f => ({ ...f, category: e.target.value }))}
                     className="border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400">
-                    {['CPBL', 'NPB', 'WBC', 'MLB', 'NBA', '其他'].map(c => <option key={c} value={c}>{c}</option>)}
+                    {['CPBL', 'NPB', 'WBC', 'MLB', 'NBA', '田徑', '三級棒球', '足球', '籃球', '其他'].map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                   <input type="text" placeholder="封面圖 URL（選填）" value={newArticle.imageUrl}
                     onChange={e => setNewArticle(f => ({ ...f, imageUrl: e.target.value }))}

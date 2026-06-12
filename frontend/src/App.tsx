@@ -15,6 +15,12 @@ import AthleticsPage from './pages/AthleticsPage';
 import NpbGamePage from './pages/NpbGamePage';
 import CpblGamePage from './pages/CpblGamePage';
 import SoccerPage from './pages/SoccerPage';
+import TaiwanBaseballPage from './pages/TaiwanBaseballPage';
+import TPSLPage from './pages/TPSLPage';
+import NBAPage from './pages/NBAPage';
+import PLeaguePage from './pages/PLeaguePage';
+import TPBLPage from './pages/TPBLPage';
+import TaiwanBasketballPage from './pages/TaiwanBasketballPage';
 
 export default function App() {
   return (
@@ -35,6 +41,12 @@ export default function App() {
             <Route path="/poll" element={<PollPage />} />
             <Route path="/athletics" element={<AthleticsPage />} />
             <Route path="/soccer" element={<SoccerPage />} />
+            <Route path="/taiwan-baseball" element={<TaiwanBaseballPage />} />
+            <Route path="/tpsl" element={<TPSLPage />} />
+            <Route path="/nba" element={<NBAPage />} />
+            <Route path="/pleague" element={<PLeaguePage />} />
+            <Route path="/tpbl" element={<TPBLPage />} />
+            <Route path="/taiwan-basketball" element={<TaiwanBasketballPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/article" element={<ArticlePage />} />
             <Route path="/article/:slug" element={<ArticlePage />} />

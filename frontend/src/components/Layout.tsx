@@ -25,12 +25,14 @@ export default function Layout() {
   const [cpblGames, setCpblGames] = useState<Game[]>([]);
   const [scoreCategory, setScoreCategory] = useState('LIVE');
   const [isBaseballDropdownOpen, setIsBaseballDropdownOpen] = useState(false);
+  const [isBasketballDropdownOpen, setIsBasketballDropdownOpen] = useState(false);
   const [isSoccerDropdownOpen, setIsSoccerDropdownOpen] = useState(false);
   const [scoreBarOpen, setScoreBarOpen] = useState(true);
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
   const [isAppInstalled, setIsAppInstalled] = useState(false);
 
   const baseballDropdownRef = useRef<HTMLDivElement>(null);
+  const basketballDropdownRef = useRef<HTMLDivElement>(null);
   const soccerDropdownRef = useRef<HTMLDivElement>(null);
 
   const fetchLive = () => {
@@ -62,6 +64,8 @@ export default function Layout() {
     const handleClickOutside = (e: MouseEvent) => {
       if (baseballDropdownRef.current && !baseballDropdownRef.current.contains(e.target as Node))
         setIsBaseballDropdownOpen(false);
+      if (basketballDropdownRef.current && !basketballDropdownRef.current.contains(e.target as Node))
+        setIsBasketballDropdownOpen(false);
       if (soccerDropdownRef.current && !soccerDropdownRef.current.contains(e.target as Node))
         setIsSoccerDropdownOpen(false);
     };
@@ -155,18 +159,31 @@ export default function Layout() {
               <button onClick={() => navigate('/poll')} className={`h-full flex items-center px-2 transition ${path === '/poll' ? 'nav-active' : 'hover:text-red-600'}`}>球迷投票</button>
 
               <div className="relative h-full flex items-center" ref={baseballDropdownRef}>
-                <button onClick={() => setIsBaseballDropdownOpen(!isBaseballDropdownOpen)} className={`h-full flex items-center px-2 transition gap-1 ${['/npb', '/cpbl'].includes(path) ? 'nav-active' : 'hover:text-red-600'}`}>
+                <button onClick={() => setIsBaseballDropdownOpen(!isBaseballDropdownOpen)} className={`h-full flex items-center px-2 transition gap-1 ${['/npb', '/cpbl', '/taiwan-baseball'].includes(path) ? 'nav-active' : 'hover:text-red-600'}`}>
                   棒球 <ChevronDown className="w-4 h-4" />
                 </button>
                 {isBaseballDropdownOpen && (
                   <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-100 rounded-xl shadow-lg py-2 z-50">
                     <button onClick={() => { navigate('/npb'); setIsBaseballDropdownOpen(false); }} className={`w-full text-left px-4 py-2 hover:bg-gray-50 transition ${path === '/npb' ? 'text-red-600 font-black' : 'hover:text-red-600'}`}>NPB 日本職棒</button>
                     <button onClick={() => { navigate('/cpbl'); setIsBaseballDropdownOpen(false); }} className={`w-full text-left px-4 py-2 hover:bg-gray-50 transition ${path === '/cpbl' ? 'text-red-600 font-black' : 'hover:text-red-600'}`}>CPBL 中華職棒</button>
+                    <button onClick={() => { navigate('/taiwan-baseball'); setIsBaseballDropdownOpen(false); }} className={`w-full text-left px-4 py-2 hover:bg-gray-50 transition ${path === '/taiwan-baseball' ? 'text-red-600 font-black' : 'hover:text-red-600'}`}>台灣三級棒球</button>
                   </div>
                 )}
               </div>
 
-              <button className="hover:text-red-600 transition h-full flex items-center px-2">籃球</button>
+              <div className="relative h-full flex items-center" ref={basketballDropdownRef}>
+                <button onClick={() => setIsBasketballDropdownOpen(!isBasketballDropdownOpen)} className={`h-full flex items-center px-2 transition gap-1 ${['/nba', '/pleague', '/tpbl', '/taiwan-basketball'].includes(path) ? 'nav-active' : 'hover:text-red-600'}`}>
+                  籃球 <ChevronDown className="w-4 h-4" />
+                </button>
+                {isBasketballDropdownOpen && (
+                  <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-100 rounded-xl shadow-lg py-2 z-50">
+                    <button onClick={() => { navigate('/nba'); setIsBasketballDropdownOpen(false); }} className={`w-full text-left px-4 py-2 hover:bg-gray-50 transition ${path === '/nba' ? 'text-red-600 font-black' : 'hover:text-red-600'}`}>NBA 美國職籃</button>
+                    <button onClick={() => { navigate('/pleague'); setIsBasketballDropdownOpen(false); }} className={`w-full text-left px-4 py-2 hover:bg-gray-50 transition ${path === '/pleague' ? 'text-red-600 font-black' : 'hover:text-red-600'}`}>P.LEAGUE+ 台灣職籃</button>
+                    <button onClick={() => { navigate('/tpbl'); setIsBasketballDropdownOpen(false); }} className={`w-full text-left px-4 py-2 hover:bg-gray-50 transition ${path === '/tpbl' ? 'text-red-600 font-black' : 'hover:text-red-600'}`}>TPBL 超級聯賽</button>
+                    <button onClick={() => { navigate('/taiwan-basketball'); setIsBasketballDropdownOpen(false); }} className={`w-full text-left px-4 py-2 hover:bg-gray-50 transition ${path === '/taiwan-basketball' ? 'text-red-600 font-black' : 'hover:text-red-600'}`}>台灣三級籃球</button>
+                  </div>
+                )}
+              </div>
 
               <div className="relative h-full flex items-center" ref={soccerDropdownRef}>
                 <button onClick={() => setIsSoccerDropdownOpen(!isSoccerDropdownOpen)} className={`h-full flex items-center px-2 transition gap-1 ${path === '/soccer' ? 'nav-active' : 'hover:text-red-600'}`}>
@@ -180,7 +197,7 @@ export default function Layout() {
                     <button onClick={() => { navigate('/soccer?section=jleague'); setIsSoccerDropdownOpen(false); }} className="w-full text-left px-4 py-2 hover:bg-gray-50 hover:text-red-600 transition text-sm">
                       🇯🇵 J League
                     </button>
-                    <button onClick={() => { navigate('/soccer?section=tpsl'); setIsSoccerDropdownOpen(false); }} className="w-full text-left px-4 py-2 hover:bg-gray-50 hover:text-red-600 transition text-sm">
+                    <button onClick={() => { navigate('/tpsl'); setIsSoccerDropdownOpen(false); }} className={`w-full text-left px-4 py-2 hover:bg-gray-50 transition text-sm ${path === '/tpsl' ? 'text-red-600 font-black' : 'hover:text-red-600'}`}>
                       🇹🇼 台灣企業甲級聯賽
                     </button>
                   </div>
