@@ -673,12 +673,12 @@ function BatterTable({ title, batters, lineups, inningResultMap }: {
                       ? (playerInningMap[n] ?? '')
                       : (b.at_bat_results?.[n - 1] ?? '');
                     const isHr   = result.includes('全打') || (result.includes('本') && /越/.test(result));
-                    // 安打：含「安」/短碼 / 二三壘打格式(左中2①、右中3②)
+                    // 安打：含「安」/短碼 / 二三壘打格式(左中2①、左中２①全角)
                     const isHit  = !isHr && (
                       result.includes('安') ||
                       result === '一安' || result === '二安' || result === '三安' ||
-                      /[23][①②③④⑤⑥⑦⑧⑨]/.test(result) ||
-                      /[23]打点/.test(result)
+                      /[23２３]\s*[①②③④⑤⑥⑦⑧⑨]/.test(result) ||
+                      /[23２３]打点/.test(result)
                     );
                     const isWalk = result === '四球' || result === '死球';
                     return (
