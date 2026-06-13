@@ -223,10 +223,16 @@ export default function Layout() {
                   {(currentUser.role === 'editor' || currentUser.role === 'admin') && (
                     <button onClick={() => navigate('/admin')} className="hidden md:flex items-center gap-1 text-sm font-bold text-gray-500 hover:text-red-600 transition">進入後台</button>
                   )}
-                  <div className="flex items-center gap-2 text-sm font-bold text-gray-700">
-                    <User className="w-4 h-4" />
+                  <button
+                    onClick={() => navigate('/profile')}
+                    className="flex items-center gap-2 text-sm font-bold text-gray-700 hover:text-red-600 transition"
+                    title="會員設定"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center">
+                      <span className="text-[11px] font-black text-white">{currentUser.username.charAt(0).toUpperCase()}</span>
+                    </div>
                     <span className="hidden md:inline">{currentUser.username}</span>
-                  </div>
+                  </button>
                   <button onClick={handleLogout} className="text-gray-400 hover:text-red-600 transition" title="登出">
                     <LogOut className="w-4 h-4" />
                   </button>

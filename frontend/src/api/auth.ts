@@ -26,3 +26,12 @@ export const getMe = async (): Promise<User | null> => {
     return null;
   }
 };
+
+export const updateProfile = async (data: { username: string }): Promise<User> => {
+  const res = await apiClient.patch('/auth/me', data);
+  return res.data;
+};
+
+export const changePassword = async (data: { currentPassword: string; newPassword: string }): Promise<void> => {
+  await apiClient.post('/auth/change-password', data);
+};

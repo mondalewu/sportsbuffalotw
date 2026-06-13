@@ -116,4 +116,51 @@ router.get('/me', verifyToken, async (req: Request, res: Response): Promise<void
   }
 });
 
+// PATCH /api/v1/auth/me — 更新使用者名稱
+router.patch('/me', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  const { username } = req.body;
+  if (!username || typeof username !== 'string' || username.trim().length < 2) {
+    res.status(400).json({ message: '使用者名稱至少需要 2 個字元' });
+    return;
+  }
+  try {
+    const { rows } = await pool.query(
+      'UPDATE users SET username = $1 WHERE id = $2 RETURNING id, email, username, role',
+      [username.trim(), req.user!.userId],
+    );
+    if (!rows.length) { res.status(404).json({ message: '用戶不存在' }); return; }
+    res.json(rows[0]);
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === '23505') {
+      res.status(409).json({ message: '此使用者名稱已被使用' });
+    } else {
+      res.status(500).json({ message: '伺服器錯誤' });
+    }
+  }
+});
+
+// POST /api/v1/auth/change-password
+router.post('/change-password', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    res.status(400).json({ message: '請填寫目前密碼與新密碼' });
+    return;
+  }
+  if (newPassword.length < 6) {
+    res.status(400).json({ message: '新密碼至少需要 6 個字元' });
+    return;
+  }
+  try {
+    const { rows } = await pool.query('SELECT password_hash FROM users WHERE id = $1', [req.user!.userId]);
+    if (!rows.length) { res.status(404).json({ message: '用戶不存在' }); return; }
+    const valid = await bcrypt.compare(currentPassword, rows[0].password_hash);
+    if (!valid) { res.status(401).json({ message: '目前密碼不正確' }); return; }
+    const hash = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, req.user!.userId]);
+    res.json({ message: '密碼已更新' });
+  } catch {
+    res.status(500).json({ message: '伺服器錯誤' });
+  }
+});
+
 export default router;
