@@ -30,6 +30,7 @@ export interface Game {
   game_detail: string | null;
   venue: string | null;
   game_date: string;
+  has_tw_player?: boolean;
 }
 
 export interface Standing {

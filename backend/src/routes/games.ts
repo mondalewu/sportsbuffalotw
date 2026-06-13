@@ -13,46 +13,78 @@ const NPB_HEADERS = {
 
 const router = Router();
 
+// 旅居日本的台灣現役選手名單（定期維護）
+const TW_NPB_PLAYERS: string[] = [
+  '宋家豪',   // 楽天 2015- 投手 一軍
+  '孫易磊',   // 日本ハム 2023- 投手 一軍
+  '徐翔聖',   // ヤクルト 2023- 投手 二軍
+  '黃錦豪',   // 巨人 2023- 投手 二軍
+  '陳睦衡',   // オリックス 2023- 投手 二軍
+  '蕭齊',     // 楽天 2024- 投手 二軍
+  '張峻瑋',   // ソフトバンク 2024- 投手 二軍
+  '林冠臣',   // 西武 2024- 外野手 二軍
+  '古林睿煬', // 日本ハム 2024- 投手 一軍
+  '陽柏翔',   // 楽天 2024- 内野手 一軍
+  '林安可',   // 西武 2025- 外野手 二軍
+  '徐若熙',   // ソフトバンク 2025- 投手 二軍
+  '林家正',   // 日本ハム 2026- 捕手 二軍
+];
+
 // GET /api/v1/games
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   const { league, status, date, from, to } = req.query;
 
   try {
-    let query = 'SELECT id, league, team_home, team_away, score_home, score_away, status, game_detail, venue, game_date, npb_url FROM games';
+    // 台灣選手名單以 ARRAY 傳入 SQL
+    const twPlayerParam = `'{${TW_NPB_PLAYERS.map(n => `"${n}"`).join(',')}}'`;
+    const twSubquery = `EXISTS (
+      SELECT 1 FROM (
+        SELECT player_name FROM game_lineups WHERE game_id = g.id
+        UNION ALL
+        SELECT player_name FROM game_batter_stats WHERE game_id = g.id
+        UNION ALL
+        SELECT player_name FROM game_pitcher_stats WHERE game_id = g.id
+      ) _p WHERE _p.player_name = ANY(${twPlayerParam}::text[])
+    )`;
+
+    let query = `SELECT g.id, g.league, g.team_home, g.team_away, g.score_home, g.score_away,
+      g.status, g.game_detail, g.venue, g.game_date, g.npb_url,
+      CASE WHEN g.league IN ('NPB','NPB2') THEN (${twSubquery}) ELSE false END AS has_tw_player
+      FROM games g`;
     const params: string[] = [];
     const conditions: string[] = [];
 
     if (league) {
       params.push(league as string);
-      conditions.push(`league = $${params.length}`);
+      conditions.push(`g.league = $${params.length}`);
     }
     if (status) {
       params.push(status as string);
-      conditions.push(`status = $${params.length}`);
+      conditions.push(`g.status = $${params.length}`);
     }
     if (date) {
       params.push(date as string);
-      conditions.push(`DATE(game_date AT TIME ZONE 'Asia/Tokyo') = $${params.length}::date`);
+      conditions.push(`DATE(g.game_date AT TIME ZONE 'Asia/Tokyo') = $${params.length}::date`);
     }
     if (from) {
       params.push(from as string);
-      conditions.push(`DATE(game_date AT TIME ZONE 'Asia/Tokyo') >= $${params.length}::date`);
+      conditions.push(`DATE(g.game_date AT TIME ZONE 'Asia/Tokyo') >= $${params.length}::date`);
     }
     if (to) {
       params.push(to as string);
-      conditions.push(`DATE(game_date AT TIME ZONE 'Asia/Tokyo') <= $${params.length}::date`);
+      conditions.push(`DATE(g.game_date AT TIME ZONE 'Asia/Tokyo') <= $${params.length}::date`);
     }
     // デフォルト: from/to/date 未指定なら直近 60 日 + 今後 30 日に限定
     if (!date && !from && !to) {
-      conditions.push(`game_date >= NOW() - INTERVAL '60 days'`);
-      conditions.push(`game_date <= NOW() + INTERVAL '30 days'`);
+      conditions.push(`g.game_date >= NOW() - INTERVAL '60 days'`);
+      conditions.push(`g.game_date <= NOW() + INTERVAL '30 days'`);
     }
 
     if (conditions.length > 0) {
       query += ' WHERE ' + conditions.join(' AND ');
     }
 
-    query += ' ORDER BY game_date ASC';
+    query += ' ORDER BY g.game_date ASC';
 
     const result = await pool.query(query, params);
     res.json(result.rows);

@@ -234,6 +234,7 @@ export interface FarmGame {
   venue: string | null;
   game_date: string;
   npb_url: string | null;
+  has_tw_player?: boolean;
 }
 
 export const getFarmStandings = async (): Promise<FarmStandings> => {

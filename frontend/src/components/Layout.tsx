@@ -300,6 +300,7 @@ export default function Layout() {
                   <div className="flex items-center gap-1">
                     <span className="text-[9px] font-black text-gray-400 uppercase italic">{g.league}</span>
                     {isFavGame && <span className="text-[9px]">❤️</span>}
+                    {g.has_tw_player && <span className="text-[10px]" title="台灣選手出賽">🇹🇼</span>}
                   </div>
                   {isRainout
                     ? <span className="text-[9px] font-bold text-blue-500">🌧 因雨延賽</span>
