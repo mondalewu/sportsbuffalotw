@@ -456,3 +456,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_batter_stats_game_team_player
 -- 確保賽程唯一性索引（用 expression index，支援 ON CONFLICT 子句）
 CREATE UNIQUE INDEX IF NOT EXISTS uq_games_league_teams_date
   ON games (league, team_home, team_away, DATE(game_date AT TIME ZONE 'Asia/Tokyo'));
+
+-- 會員興趣設定
+CREATE TABLE IF NOT EXISTS user_preferences (
+  user_id     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  sports      TEXT[]  NOT NULL DEFAULT '{}',
+  fav_teams   JSONB   NOT NULL DEFAULT '{}',
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

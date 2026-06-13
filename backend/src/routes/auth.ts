@@ -116,6 +116,38 @@ router.get('/me', verifyToken, async (req: Request, res: Response): Promise<void
   }
 });
 
+// GET /api/v1/auth/preferences
+router.get('/preferences', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT sports, fav_teams FROM user_preferences WHERE user_id = $1',
+      [req.user!.userId],
+    );
+    res.json(rows[0] ?? { sports: [], fav_teams: {} });
+  } catch {
+    res.status(500).json({ message: '伺服器錯誤' });
+  }
+});
+
+// PUT /api/v1/auth/preferences
+router.put('/preferences', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  const { sports, fav_teams } = req.body;
+  if (!Array.isArray(sports)) { res.status(400).json({ message: '格式錯誤' }); return; }
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO user_preferences (user_id, sports, fav_teams, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id) DO UPDATE
+         SET sports = EXCLUDED.sports, fav_teams = EXCLUDED.fav_teams, updated_at = NOW()
+       RETURNING sports, fav_teams`,
+      [req.user!.userId, sports, JSON.stringify(fav_teams ?? {})],
+    );
+    res.json(rows[0]);
+  } catch {
+    res.status(500).json({ message: '伺服器錯誤' });
+  }
+});
+
 // PATCH /api/v1/auth/me — 更新使用者名稱
 router.patch('/me', verifyToken, async (req: Request, res: Response): Promise<void> => {
   const { username } = req.body;

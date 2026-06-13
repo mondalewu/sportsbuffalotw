@@ -27,6 +27,21 @@ export const getMe = async (): Promise<User | null> => {
   }
 };
 
+export interface UserPreferences {
+  sports: string[];
+  fav_teams: Record<string, string[]>;
+}
+
+export const getPreferences = async (): Promise<UserPreferences> => {
+  const res = await apiClient.get('/auth/preferences');
+  return res.data;
+};
+
+export const updatePreferences = async (data: UserPreferences): Promise<UserPreferences> => {
+  const res = await apiClient.put('/auth/preferences', data);
+  return res.data;
+};
+
 export const updateProfile = async (data: { username: string }): Promise<User> => {
   const res = await apiClient.patch('/auth/me', data);
   return res.data;

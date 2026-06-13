@@ -15,7 +15,7 @@ import { teamLogos } from '../data/staticData';
 import type { Game } from '../types';
 
 export default function Layout() {
-  const { currentUser, setCurrentUser, authModal, setAuthModal } = useApp();
+  const { currentUser, setCurrentUser, authModal, setAuthModal, preferences } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -288,14 +288,19 @@ export default function Layout() {
             )}
             {filteredScores.map((g, idx) => {
               const isRainout = g.game_detail?.includes('延賽') || g.game_detail?.includes('雨天');
+              const allFavTeams = Object.values(preferences.fav_teams).flat();
+              const isFavGame = allFavTeams.includes(g.team_home) || allFavTeams.includes(g.team_away);
               return (
               <button
                 key={g.id ?? idx}
                 onClick={() => handleScoreCardClick(g)}
-                className={`score-card p-3 flex-shrink-0 text-left hover:shadow-md transition cursor-pointer ${isRainout ? 'border-blue-200 bg-blue-50' : 'hover:border-red-300'}`}
+                className={`score-card p-3 flex-shrink-0 text-left hover:shadow-md transition cursor-pointer ${isRainout ? 'border-blue-200 bg-blue-50' : isFavGame ? 'border-red-300 bg-red-50' : 'hover:border-red-300'}`}
               >
                 <div className="flex justify-between items-center mb-1">
-                  <span className="text-[9px] font-black text-gray-400 uppercase italic">{g.league}</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] font-black text-gray-400 uppercase italic">{g.league}</span>
+                    {isFavGame && <span className="text-[9px]">❤️</span>}
+                  </div>
                   {isRainout
                     ? <span className="text-[9px] font-bold text-blue-500">🌧 因雨延賽</span>
                     : <span className={`text-[9px] font-bold ${g.status === 'live' ? 'text-red-600' : 'text-gray-400'}`}>
