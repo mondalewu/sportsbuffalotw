@@ -211,7 +211,9 @@ router.get('/:id/stats', async (req: Request, res: Response): Promise<void> => {
 router.get('/:id/batters', async (req: Request, res: Response): Promise<void> => {
   try {
     const result = await pool.query(
-      `SELECT gbs.team_code, gbs.player_name, gbs.position, gbs.at_bats, gbs.hits,
+      `SELECT gbs.team_code, gbs.player_name,
+              COALESCE(lu.position, gbs.position) AS position,
+              gbs.at_bats, gbs.hits,
               gbs.rbi, gbs.runs, gbs.home_runs, gbs.strikeouts, gbs.walks,
               gbs.hit_by_pitch, gbs.sacrifice_hits, gbs.stolen_bases, gbs.at_bat_results,
               -- 優先用先發名單棒次；代打/代走等先發名單無記錄者保留原始 batting_order
@@ -222,7 +224,7 @@ router.get('/:id/batters', async (req: Request, res: Response): Promise<void> =>
               cps.at_bats AS season_ab
        FROM game_batter_stats gbs
        LEFT JOIN LATERAL (
-         SELECT batting_order FROM game_lineups
+         SELECT batting_order, position FROM game_lineups
          WHERE game_id = $1 AND player_name = gbs.player_name
          LIMIT 1
        ) lu ON true

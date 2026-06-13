@@ -282,6 +282,7 @@ export default function NPBPage() {
                         >
                           <td className="px-4 py-2.5 text-gray-400 font-mono text-xs">{formatTime(g.game_date)}</td>
                           <td className="px-4 py-2.5 font-bold text-gray-800 text-xs">
+                            {g.has_tw_player && <span className="mr-1" title="台灣選手出賽">🇹🇼</span>}
                             {g.team_away} <span className="text-gray-300 font-normal mx-1">@</span> {g.team_home}
                           </td>
                           <td className="px-4 py-2.5 text-center font-mono font-black text-gray-800 text-sm">
