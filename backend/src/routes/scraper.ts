@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { verifyToken, requireRole } from '../middleware/auth';
-import { runScraper, scraperStatus, runCpblFullScheduleScraper, scheduleScraperStatus, runCpblStandingsScraper, runCpblFarmScheduleScraper, farmScraperStatus, runCpblPlayerStatsScraper, rescrapeGameByGameSno, aggregateCpblSeasonStats, runCpblPitcherStatsScraper, aggregateCpblPitcherSeasonStats } from '../services/cpblScraper';
+import { runScraper, scraperStatus, runCpblFullScheduleScraper, scheduleScraperStatus, runCpblStandingsScraper, runCpblFarmScheduleScraper, farmScraperStatus, runCpblPlayerStatsScraper, rescrapeGameByGameSno, aggregateCpblSeasonStats, runCpblPitcherStatsScraper, aggregateCpblPitcherSeasonStats, backfillCpblScheduledGames } from '../services/cpblScraper';
 import { runCpblWikiRosterScraper, cpblRosterScraperStatus } from '../services/cpblRosterScraper';
 import { runNpbScraper, npbScraperStatus, runNpbHistoricalBackfill, backfillStatus, runPbpBackfill, pbpBackfillStatus, runFarmYahooPbpScraper, farmPbpBackfillStatus } from '../services/npbScraper';
 import { runNpbScheduleScraper, npbScheduleScraperStatus } from '../services/npbScheduleScraper';
@@ -89,6 +89,13 @@ router.post('/scrape-yahoo-game', verifyToken, requireRole('editor', 'admin'), a
 router.post('/trigger', verifyToken, requireRole('editor', 'admin'), async (_req: Request, res: Response): Promise<void> => {
   const result = await runScraper();
   res.json({ ...result, status: scraperStatus });
+});
+
+// POST /api/v1/scraper/backfill-cpbl-scheduled — 補抓過去仍是 scheduled 的 CPBL 比賽
+router.post('/backfill-cpbl-scheduled', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const daysBack = parseInt(req.body?.daysBack ?? '14', 10);
+  const result = await backfillCpblScheduledGames(daysBack);
+  res.json(result);
 });
 
 // POST /api/v1/scraper/trigger-cpbl-schedule — 爬取 CPBL 整季賽程

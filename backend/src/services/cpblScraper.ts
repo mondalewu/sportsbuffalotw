@@ -1391,6 +1391,122 @@ export async function runCpblFullScheduleScraper(
   }
 }
 
+// ─── 補抓過去仍是 scheduled 的 CPBL 比賽（直接用 GameSno 呼叫 /box/getlive）────
+
+export async function backfillCpblScheduledGames(
+  daysBack = 14,
+): Promise<{ fixed: number; skipped: number; message: string }> {
+  let fixed = 0;
+  let skipped = 0;
+
+  const stuckGames = await pool.query<{
+    id: number;
+    game_detail: string;   // GameSno
+    league: string;
+    game_date: string;
+  }>(
+    `SELECT id, game_detail, league, game_date
+     FROM games
+     WHERE league IN ('CPBL','CPBL-W')
+       AND status = 'scheduled'
+       AND game_date + INTERVAL '5 hours' < NOW()
+       AND game_date >= NOW() - ($1 || ' days')::interval
+     ORDER BY game_date ASC`,
+    [daysBack],
+  );
+
+  for (const g of stuckGames.rows) {
+    const gameSno = parseInt(g.game_detail ?? '', 10);
+    if (!gameSno || isNaN(gameSno)) { skipped++; continue; }
+
+    const kindCode = g.league === 'CPBL' ? 'A' : 'G';
+    const gameYear = new Date(g.game_date).getFullYear();
+
+    try {
+      const { batters, liveLog, firstSno, pitchers, visitingScoreboards, homeScoreboards } =
+        await fetchBoxLive(gameYear, kindCode, gameSno);
+
+      if (batters.length === 0 && liveLog.length === 0 && visitingScoreboards.length === 0) {
+        // Box score empty → game likely postponed (延賽) or genuinely no data yet
+        skipped++;
+        continue;
+      }
+
+      // 從 scoreboards 或 liveLog 計算總分
+      let scoreAway: number | null = null;
+      let scoreHome: number | null = null;
+      if (visitingScoreboards.length > 0) {
+        scoreAway = visitingScoreboards.reduce((s, i) => s + (i.ScoreCnt ?? 0), 0);
+      }
+      if (homeScoreboards.length > 0) {
+        scoreHome = homeScoreboards.reduce((s, i) => s + (i.ScoreCnt ?? 0), 0);
+      }
+      if (scoreAway === null && liveLog.length > 0) {
+        const last = liveLog[liveLog.length - 1];
+        scoreAway = last.VisitingScore;
+        scoreHome = last.HomeScore;
+      }
+
+      // 更新 games 主表狀態 + 比分
+      await pool.query(
+        `UPDATE games
+         SET status = 'final',
+             score_away = COALESCE($1::int, score_away),
+             score_home = COALESCE($2::int, score_home),
+             game_detail = $3
+         WHERE id = $4`,
+        [scoreAway, scoreHome, String(gameSno), g.id],
+      );
+
+      // 取出隊名供 saveBatterStats / savePitcherStats 使用
+      const teamRow = await pool.query<{ team_home: string; team_away: string }>(
+        'SELECT team_home, team_away FROM games WHERE id = $1', [g.id],
+      );
+      const { team_home, team_away } = teamRow.rows[0] ?? { team_home: '', team_away: '' };
+      const mockItem = {
+        HomeTeamName: team_home, VisitingTeamName: team_away,
+        HomeTeamCode: team_home, VisitingTeamCode: team_away,
+        GameStatus: 3,
+      } as GameApiItem;
+
+      if (firstSno.length > 0) await saveLineups(g.id, firstSno, mockItem);
+      if (batters.length > 0)  await saveBatterStats(g.id, batters, mockItem);
+      if (pitchers.length > 0) await savePitcherStats(g.id, pitchers, mockItem);
+
+      if (visitingScoreboards.length > 0 || homeScoreboards.length > 0) {
+        for (const inn of visitingScoreboards) {
+          await pool.query(
+            `INSERT INTO game_innings (game_id, inning, score_away, score_home)
+             VALUES ($1,$2,$3,NULL) ON CONFLICT (game_id,inning) DO UPDATE SET score_away=EXCLUDED.score_away`,
+            [g.id, inn.InningSeq, inn.ScoreCnt],
+          );
+        }
+        for (const inn of homeScoreboards) {
+          await pool.query(
+            `INSERT INTO game_innings (game_id, inning, score_away, score_home)
+             VALUES ($1,$2,NULL,$3) ON CONFLICT (game_id,inning) DO UPDATE SET score_home=EXCLUDED.score_home`,
+            [g.id, inn.InningSeq, inn.ScoreCnt],
+          );
+        }
+      } else if (liveLog.length > 0) {
+        await saveInningsFromLiveLog(g.id, liveLog);
+      }
+      if (liveLog.length > 0) await saveLiveLog(g.id, liveLog);
+
+      console.log(`[CPBL backfill] ✅ GameSno=${gameSno} (id=${g.id}) → final ${scoreAway}-${scoreHome}`);
+      fixed++;
+      await new Promise(r => setTimeout(r, 600));
+    } catch (e) {
+      console.warn(`[CPBL backfill] GameSno=${gameSno} 失敗:`, (e as Error).message);
+      skipped++;
+    }
+  }
+
+  const msg = `CPBL backfill: fixed=${fixed}, skipped=${skipped}`;
+  console.log(`[CPBL backfill] ${msg}`);
+  return { fixed, skipped, message: msg };
+}
+
 // ─── 公開 API ─────────────────────────────────────────────────────────────────
 
 export interface ScraperStatus {
@@ -1504,65 +1620,10 @@ export async function runScraper(): Promise<{ updated: number; message: string }
       }
     }
 
-    // 補抓過去 3 天（含今日已過開賽時間）仍是 scheduled 的比賽（含完整箱型資料）
-    try {
-      const pastScheduled = await pool.query<{ gdate: string }>(
-        `SELECT DISTINCT DATE(game_date AT TIME ZONE 'Asia/Taipei') AS gdate
-         FROM games
-         WHERE league = 'CPBL' AND status = 'scheduled'
-           AND game_date <= NOW()
-           AND DATE(game_date AT TIME ZONE 'Asia/Taipei') >= CURRENT_DATE - INTERVAL '3 days'`,
-      );
-      for (const row of pastScheduled.rows) {
-        // +08:00 = Taiwan local noon，確保 formatDate() 回傳正確日期
-        const pastDate = new Date(row.gdate + 'T12:00:00+08:00');
-        for (const kindCode of ['G', 'A']) {
-          try {
-            const pastGames = await fetchDailyGames(pastDate, kindCode);
-            for (const item of pastGames) {
-              const gameId = await ensureGameInDB(item);
-              if (!gameId) continue;
-              await updateGame(gameId, item);
-              updated++;
-              if (item.GameStatus === 2 || item.GameStatus === 3) {
-                try {
-                  const { batters, liveLog, firstSno, pitchers, visitingScoreboards, homeScoreboards } = await fetchBoxLive(year, kindCode, item.GameSno);
-                  if (firstSno.length > 0) await saveLineups(gameId, firstSno, item);
-                  if (batters.length > 0) await saveBatterStats(gameId, batters, item);
-                  if (pitchers.length > 0) await savePitcherStats(gameId, pitchers, item);
-                  if (visitingScoreboards.length > 0 || homeScoreboards.length > 0) {
-                    for (const inn of visitingScoreboards) {
-                      await pool.query(
-                        `INSERT INTO game_innings (game_id, inning, score_away, score_home)
-                         VALUES ($1, $2, $3, NULL)
-                         ON CONFLICT (game_id, inning) DO UPDATE SET score_away = EXCLUDED.score_away`,
-                        [gameId, inn.InningSeq, inn.ScoreCnt],
-                      );
-                    }
-                    for (const inn of homeScoreboards) {
-                      await pool.query(
-                        `INSERT INTO game_innings (game_id, inning, score_away, score_home)
-                         VALUES ($1, $2, NULL, $3)
-                         ON CONFLICT (game_id, inning) DO UPDATE SET score_home = EXCLUDED.score_home`,
-                        [gameId, inn.InningSeq, inn.ScoreCnt],
-                      );
-                    }
-                  } else if (liveLog.length > 0) {
-                    await saveInningsFromLiveLog(gameId, liveLog);
-                  }
-                  if (liveLog.length > 0) await saveLiveLog(gameId, liveLog);
-                } catch (e) {
-                  console.warn(`[CPBL] 補抓 fetchBoxLive(${item.GameSno}) 失敗:`, (e as Error).message);
-                }
-                await new Promise(r => setTimeout(r, 600));
-              }
-            }
-          } catch { /* ignore */ }
-        }
-      }
-    } catch (e) {
-      console.warn('[CPBL] 補抓過去比賽失敗:', (e as Error).message);
-    }
+    // 補抓過去 14 天仍是 scheduled 的比賽 — 直接用 GameSno 呼叫 /box/getlive
+    // CPBL /home/getdetaillist 只回傳當日資料，過去日期會回傳空陣列，改用 box/getlive 補救
+    const backfillResult = await backfillCpblScheduledGames(14);
+    if (backfillResult.fixed > 0) updated += backfillResult.fixed;
 
     scraperStatus.gamesUpdated = updated;
     scraperStatus.lastResult = `✅ CPBL 更新 ${updated} 場`;
