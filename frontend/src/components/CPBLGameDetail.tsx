@@ -382,6 +382,25 @@ function BaseballFieldPanel({
   );
 }
 
+// ── 先発投手卡片（與 NPB 同款）────────────────────────────────────────────────────
+
+function StarterCard({ label, name, pitchCount, era }: {
+  label: string; name: string; pitchCount?: number; era?: string;
+}) {
+  return (
+    <div className="bg-gray-50 border border-gray-200 rounded-xl p-3.5">
+      <div className="text-[10px] text-gray-400 font-bold mb-1.5 tracking-wide">
+        先発投手 · {label}
+      </div>
+      <div className="font-black text-gray-800">{name || '未定'}</div>
+      <div className="flex gap-3 mt-1.5 text-xs text-gray-500">
+        {pitchCount != null && pitchCount > 0 && <span>{pitchCount} 球</span>}
+        {era && era !== '–' && <span>防御率 {era}</span>}
+      </div>
+    </div>
+  );
+}
+
 // ── 打者陣容（NPB 同款格式）─────────────────────────────────────────────────────
 
 function CpblLineupPanel({
@@ -1119,20 +1138,29 @@ const CPBLGameDetail: React.FC<Props> = ({
                       ))}
                     </div>
                   )}
-                  {/* 先發投手（有 lineup 才顯示） */}
-                  {lineups.length > 0 && (() => {
-                    const awayPitcher = lineups.find(l => !l.is_home && l.batting_order === 0);
-                    const homePitcher = lineups.find(l => l.is_home && l.batting_order === 0);
-                    if (!awayPitcher && !homePitcher) return null;
+                  {/* 先発投手卡片 */}
+                  {(() => {
+                    const awayP = lineups.find(l => !l.is_home && l.batting_order === 0);
+                    const homeP = lineups.find(l => l.is_home  && l.batting_order === 0);
+                    const awayFallback = pitchers.find(p => p.team_code !== homeCode && p.pitcher_order === 1);
+                    const homeFallback = pitchers.find(p => p.team_code === homeCode  && p.pitcher_order === 1);
+                    const awayName = awayP?.player_name ?? awayFallback?.player_name ?? '';
+                    const homeName = homeP?.player_name ?? homeFallback?.player_name ?? '';
+                    if (!awayName && !homeName) return null;
                     return (
                       <div className="grid grid-cols-2 gap-3">
-                        {[awayPitcher, homePitcher].map((p, i) => (
-                          <div key={i} className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-xl text-xs border border-blue-100">
-                            <span className="text-blue-500 font-black w-5 text-center shrink-0">先</span>
-                            <span className="text-gray-400 text-[10px] shrink-0">P</span>
-                            <span className="font-bold text-gray-800 flex-1 truncate">{p?.player_name ?? '未定'}</span>
-                          </div>
-                        ))}
+                        <StarterCard
+                          label={game.team_away}
+                          name={awayName}
+                          pitchCount={awayName ? pitcherStatsMap[awayName]?.pitch_count : undefined}
+                          era={awayName ? pitcherStatsMap[awayName]?.era : undefined}
+                        />
+                        <StarterCard
+                          label={game.team_home}
+                          name={homeName}
+                          pitchCount={homeName ? pitcherStatsMap[homeName]?.pitch_count : undefined}
+                          era={homeName ? pitcherStatsMap[homeName]?.era : undefined}
+                        />
                       </div>
                     );
                   })()}
