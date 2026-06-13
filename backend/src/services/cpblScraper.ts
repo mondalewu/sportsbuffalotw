@@ -521,6 +521,9 @@ async function updateGame(gameId: number, item: GameApiItem): Promise<boolean> {
   } else if (item.GameStatus === 4) {
     status = 'scheduled';
     gameDetail = item.GameStatusChi?.trim() || '雨天延賽';
+  } else if (item.GameStatus === 6) {
+    status = 'scheduled';
+    gameDetail = item.GameStatusChi?.trim() || '延賽';
   }
 
   // 更新 games 主表
@@ -1427,7 +1430,20 @@ export async function backfillCpblScheduledGames(
         await fetchBoxLive(gameYear, kindCode, gameSno);
 
       if (batters.length === 0 && liveLog.length === 0 && visitingScoreboards.length === 0) {
-        // Box score empty → game likely postponed (延賽) or genuinely no data yet
+        // Box score empty — check if CPBL reports this game as postponed (GameStatus=6)
+        const gameDate = new Date(g.game_date);
+        const ageMs = Date.now() - gameDate.getTime();
+        if (ageMs > 24 * 60 * 60 * 1000) {
+          try {
+            const dayGames = await fetchDailyGames(gameDate, kindCode);
+            const matched = dayGames.find(dg => dg.GameSno === gameSno);
+            if (matched && (matched.GameStatus === 6 || matched.GameStatus === 4)) {
+              const label = matched.GameStatusChi?.trim() || '延賽';
+              await pool.query(`UPDATE games SET game_detail = $1 WHERE id = $2`, [label, g.id]);
+              console.log(`[CPBL backfill] 延賽 GameSno=${gameSno} (id=${g.id}) → ${label}`);
+            }
+          } catch (_) { /* 查不到就算了，下次再試 */ }
+        }
         skipped++;
         continue;
       }
