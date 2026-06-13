@@ -159,13 +159,14 @@ export default function Layout() {
               <button onClick={() => navigate('/poll')} className={`h-full flex items-center px-2 transition ${path === '/poll' ? 'nav-active' : 'hover:text-red-600'}`}>球迷投票</button>
 
               <div className="relative h-full flex items-center" ref={baseballDropdownRef}>
-                <button onClick={() => setIsBaseballDropdownOpen(!isBaseballDropdownOpen)} className={`h-full flex items-center px-2 transition gap-1 ${['/npb', '/cpbl', '/taiwan-baseball'].includes(path) ? 'nav-active' : 'hover:text-red-600'}`}>
+                <button onClick={() => setIsBaseballDropdownOpen(!isBaseballDropdownOpen)} className={`h-full flex items-center px-2 transition gap-1 ${['/npb', '/cpbl', '/taiwan-baseball', '/mlb'].includes(path) ? 'nav-active' : 'hover:text-red-600'}`}>
                   棒球 <ChevronDown className="w-4 h-4" />
                 </button>
                 {isBaseballDropdownOpen && (
                   <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-100 rounded-xl shadow-lg py-2 z-50">
                     <button onClick={() => { navigate('/npb'); setIsBaseballDropdownOpen(false); }} className={`w-full text-left px-4 py-2 hover:bg-gray-50 transition ${path === '/npb' ? 'text-red-600 font-black' : 'hover:text-red-600'}`}>NPB 日本職棒</button>
                     <button onClick={() => { navigate('/cpbl'); setIsBaseballDropdownOpen(false); }} className={`w-full text-left px-4 py-2 hover:bg-gray-50 transition ${path === '/cpbl' ? 'text-red-600 font-black' : 'hover:text-red-600'}`}>CPBL 中華職棒</button>
+                    <button onClick={() => { navigate('/mlb'); setIsBaseballDropdownOpen(false); }} className={`w-full text-left px-4 py-2 hover:bg-gray-50 transition ${path === '/mlb' ? 'text-red-600 font-black' : 'hover:text-red-600'}`}>MLB 美國職棒</button>
                     <button onClick={() => { navigate('/taiwan-baseball'); setIsBaseballDropdownOpen(false); }} className={`w-full text-left px-4 py-2 hover:bg-gray-50 transition ${path === '/taiwan-baseball' ? 'text-red-600 font-black' : 'hover:text-red-600'}`}>台灣三級棒球</button>
                   </div>
                 )}

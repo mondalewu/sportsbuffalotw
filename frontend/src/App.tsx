@@ -22,6 +22,7 @@ import PLeaguePage from './pages/PLeaguePage';
 import TPBLPage from './pages/TPBLPage';
 import TaiwanBasketballPage from './pages/TaiwanBasketballPage';
 import ProfilePage from './pages/ProfilePage';
+import MLBPage from './pages/MLBPage';
 
 export default function App() {
   return (
@@ -43,6 +44,7 @@ export default function App() {
             <Route path="/athletics" element={<AthleticsPage />} />
             <Route path="/soccer" element={<SoccerPage />} />
             <Route path="/taiwan-baseball" element={<TaiwanBaseballPage />} />
+            <Route path="/mlb" element={<MLBPage />} />
             <Route path="/tpsl" element={<TPSLPage />} />
             <Route path="/nba" element={<NBAPage />} />
             <Route path="/pleague" element={<PLeaguePage />} />
