@@ -1551,6 +1551,46 @@ export async function backfillCpblScheduledGames(
     }
   }
 
+  // 第二輪：補抓近 7 天內 final 但缺少打者成績的比賽
+  const missingBoxGames = await pool.query<{
+    id: number;
+    game_detail: string;
+    league: string;
+    game_date: string;
+    team_away: string;
+    team_home: string;
+  }>(
+    `SELECT g.id, g.game_detail, g.league, g.game_date, g.team_away, g.team_home
+     FROM games g
+     WHERE g.league IN ('CPBL','CPBL-W')
+       AND g.status = 'final'
+       AND g.game_date >= NOW() - INTERVAL '7 days'
+       AND NOT EXISTS (SELECT 1 FROM game_batter_stats WHERE game_id = g.id)
+     ORDER BY g.game_date ASC`,
+  );
+
+  for (const g of missingBoxGames.rows) {
+    let gameSno = parseInt(g.game_detail ?? '', 10);
+    if (!gameSno || isNaN(gameSno)) { skipped++; continue; }
+
+    const kindCode = g.league === 'CPBL' ? 'A' : 'G';
+    const gameYear = new Date(g.game_date).getFullYear();
+
+    try {
+      const result = await rescrapeGameByGameSno(g.id, gameSno, kindCode, gameYear);
+      if (result.message.startsWith('✅')) {
+        console.log(`[CPBL backfill] 補抓 final id=${g.id} GameSno=${gameSno}: ${result.message}`);
+        fixed++;
+      } else {
+        skipped++;
+      }
+      await new Promise(r => setTimeout(r, 600));
+    } catch (e) {
+      console.warn(`[CPBL backfill] 補抓 final GameSno=${gameSno} 失敗:`, (e as Error).message);
+      skipped++;
+    }
+  }
+
   const msg = `CPBL backfill: fixed=${fixed}, skipped=${skipped}`;
   console.log(`[CPBL backfill] ${msg}`);
   return { fixed, skipped, message: msg };

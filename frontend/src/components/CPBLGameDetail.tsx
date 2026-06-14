@@ -1064,7 +1064,7 @@ const CPBLGameDetail: React.FC<Props> = ({
               {isLive  && <span className="text-xs font-black text-red-400 animate-pulse block">● LIVE</span>}
               {isFinal && <span className="text-xs text-gray-400 block">終了</span>}
               {!isLive && !isFinal && <span className="text-xs text-gray-500 block">vs</span>}
-              {game.game_detail && <div className="text-[11px] text-gray-400">{game.game_detail}</div>}
+              {game.game_detail && !/^\d+$/.test(game.game_detail) && <div className="text-[11px] text-gray-400">{game.game_detail}</div>}
             </div>
             <div className="flex items-center gap-2">
               <span className={`text-2xl font-black tabular-nums leading-none ${
