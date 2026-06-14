@@ -1394,7 +1394,7 @@ export async function runCpblFullScheduleScraper(
   }
 }
 
-// ─── 補抓過去仍是 scheduled 的 CPBL 比賽（直接用 GameSno 呼叫 /box/getlive）────
+// ─── 補抓過去仍是 scheduled/live 的 CPBL 比賽（直接用 GameSno 呼叫 /box/getlive）────
 
 export async function backfillCpblScheduledGames(
   daysBack = 14,
@@ -1404,14 +1404,16 @@ export async function backfillCpblScheduledGames(
 
   const stuckGames = await pool.query<{
     id: number;
-    game_detail: string;   // GameSno
+    game_detail: string;
     league: string;
     game_date: string;
+    team_away: string;
+    team_home: string;
   }>(
-    `SELECT id, game_detail, league, game_date
+    `SELECT id, game_detail, league, game_date, team_away, team_home
      FROM games
      WHERE league IN ('CPBL','CPBL-W')
-       AND status = 'scheduled'
+       AND status IN ('scheduled','live')
        AND game_date + INTERVAL '5 hours' < NOW()
        AND game_date >= NOW() - ($1 || ' days')::interval
      ORDER BY game_date ASC`,
@@ -1419,7 +1421,24 @@ export async function backfillCpblScheduledGames(
   );
 
   for (const g of stuckGames.rows) {
-    const gameSno = parseInt(g.game_detail ?? '', 10);
+    let gameSno = parseInt(g.game_detail ?? '', 10);
+
+    // game_detail 被覆寫成局數文字（如 "1局上"）→ 從 CPBL API 查回正確的 GameSno
+    if (!gameSno || isNaN(gameSno)) {
+      try {
+        const kindCodeTmp = g.league === 'CPBL' ? 'A' : 'G';
+        const dayGames = await fetchDailyGames(new Date(g.game_date), kindCodeTmp);
+        const matched = dayGames.find(dg =>
+          normTeam(dg.VisitingTeamName) === g.team_away &&
+          normTeam(dg.HomeTeamName) === g.team_home,
+        );
+        if (matched) {
+          gameSno = matched.GameSno;
+          console.log(`[CPBL backfill] 從 API 還原 GameSno=${gameSno} (id=${g.id}, ${g.team_away} vs ${g.team_home})`);
+        }
+      } catch (_) { /* 查不到就跳過 */ }
+    }
+
     if (!gameSno || isNaN(gameSno)) { skipped++; continue; }
 
     const kindCode = g.league === 'CPBL' ? 'A' : 'G';
