@@ -40,12 +40,20 @@ router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): 
     const dateStr = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
     const query = `${team_away} ${team_home} 精華 ${dateStr}`;
 
+    // 限制搜尋範圍：比賽當天 00:00 UTC 到 48 小時後（精華通常當晚或隔天上傳）
+    const publishedAfter = new Date(d);
+    publishedAfter.setUTCHours(0, 0, 0, 0);
+    const publishedBefore = new Date(publishedAfter);
+    publishedBefore.setDate(publishedBefore.getDate() + 2);
+
     const url = new URL('https://www.googleapis.com/youtube/v3/search');
     url.searchParams.set('part', 'snippet');
     url.searchParams.set('q', query);
     url.searchParams.set('type', 'video');
     url.searchParams.set('maxResults', '3');
     url.searchParams.set('order', 'relevance');
+    url.searchParams.set('publishedAfter', publishedAfter.toISOString());
+    url.searchParams.set('publishedBefore', publishedBefore.toISOString());
     url.searchParams.set('key', apiKey);
 
     const chId = await getCpblChannelId(apiKey);
