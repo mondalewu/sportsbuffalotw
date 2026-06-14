@@ -70,6 +70,7 @@ interface GameApiItem {
   GameSno: number;
   GameDate: string;
   PreExeDate: string;
+  GameDateTimeS: string | null;
   GameDateTimeE: string | null;
   VisitingScoreboards: InningBoard[] | null;
   HomeScoreboards: InningBoard[] | null;
@@ -474,11 +475,11 @@ async function ensureGameInDB(item: GameApiItem): Promise<number | null> {
   );
   if (ex.rows.length > 0) return ex.rows[0].id as number;
 
-  // 沒有就新增 — use GameDateTimeE for actual start time (TW local), fall back to 18:00
-  // GameDateTimeE format examples: "2026-03-18T18:00:00" or null
+  // 以 GameDateTimeS（開始時間）為主，fallback PreExeDate，再 fallback 18:00
+  const startTimeRaw = item.GameDateTimeS || item.PreExeDate || null;
   let timeStr = '18:00:00';
-  if (item.GameDateTimeE) {
-    const tm = item.GameDateTimeE.match(/T(\d{2}:\d{2})/);
+  if (startTimeRaw) {
+    const tm = startTimeRaw.match(/T(\d{2}:\d{2})/);
     if (tm) timeStr = `${tm[1]}:00`;
   }
   const gameTs = `${gameDateTW}T${timeStr}+08:00`;
@@ -529,14 +530,27 @@ async function updateGame(gameId: number, item: GameApiItem): Promise<boolean> {
   // 更新 games 主表
   const scoreHome = item.GameStatus >= 2 ? (item.HomeTotalScore ?? null) : null;
   const scoreAway = item.GameStatus >= 2 ? (item.VisitingTotalScore ?? null) : null;
+
+  // 同步更新開始時間（GameDateTimeS 優先，fallback PreExeDate）
+  const startTimeRaw = item.GameDateTimeS || item.PreExeDate || null;
+  let gameDateUpdate: string | null = null;
+  if (startTimeRaw) {
+    const tm = startTimeRaw.match(/T(\d{2}:\d{2})/);
+    if (tm) {
+      const gameDateTW = item.GameDate.slice(0, 10);
+      gameDateUpdate = `${gameDateTW}T${tm[1]}:00+08:00`;
+    }
+  }
+
   await pool.query(
     `UPDATE games SET
        score_home  = COALESCE($1::int, score_home),
        score_away  = COALESCE($2::int, score_away),
        status      = $3,
-       game_detail = $4
-     WHERE id = $5`,
-    [scoreHome, scoreAway, status, gameDetail, gameId]
+       game_detail = $4,
+       game_date   = COALESCE($5::timestamptz, game_date)
+     WHERE id = $6`,
+    [scoreHome, scoreAway, status, gameDetail, gameDateUpdate, gameId]
   );
 
   // 更新 game_stats (W/L/S pitcher, audience, duration)
