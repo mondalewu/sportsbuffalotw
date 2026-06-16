@@ -44,6 +44,24 @@ async function autoMigrate() {
   }
 }
 
+// 補欄位遷移：每次啟動都確保新欄位 / constraint 存在（單條 statement，不受 bulk 失敗影響）
+async function patchColumns() {
+  const patches = [
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS ig_embed_url VARCHAR(500)`,
+    // 更新 category check constraint 以支援三級棒球、足球、籃球
+    `ALTER TABLE articles DROP CONSTRAINT IF EXISTS articles_category_check`,
+    `ALTER TABLE articles ADD CONSTRAINT articles_category_check
+       CHECK (category IN ('WBC','CPBL','NPB','MLB','NBA','田徑','三級棒球','足球','籃球','其他'))`,
+  ];
+  for (const sql of patches) {
+    try {
+      await pool.query(sql);
+    } catch (err) {
+      console.warn('⚠ patchColumns 警告:', (err as Error).message);
+    }
+  }
+}
+
 // Auto-seed: create default admin if no users exist
 async function autoSeed() {
   try {
@@ -290,6 +308,7 @@ function startScraperCron() {
 }
 
 autoMigrate().then(async () => {
+  await patchColumns();
   await autoSeed();
   await initNpbTeams();
   app.listen(PORT, () => {

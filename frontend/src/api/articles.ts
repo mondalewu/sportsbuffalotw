@@ -13,6 +13,7 @@ export interface CreateArticlePayload {
   summary: string;
   content: string;
   image_url: string;
+  ig_embed_url?: string | null;
 }
 
 export const getArticles = async (params?: ArticlesParams): Promise<Article[]> => {

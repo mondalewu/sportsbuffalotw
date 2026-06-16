@@ -55,7 +55,7 @@ export default function AdminPage() {
 
   // Article state
   const [articles, setArticles] = useState<Article[]>([]);
-  const [newArticle, setNewArticle] = useState({ title: '', category: 'CPBL', imageUrl: '', summary: '', content: '' });
+  const [newArticle, setNewArticle] = useState({ title: '', category: 'CPBL', imageUrl: '', summary: '', content: '', igEmbedUrl: '' });
   const [editingAdminArticle, setEditingAdminArticle] = useState<Article | null>(null);
   const [articleFilterCat, setArticleFilterCat] = useState('全部');
   const [expandedArticleId, setExpandedArticleId] = useState<number | null>(null);
@@ -241,6 +241,7 @@ export default function AdminPage() {
         await updateArticle(editingAdminArticle.id, {
           title: newArticle.title, category: newArticle.category,
           summary: newArticle.summary, content: newArticle.content, image_url: newArticle.imageUrl,
+          ig_embed_url: newArticle.igEmbedUrl || null,
         });
         setEditingAdminArticle(null);
         showMsg('✅ 文章已更新');
@@ -248,10 +249,11 @@ export default function AdminPage() {
         await createArticle({
           title: newArticle.title, category: newArticle.category,
           summary: newArticle.summary, content: newArticle.content, image_url: newArticle.imageUrl,
+          ig_embed_url: newArticle.igEmbedUrl || null,
         });
         showMsg('✅ 文章已發布');
       }
-      setNewArticle({ title: '', category: 'CPBL', imageUrl: '', summary: '', content: '' });
+      setNewArticle({ title: '', category: 'CPBL', imageUrl: '', summary: '', content: '', igEmbedUrl: '' });
       loadArticles();
     } catch {
       showMsg('❌ 操作失敗，請確認登入狀態');
@@ -379,7 +381,7 @@ export default function AdminPage() {
                 <h2 className="text-2xl font-black">{editingAdminArticle ? '✏️ 編輯文章' : '發布新文章'}</h2>
                 <div className="flex items-center gap-3">
                   {editingAdminArticle && (
-                    <button onClick={() => { setEditingAdminArticle(null); setNewArticle({ title: '', category: 'CPBL', imageUrl: '', summary: '', content: '' }); setArticleImages([]); }}
+                    <button onClick={() => { setEditingAdminArticle(null); setNewArticle({ title: '', category: 'CPBL', imageUrl: '', summary: '', content: '', igEmbedUrl: '' }); setArticleImages([]); }}
                       className="text-sm font-bold text-gray-400 hover:text-red-600 transition">✕ 取消編輯</button>
                   )}
                   {!editingAdminArticle && (
@@ -429,6 +431,9 @@ export default function AdminPage() {
                 <textarea placeholder="文章摘要" value={newArticle.summary} rows={2}
                   onChange={e => setNewArticle(f => ({ ...f, summary: e.target.value }))}
                   className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400 resize-none" />
+                <input type="url" placeholder="Instagram 貼文或個人檔案 URL（選填）" value={newArticle.igEmbedUrl}
+                  onChange={e => setNewArticle(f => ({ ...f, igEmbedUrl: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-pink-400" />
                 <div data-color-mode="light">
                   <MDEditor
                     value={newArticle.content}
@@ -595,7 +600,7 @@ export default function AdminPage() {
                       <div className="flex flex-col gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                         <button onClick={async () => {
                           setEditingAdminArticle(a);
-                          setNewArticle({ title: a.title, category: a.category, imageUrl: a.image_url || '', summary: a.summary || '', content: a.content || '' });
+                          setNewArticle({ title: a.title, category: a.category, imageUrl: a.image_url || '', summary: a.summary || '', content: a.content || '', igEmbedUrl: a.ig_embed_url || '' });
                           // load existing images
                           try {
                             const res = await fetch(`${API_BASE}/api/v1/articles/${a.id}/images`, { credentials: 'include' });

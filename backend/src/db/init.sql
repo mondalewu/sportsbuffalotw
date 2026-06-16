@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS articles (
   id SERIAL PRIMARY KEY,
   title VARCHAR(500) NOT NULL,
   slug VARCHAR(500) UNIQUE NOT NULL,
-  category VARCHAR(50) NOT NULL CHECK (category IN ('WBC','CPBL','NPB','MLB','NBA','田徑','其他')),
+  category VARCHAR(50) NOT NULL CHECK (category IN ('WBC','CPBL','NPB','MLB','NBA','田徑','三級棒球','足球','籃球','其他')),
   summary TEXT,
   content TEXT NOT NULL,
   image_url VARCHAR(1000),
@@ -456,6 +456,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_batter_stats_game_team_player
 -- 確保賽程唯一性索引（用 expression index，支援 ON CONFLICT 子句）
 CREATE UNIQUE INDEX IF NOT EXISTS uq_games_league_teams_date
   ON games (league, team_home, team_away, DATE(game_date AT TIME ZONE 'Asia/Tokyo'));
+
+-- 文章 IG 嵌入 URL
+ALTER TABLE articles ADD COLUMN IF NOT EXISTS ig_embed_url VARCHAR(500);
 
 -- 會員興趣設定
 CREATE TABLE IF NOT EXISTS user_preferences (

@@ -124,7 +124,7 @@ router.get('/:slug', async (req: Request, res: Response): Promise<void> => {
 
 // POST /api/v1/articles  [editor+]
 router.post('/', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
-  const { title, category, summary, content, image_url } = req.body;
+  const { title, category, summary, content, image_url, ig_embed_url } = req.body;
 
   if (!title || !category || !content) {
     res.status(400).json({ message: '標題、分類、內文為必填欄位' });
@@ -134,10 +134,10 @@ router.post('/', verifyToken, requireRole('editor', 'admin'), async (req: Reques
   try {
     const slug = generateSlug(title);
     const result = await pool.query(
-      `INSERT INTO articles (title, slug, category, summary, content, image_url, author_id, is_hot)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+      `INSERT INTO articles (title, slug, category, summary, content, image_url, author_id, is_hot, ig_embed_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8)
        RETURNING *`,
-      [title, slug, category, summary || '', content, image_url || '', req.user!.userId]
+      [title, slug, category, summary || '', content, image_url || '', req.user!.userId, ig_embed_url || null]
     );
 
     await pool.query('UPDATE articles SET is_hot = false WHERE id != $1', [result.rows[0].id]);
@@ -150,7 +150,7 @@ router.post('/', verifyToken, requireRole('editor', 'admin'), async (req: Reques
 
 // PUT /api/v1/articles/:id  [editor+]
 router.put('/:id', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
-  const { title, category, summary, content, image_url, is_hot } = req.body;
+  const { title, category, summary, content, image_url, is_hot, ig_embed_url } = req.body;
 
   try {
     // 更新前先儲存當前版本
@@ -177,10 +177,11 @@ router.put('/:id', verifyToken, requireRole('editor', 'admin'), async (req: Requ
            summary = COALESCE($3, summary),
            content = COALESCE($4, content),
            image_url = COALESCE($5, image_url),
-           is_hot = COALESCE($6, is_hot)
-       WHERE id = $7
+           is_hot = COALESCE($6, is_hot),
+           ig_embed_url = COALESCE($7, ig_embed_url)
+       WHERE id = $8
        RETURNING *`,
-      [title, category, summary, content, image_url, is_hot, req.params.id]
+      [title, category, summary, content, image_url, is_hot, ig_embed_url ?? null, req.params.id]
     );
     res.json(result.rows[0]);
   } catch (err) {

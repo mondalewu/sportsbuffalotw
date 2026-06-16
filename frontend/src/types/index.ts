@@ -17,6 +17,7 @@ export interface Article {
   is_hot: boolean;
   published_at: string;
   images?: ArticleImage[];
+  ig_embed_url?: string | null;
 }
 
 export interface Game {
