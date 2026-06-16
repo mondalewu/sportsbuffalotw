@@ -68,3 +68,12 @@ export interface User {
 }
 
 export type PageType = 'home' | 'wbsc' | 'players' | 'npb' | 'cpbl' | 'admin' | 'poll' | 'article';
+
+export interface ArticleComment {
+  id: number;
+  article_id: number;
+  user_id: number | null;
+  author_name: string;
+  content: string;
+  created_at: string;
+}

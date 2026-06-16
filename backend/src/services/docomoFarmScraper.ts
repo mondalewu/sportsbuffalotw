@@ -610,10 +610,12 @@ async function savePitchData(
   indexData: Record<string, DocomoIndexEntry>,
   gid: string,
   fetchIndividual = false,
+  homeIsDocHome = true,
 ): Promise<void> {
   for (const [atBatKey, atBat] of Object.entries(indexData)) {
     const inning = parseInt(atBat.inning ?? '1', 10);
-    const isTop  = (atBat.tb ?? '1') === '1';
+    const rawIsTop = (atBat.tb ?? '1') === '1';
+    const isTop = homeIsDocHome ? rawIsTop : !rawIsTop;
     const pitcherName = atBat.pitcher?.name ?? atBat.pitcher?.name_l ?? atBat.pitcher?.name_s ?? '';
     const batterName  = atBat.batter?.name  ?? atBat.batter?.name_l  ?? atBat.batter?.name_s  ?? '';
 
@@ -658,6 +660,7 @@ async function savePitchData(
 async function savePlayByPlayFromIndex(
   dbGameId: number,
   indexData: Record<string, DocomoIndexEntry>,
+  homeIsDocHome = true,
 ): Promise<void> {
   await pool.query('DELETE FROM game_play_by_play WHERE game_id = $1', [dbGameId]);
 
@@ -672,7 +675,8 @@ async function savePlayByPlayFromIndex(
   let playOrder = 0;
   for (const [, entry] of entries) {
     const inning = parseInt(entry.inning ?? '1', 10);
-    const isTop  = (entry.tb ?? '1') === '1';
+    const rawIsTop = (entry.tb ?? '1') === '1';
+    const isTop = homeIsDocHome ? rawIsTop : !rawIsTop;
     const batterName = entry.batter.name_l || entry.batter.name || entry.batter.name_s || '';
     if (!batterName) continue;
 
@@ -1004,7 +1008,7 @@ async function fetchAndSaveGame(
 
     if (validAtBats > 0) {
       // index.json に打席データあり → 高品質 PBP を生成
-      await savePlayByPlayFromIndex(dbGameId, indexData);
+      await savePlayByPlayFromIndex(dbGameId, indexData, homeIsDocHome);
     } else {
       // index.json が未充填 → 先読みした earlyPbpData を再利用
       if (earlyPbpData && typeof earlyPbpData === 'object' && !Array.isArray(earlyPbpData)) {
@@ -1013,7 +1017,7 @@ async function fetchAndSaveGame(
     }
 
     // final 時のみ個別打席ファイルを取得（live 時はリクエスト数を抑える）
-    await savePitchData(dbGameId, indexData, gid, status === 'final');
+    await savePitchData(dbGameId, indexData, gid, status === 'final', homeIsDocHome);
   } else {
     // index.json 取得失敗 → 先読みした earlyPbpData を再利用
     if (earlyPbpData && typeof earlyPbpData === 'object' && !Array.isArray(earlyPbpData)) {

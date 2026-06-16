@@ -464,3 +464,16 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   fav_teams   JSONB   NOT NULL DEFAULT '{}',
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- 文章留言
+CREATE TABLE IF NOT EXISTS article_comments (
+  id          SERIAL PRIMARY KEY,
+  article_id  INT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+  user_id     INT REFERENCES users(id) ON DELETE SET NULL,
+  author_name VARCHAR(100) NOT NULL,
+  content     TEXT NOT NULL CHECK (char_length(content) >= 1 AND char_length(content) <= 500),
+  is_hidden   BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_article_comments_article ON article_comments(article_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_article_comments_user ON article_comments(user_id);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import BottomNav from './BottomNav';
 
 interface BeforeInstallPromptEvent extends Event {
@@ -6,19 +6,79 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Search, ChevronDown, LogOut, User } from 'lucide-react';
+import { Search, ChevronDown, LogOut, X as XIcon, Clock } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import AuthModal from './AuthModal';
 import { getGames } from '../api/games';
 import { logout } from '../api/auth';
+import { searchArticles } from '../api/articles';
 import { teamLogos } from '../data/staticData';
-import type { Game } from '../types';
+import type { Game, Article } from '../types';
 
 export default function Layout() {
-  const { currentUser, setCurrentUser, authModal, setAuthModal, preferences } = useApp();
+  const { currentUser, setCurrentUser, authModal, setAuthModal, preferences, setSelectedArticle } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
 
+  // ── 搜尋 ─────────────────────────────────────────────────────────────────
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Article[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openSearch = () => {
+    setSearchOpen(true);
+    setSearchQuery('');
+    setSearchResults([]);
+    setTimeout(() => searchInputRef.current?.focus(), 50);
+  };
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults([]);
+  }, []);
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (q.length < 2) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await searchArticles(q);
+        setSearchResults(res);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeSearch(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [searchOpen, closeSearch]);
+
+  const handleSearchSelect = async (article: Article) => {
+    closeSearch();
+    try {
+      const { getArticleBySlug } = await import('../api/articles');
+      const full = await getArticleBySlug(article.slug);
+      setSelectedArticle(full);
+    } catch {
+      setSelectedArticle(article);
+    }
+    navigate(`/article/${article.slug}`);
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
   const [games, setGames] = useState<Game[]>([]);
   const [npbGames, setNpbGames] = useState<Game[]>([]);
   const [npb2Games, setNpb2Games] = useState<Game[]>([]);
@@ -241,11 +301,94 @@ export default function Layout() {
               ) : (
                 <button onClick={() => setAuthModal('login')} className="bg-gray-100 px-4 py-2 rounded-full text-xs font-bold hover:bg-red-600 hover:text-white transition">登入</button>
               )}
-              <button className="text-gray-500 hover:text-black"><Search className="w-5 h-5" /></button>
+              <button onClick={openSearch} className="text-gray-500 hover:text-black" title="搜尋文章">
+                <Search className="w-5 h-5" />
+              </button>
             </div>
           </div>
         </div>
       </header>
+
+      {/* 搜尋 Modal */}
+      {searchOpen && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/50 flex items-start justify-center pt-20 px-4"
+          onClick={closeSearch}
+        >
+          <div
+            className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* 搜尋輸入框 */}
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
+              <Search className="w-5 h-5 text-gray-400 flex-shrink-0" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="搜尋體育新聞..."
+                className="flex-1 text-base outline-none placeholder-gray-400"
+              />
+              <button onClick={closeSearch} className="text-gray-400 hover:text-gray-600 transition">
+                <XIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 搜尋結果 */}
+            <div className="max-h-[60vh] overflow-y-auto">
+              {searchLoading && (
+                <div className="px-4 py-6 text-center text-gray-400 text-sm">搜尋中...</div>
+              )}
+
+              {!searchLoading && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
+                <div className="px-4 py-6 text-center text-gray-400 text-sm">
+                  找不到「{searchQuery}」相關文章
+                </div>
+              )}
+
+              {!searchLoading && searchResults.length > 0 && (
+                <ul>
+                  {searchResults.map(article => (
+                    <li key={article.id}>
+                      <button
+                        onClick={() => handleSearchSelect(article)}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition text-left"
+                      >
+                        {article.image_url && (
+                          <img
+                            src={article.image_url}
+                            alt=""
+                            className="w-12 h-12 rounded-xl object-cover flex-shrink-0"
+                            referrerPolicy="no-referrer"
+                          />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-black truncate">{article.title}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">{article.category}</span>
+                            <span className="text-[10px] text-gray-400">{article.published_at?.split('T')[0]}</span>
+                          </div>
+                          {article.summary && (
+                            <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{article.summary}</p>
+                          )}
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {searchQuery.trim().length < 2 && (
+                <div className="px-4 py-8 text-center text-gray-400 text-sm">
+                  <Clock className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  輸入 2 個字以上開始搜尋
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Score Bar */}
       <div className="score-bar-container">

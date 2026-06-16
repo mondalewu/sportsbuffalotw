@@ -68,6 +68,29 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// GET /api/v1/articles/search?q=...  (must be before /:slug)
+router.get('/search', async (req: Request, res: Response): Promise<void> => {
+  const q = (req.query.q as string || '').trim();
+  if (!q || q.length < 2) {
+    res.json([]);
+    return;
+  }
+  try {
+    const result = await pool.query(
+      `SELECT id, title, slug, category, summary, image_url, published_at
+       FROM articles
+       WHERE title ILIKE $1 OR summary ILIKE $1
+       ORDER BY published_at DESC
+       LIMIT 12`,
+      [`%${q}%`]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Search error:', err);
+    res.status(500).json({ message: '搜尋失敗' });
+  }
+});
+
 // GET /api/v1/articles/:slug
 router.get('/:slug', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -334,6 +357,74 @@ router.delete('/:id/images/:imgId', verifyToken, requireRole('editor', 'admin'),
     res.status(204).send();
   } catch (err) {
     res.status(500).json({ message: '刪除圖片失敗' });
+  }
+});
+
+// GET /api/v1/articles/:id/comments
+router.get('/:id/comments', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(
+      `SELECT c.id, c.article_id, c.user_id, c.author_name, c.content, c.created_at
+       FROM article_comments c
+       WHERE c.article_id = $1 AND c.is_hidden = FALSE
+       ORDER BY c.created_at ASC`,
+      [req.params.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get comments error:', err);
+    res.status(500).json({ message: '無法取得留言' });
+  }
+});
+
+// POST /api/v1/articles/:id/comments  [member+]
+router.post('/:id/comments', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  const { content } = req.body;
+  if (!content || content.trim().length === 0) {
+    res.status(400).json({ message: '留言內容不可空白' });
+    return;
+  }
+  if (content.length > 500) {
+    res.status(400).json({ message: '留言不可超過 500 字' });
+    return;
+  }
+
+  try {
+    // 取得留言者名稱
+    const userRes = await pool.query('SELECT username FROM users WHERE id = $1', [req.user!.userId]);
+    if (userRes.rows.length === 0) { res.status(403).json({ message: '找不到使用者' }); return; }
+    const authorName = userRes.rows[0].username;
+
+    const result = await pool.query(
+      `INSERT INTO article_comments (article_id, user_id, author_name, content)
+       VALUES ($1, $2, $3, $4) RETURNING id, article_id, user_id, author_name, content, created_at`,
+      [req.params.id, req.user!.userId, authorName, content.trim()]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Post comment error:', err);
+    res.status(500).json({ message: '留言失敗' });
+  }
+});
+
+// DELETE /api/v1/articles/:id/comments/:commentId  [admin 或留言本人]
+router.delete('/:id/comments/:commentId', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const commentRes = await pool.query(
+      'SELECT user_id FROM article_comments WHERE id = $1 AND article_id = $2',
+      [req.params.commentId, req.params.id]
+    );
+    if (commentRes.rows.length === 0) { res.status(404).json({ message: '留言不存在' }); return; }
+
+    const isOwner = commentRes.rows[0].user_id === req.user!.userId;
+    const isAdmin = req.user!.role === 'admin';
+    if (!isOwner && !isAdmin) { res.status(403).json({ message: '無權限刪除此留言' }); return; }
+
+    await pool.query('DELETE FROM article_comments WHERE id = $1', [req.params.commentId]);
+    res.status(204).send();
+  } catch (err) {
+    console.error('Delete comment error:', err);
+    res.status(500).json({ message: '刪除留言失敗' });
   }
 });
 

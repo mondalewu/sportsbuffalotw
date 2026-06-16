@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Calendar, Tag, X, ChevronLeft, ChevronRight, Link2, Check } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import type { Article } from '../types';
+import { useApp } from '../context/AppContext';
+import ArticleComments from './ArticleComments';
 
 interface Props {
   article: Article;
@@ -34,7 +37,6 @@ function Lightbox({ images, initialIndex, onClose }: LightboxProps) {
       className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
       onClick={onClose}
     >
-      {/* Close */}
       <button
         className="absolute top-4 right-4 text-white bg-black/50 rounded-full p-2 hover:bg-black/80 transition"
         onClick={onClose}
@@ -42,7 +44,6 @@ function Lightbox({ images, initialIndex, onClose }: LightboxProps) {
         <X className="w-6 h-6" />
       </button>
 
-      {/* Prev */}
       {images.length > 1 && (
         <button
           className="absolute left-4 text-white bg-black/50 rounded-full p-2 hover:bg-black/80 transition"
@@ -52,7 +53,6 @@ function Lightbox({ images, initialIndex, onClose }: LightboxProps) {
         </button>
       )}
 
-      {/* Image */}
       <img
         src={images[idx]}
         alt=""
@@ -60,7 +60,6 @@ function Lightbox({ images, initialIndex, onClose }: LightboxProps) {
         onClick={e => e.stopPropagation()}
       />
 
-      {/* Next */}
       {images.length > 1 && (
         <button
           className="absolute right-4 text-white bg-black/50 rounded-full p-2 hover:bg-black/80 transition"
@@ -70,7 +69,6 @@ function Lightbox({ images, initialIndex, onClose }: LightboxProps) {
         </button>
       )}
 
-      {/* Counter */}
       {images.length > 1 && (
         <div className="absolute bottom-4 text-white text-sm font-bold bg-black/50 px-3 py-1 rounded-full">
           {idx + 1} / {images.length}
@@ -81,12 +79,13 @@ function Lightbox({ images, initialIndex, onClose }: LightboxProps) {
 }
 
 export default function ArticleDetail({ article, onBack }: Props) {
+  const { currentUser, setAuthModal } = useApp();
   const categoryColor = CATEGORY_COLORS[article.category] ?? 'bg-gray-600';
   const dateStr = article.published_at
     ? new Date(article.published_at).toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric' })
     : '';
 
-  // Build full image list for lightbox: hero + content images + additional images (deduped)
+  // Build full image list for lightbox
   const extraImages = article.images ?? [];
   const contentImageUrls = [...(article.content?.matchAll(/!\[.*?\]\((https?:\/\/[^)]+)\)/g) ?? [])]
     .map(m => m[1]);
@@ -108,6 +107,34 @@ export default function ArticleDetail({ article, onBack }: Props) {
     setLightboxIndex(index);
     setLightboxOpen(true);
   };
+
+  // 載入 Twitter/X widget script（若文章含有 X embed）
+  useEffect(() => {
+    const hasTwitterEmbed = article.content?.includes('twitter-tweet') ||
+                            article.content?.includes('twitter.com') ||
+                            article.content?.includes('x.com/') ;
+    if (!hasTwitterEmbed) return;
+
+    if ((window as any).twttr?.widgets) {
+      (window as any).twttr.widgets.load();
+      return;
+    }
+
+    const existing = document.getElementById('twitter-widget-script');
+    if (existing) {
+      existing.addEventListener('load', () => {
+        (window as any).twttr?.widgets?.load();
+      });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.id = 'twitter-widget-script';
+    script.src = 'https://platform.twitter.com/widgets.js';
+    script.async = true;
+    script.onload = () => (window as any).twttr?.widgets?.load();
+    document.head.appendChild(script);
+  }, [article.content, article.id]);
 
   const pageUrl = typeof window !== 'undefined'
     ? `${window.location.origin}/article/${article.slug}`
@@ -138,9 +165,7 @@ export default function ArticleDetail({ article, onBack }: Props) {
             返回
           </button>
 
-          {/* 分享按鈕 */}
           <div className="flex items-center gap-2">
-            {/* 複製連結 */}
             <button
               onClick={handleCopy}
               title="複製連結"
@@ -229,7 +254,7 @@ export default function ArticleDetail({ article, onBack }: Props) {
 
         <hr className="border-gray-100 mb-8" />
 
-        {/* Content — supports Markdown */}
+        {/* Content — Markdown + raw HTML (for X/Twitter embeds) */}
         <div className="prose prose-lg max-w-none
           prose-headings:font-black
           prose-h2:text-2xl prose-h2:mt-8 prose-h2:mb-4
@@ -247,6 +272,7 @@ export default function ArticleDetail({ article, onBack }: Props) {
         ">
           <Markdown
             remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw]}
             components={{
               img: ({ src, alt }) => {
                 const idx = allImages.indexOf(src ?? '');
@@ -299,6 +325,13 @@ export default function ArticleDetail({ article, onBack }: Props) {
             </div>
           </div>
         )}
+
+        {/* 留言區 */}
+        <ArticleComments
+          articleId={article.id}
+          currentUser={currentUser}
+          onRequireAuth={() => setAuthModal('login')}
+        />
       </main>
     </>
   );
