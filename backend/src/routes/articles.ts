@@ -79,7 +79,7 @@ router.get('/search', async (req: Request, res: Response): Promise<void> => {
     const result = await pool.query(
       `SELECT id, title, slug, category, summary, image_url, published_at
        FROM articles
-       WHERE title ILIKE $1 OR summary ILIKE $1
+       WHERE title ILIKE $1 OR COALESCE(summary, '') ILIKE $1 OR content ILIKE $1
        ORDER BY published_at DESC
        LIMIT 12`,
       [`%${q}%`]
