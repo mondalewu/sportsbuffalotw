@@ -124,8 +124,13 @@ export default function HomePage() {
                     <h2 className="text-3xl font-black text-white leading-tight">{filteredArticles[0].title}</h2>
                   </div>
                 </div>
-                <div className="p-6">
+                <div className="p-6 flex items-center justify-between gap-4">
                   <p className="text-gray-500 text-sm leading-relaxed">{filteredArticles[0].summary}</p>
+                  {filteredArticles[0].published_at && (
+                    <span className="text-gray-400 text-xs font-bold whitespace-nowrap flex-shrink-0">
+                      {new Date(filteredArticles[0].published_at).toLocaleDateString('zh-TW')}
+                    </span>
+                  )}
                 </div>
               </div>
 
