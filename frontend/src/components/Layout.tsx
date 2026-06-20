@@ -152,7 +152,8 @@ export default function Layout() {
 
   const filteredScores =
     scoreCategory === 'LIVE' ? games.filter(g => g.status === 'live' && g.league !== 'CPBL' && g.league !== 'CPBL-W') :
-    scoreCategory === 'NPB' ? npbGames :
+    scoreCategory === 'NPB'  ? npbGames :
+    scoreCategory === 'NPB2' ? npb2Games :
     scoreCategory === 'CPBL' ? cpblGames :
     games.filter(g => g.league === scoreCategory);
 
@@ -417,9 +418,9 @@ export default function Layout() {
         <div className={`overflow-hidden transition-all duration-300 ease-in-out ${scoreBarOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex flex-wrap gap-2 mb-3">
-            {['LIVE', 'CPBL', 'NPB', 'MLB', 'NBA'].map(cat => (
+            {(['LIVE', 'CPBL', 'NPB', 'NPB2', 'MLB', 'NBA'] as const).map(cat => (
               <button key={cat} onClick={() => setScoreCategory(cat)} className={`filter-btn ${scoreCategory === cat ? 'score-tab-active text-white' : 'text-gray-500'}`}>
-                {cat === 'LIVE' ? '正在比賽' : cat}
+                {cat === 'LIVE' ? '正在比賽' : cat === 'NPB2' ? 'NPB二軍' : cat}
               </button>
             ))}
           </div>
