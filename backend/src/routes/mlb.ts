@@ -237,11 +237,11 @@ router.get('/players/taiwan', async (_req: Request, res: Response): Promise<void
   const cached = ttl(key, 30 * 60_000); // 30 分鐘快取
   if (cached) { res.json(cached); return; }
 
-  // 已知台灣/相關選手 MLB ID（可擴充）
+  // 旅美台灣選手 MLB ID（現役）
   const TAIWAN_PLAYER_IDS = [
-    { id: 606945, nameZh: '陳偉殷', retired: true },
-    { id: 518774, nameZh: '王建民', retired: true },
-    { id: 543105, nameZh: '林子偉', retired: false },
+    { id: 678906, nameZh: '鄧悅威', retired: false },  // Houston Astros P
+    { id: 701678, nameZh: '李灝宇', retired: false },  // Detroit Tigers 2B
+    { id: 691907, nameZh: '鄭宗哲', retired: false },  // Boston Red Sox SS
   ];
 
   try {
@@ -256,8 +256,8 @@ router.get('/players/taiwan', async (_req: Request, res: Response): Promise<void
 
     const result = (data.people ?? []).map((p: any) => {
       const tw = TAIWAN_PLAYER_IDS.find(t => t.id === p.id);
-      const batting = p.stats?.find((s: any) => s.type?.displayName === 'season')?.splits?.[0]?.stat;
-      const pitching = p.stats?.find((s: any) => s.type?.displayName === 'season' && s.group?.displayName === 'pitching')?.splits?.[0]?.stat;
+      const batting = p.stats?.find((s: any) => s.type?.displayName === 'season' && s.group?.displayName === 'hitting')?.splits?.[0]?.stat ?? null;
+      const pitching = p.stats?.find((s: any) => s.type?.displayName === 'season' && s.group?.displayName === 'pitching')?.splits?.[0]?.stat ?? null;
       return {
         id: p.id,
         fullName: p.fullName,
