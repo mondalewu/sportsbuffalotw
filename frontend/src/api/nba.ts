@@ -38,3 +38,38 @@ export const getNbaStandings = async (): Promise<NbaStanding[]> => {
   const res = await apiClient.get('/nba/standings');
   return res.data;
 };
+
+export interface NbaPlayerStat {
+  displayName: string;
+  jerseyNumber: string;
+  starter: boolean;
+  stats: string[];
+}
+
+export interface NbaTeamBoxScore {
+  tricode: string;
+  nameZh: string;
+  score: number;
+  linescores: number[];
+  players: NbaPlayerStat[];
+  totals: string[];
+}
+
+export interface NbaGameSummary {
+  gameId: string;
+  gameStatus: number;
+  gameStatusText: string;
+  period: number;
+  gameClock: string;
+  gameTimeUTC: string;
+  venue: string;
+  attendance: number | null;
+  homeTeam: NbaTeamBoxScore;
+  awayTeam: NbaTeamBoxScore;
+  labels: string[];
+}
+
+export const getNbaGameSummary = async (gameId: string): Promise<NbaGameSummary> => {
+  const res = await apiClient.get(`/nba/game/${gameId}`);
+  return res.data;
+};

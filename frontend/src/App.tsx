@@ -4,7 +4,7 @@ import { AppProvider } from './context/AppContext';
 import Layout from './components/Layout';
 import SplashScreen from './components/SplashScreen';
 import HomePage from './pages/HomePage';
-import NPBPage from './pages/NPBPage';
+import NPBPage from './pages/NpbPage';
 import CPBLPage from './pages/CPBLPage';
 import WBSCPage from './pages/WBSCPage';
 import PlayersPage from './pages/PlayersPage';
@@ -14,6 +14,7 @@ import ArticlePage from './pages/ArticlePage';
 import AthleticsPage from './pages/AthleticsPage';
 import NpbGamePage from './pages/NpbGamePage';
 import CpblGamePage from './pages/CpblGamePage';
+import NbaGamePage from './pages/NbaGamePage';
 import SoccerPage from './pages/SoccerPage';
 import TaiwanBaseballPage from './pages/TaiwanBaseballPage';
 import TPSLPage from './pages/TPSLPage';
@@ -31,9 +32,10 @@ export default function App() {
       <AppProvider>
         <SplashScreen />
         <Routes>
-          {/* NPB/CPBL 比賽獨立頁（無 Layout）*/}
+          {/* NPB/CPBL/NBA 比賽獨立頁（無 Layout）*/}
           <Route path="/npb/game/:id" element={<NpbGamePage />} />
           <Route path="/cpbl/game/:id" element={<CpblGamePage />} />
+          <Route path="/nba/game/:gameId" element={<NbaGamePage />} />
           <Route element={<Layout />}>
             <Route path="/" element={<HomePage />} />
             <Route path="/npb" element={<NPBPage />} />
