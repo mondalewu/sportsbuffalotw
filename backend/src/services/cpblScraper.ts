@@ -201,12 +201,16 @@ interface PitcherStatItem {
 
 async function fetchDailyGames(date: Date, kindCode: string): Promise<GameApiItem[]> {
   const params = new URLSearchParams({ GameDate: formatDate(date), KindCode: kindCode });
+  const cookie = await getHomeSession();
   let res;
   try {
     res = await axios.post(`${CPBL_BASE}/home/getdetaillist`, params.toString(), {
       timeout: 15000,
-      headers: COMMON_HEADERS,
-      maxRedirects: 10,
+      headers: {
+        ...COMMON_HEADERS,
+        ...(cookie ? { Cookie: cookie } : {}),
+      },
+      maxRedirects: 5,
     });
   } catch (e: unknown) {
     const status = (e as { response?: { status?: number } })?.response?.status;
@@ -240,10 +244,45 @@ interface BoxLiveResponse {
 const boxSessionCache = new Map<string, { cookie: string; ts: number }>();
 const SESSION_TTL_MS = 4 * 60 * 1000; // 4 分鐘（CPBL session 壽命較短）
 
+// 首頁 session — 給 fetchDailyGames 使用
+let homeSessionCache: { cookie: string; ts: number } | null = null;
+
+async function getHomeSession(): Promise<string> {
+  if (homeSessionCache && Date.now() - homeSessionCache.ts < SESSION_TTL_MS) return homeSessionCache.cookie;
+  try {
+    const resp = await axios.get(CPBL_BASE, {
+      timeout: 15000,
+      headers: {
+        ...COMMON_HEADERS,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Upgrade-Insecure-Requests': '1',
+        'sec-fetch-site': 'none',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-dest': 'document',
+      },
+      maxRedirects: 5,
+    });
+    const raw = resp.headers['set-cookie'];
+    const parts = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    const cookie = parts.map((c: string) => c.split(';')[0]).join('; ');
+    if (cookie) {
+      homeSessionCache = { cookie, ts: Date.now() };
+      console.log(`[CPBL] 取得首頁 session cookie`);
+    }
+    return cookie;
+  } catch (e) {
+    console.warn('[CPBL] 取首頁 session 失敗:', (e as Error).message);
+    return '';
+  }
+}
+
 async function getBoxSession(year: number, kindCode: string, gameSno: number): Promise<string> {
   const key = `${year}-${kindCode}-${gameSno}`;
   const cached = boxSessionCache.get(key);
   if (cached && Date.now() - cached.ts < SESSION_TTL_MS) return cached.cookie;
+
+  // 先取首頁 session，再帶著它訪問 box/live 頁取得 box session
+  const homeCookie = await getHomeSession();
 
   const pageUrl = `${CPBL_BASE}/box/live?year=${year}&kindCode=${kindCode}&gameSno=${gameSno}`;
   try {
@@ -252,24 +291,30 @@ async function getBoxSession(year: number, kindCode: string, gameSno: number): P
       headers: {
         ...COMMON_HEADERS,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'sec-fetch-site': 'none',
+        'sec-fetch-site': 'same-origin',
         'sec-fetch-mode': 'navigate',
         'sec-fetch-dest': 'document',
         'Upgrade-Insecure-Requests': '1',
+        ...(homeCookie ? { Cookie: homeCookie } : {}),
       },
       maxRedirects: 10,
     });
     const raw = resp.headers['set-cookie'];
     const parts = Array.isArray(raw) ? raw : (raw ? [raw] : []);
-    const cookie = parts.map((c: string) => c.split(';')[0]).join('; ');
+    // 合併 home + box cookie
+    const boxParts = parts.map((c: string) => c.split(';')[0]).filter(Boolean);
+    const homeParts = homeCookie ? homeCookie.split('; ').filter(Boolean) : [];
+    const allCookies = [...new Map([...homeParts, ...boxParts].map(c => [c.split('=')[0], c])).values()];
+    const cookie = allCookies.join('; ');
     if (cookie) {
       boxSessionCache.set(key, { cookie, ts: Date.now() });
-      console.log(`[CPBL box] 取得 session cookie (${cookie.length} chars)`);
+      console.log(`[CPBL box] 取得 session (${cookie.length} chars)`);
     }
-    return cookie;
+    return cookie || homeCookie;
   } catch (e) {
     console.warn('[CPBL box] 取 session 失敗:', (e as Error).message);
-    return '';
+    // box page 失敗時改用 home session
+    return homeCookie;
   }
 }
 
@@ -285,11 +330,19 @@ async function fetchBoxLive(
     headers: {
       ...COMMON_HEADERS,
       Referer: pageRef,
+      'sec-fetch-site': 'same-origin',
+      'sec-fetch-mode': 'cors',
+      'sec-fetch-dest': 'empty',
       ...(cookie ? { Cookie: cookie } : {}),
     },
-    maxRedirects: 10,
+    maxRedirects: 5,
+    validateStatus: (s) => s < 400,
   });
 
+  if (!res.data || typeof res.data !== 'object' || !('Success' in res.data)) {
+    console.warn(`[CPBL box] getlive 回傳非 JSON (gameSno=${gameSno}, status=${res.status})`);
+    return { batters: [], liveLog: [], firstSno: [], pitchers: [], visitingScoreboards: [], homeScoreboards: [] };
+  }
   const data = res.data as BoxLiveResponse;
   if (!data.Success) {
     console.warn(`[CPBL box] getlive 回傳 Success=false (gameSno=${gameSno})`);
