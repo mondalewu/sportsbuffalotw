@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Settings, ChevronDown, ChevronRight } from 'lucide-react';
@@ -176,6 +176,94 @@ function DivisionStandings({ division, expanded, onToggle }: {
         </div>
       )}
     </div>
+  );
+}
+
+// ── 小聯盟台灣選手表格 ────────────────────────────────────────────────────────
+const LEVEL_COLORS: Record<string, string> = {
+  AAA: 'bg-purple-50 text-purple-700',
+  AA: 'bg-blue-50 text-blue-700',
+  'High-A': 'bg-green-50 text-green-700',
+  A: 'bg-yellow-50 text-yellow-700',
+  Rk: 'bg-gray-100 text-gray-500',
+};
+const LEVEL_ORDER = ['AAA', 'AA', 'High-A', 'A', 'Rk'];
+
+function MinorLeaguePlayers({ players }: { players: MLBTWMinorPlayer[] }) {
+  if (players.length === 0) return null;
+
+  const grouped = LEVEL_ORDER.reduce<Record<string, MLBTWMinorPlayer[]>>((acc, lv) => {
+    acc[lv] = players.filter(p => p.level === lv);
+    return acc;
+  }, {});
+
+  return (
+    <section className="mb-10">
+      <h2 className="text-xl font-black text-gray-800 mb-4 border-l-4 border-red-600 pl-3">小聯盟台灣選手</h2>
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[600px]">
+            <thead>
+              <tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                <th className="py-2.5 pl-4 pr-2 text-left">球員</th>
+                <th className="py-2.5 px-2 text-center w-14">層級</th>
+                <th className="py-2.5 px-2 text-left">球隊</th>
+                <th className="py-2.5 px-2 text-center w-8">位</th>
+                <th className="py-2.5 px-3 text-left">今年成績</th>
+              </tr>
+            </thead>
+            <tbody>
+              {LEVEL_ORDER.map(lv => {
+                const group = grouped[lv];
+                if (!group || group.length === 0) return null;
+                return (
+                  <Fragment key={lv}>
+                    <tr className="bg-gray-50/70">
+                      <td colSpan={5} className="py-1 pl-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">{lv}</td>
+                    </tr>
+                    {group.map(p => (
+                      <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50 transition">
+                        <td className="py-2.5 pl-4 pr-2">
+                          <span className="font-black text-gray-900 text-sm">{p.nameZh ?? p.fullName}</span>
+                          {p.nameZh && <span className="ml-1.5 text-[10px] text-gray-400">{p.fullName}</span>}
+                          {p.jerseyNumber && <span className="ml-1.5 text-[10px] text-gray-300">#{p.jerseyNumber}</span>}
+                        </td>
+                        <td className="py-2.5 px-2 text-center">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black ${LEVEL_COLORS[p.level] ?? 'bg-gray-100 text-gray-500'}`}>
+                            {p.level}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-2 text-xs text-gray-600">{p.currentTeam}</td>
+                        <td className="py-2.5 px-2 text-center text-xs font-bold text-gray-500">{p.primaryPosition}</td>
+                        <td className="py-2.5 px-3 text-xs text-gray-600">
+                          {p.pitching?.era ? (
+                            <span className="flex gap-3 flex-wrap">
+                              <span>ERA <strong className="text-gray-800">{p.pitching.era}</strong></span>
+                              <span><strong className="text-gray-800">{p.pitching.wins ?? 0}</strong>勝<strong className="text-gray-800">{p.pitching.losses ?? 0}</strong>敗</span>
+                              <span>K <strong className="text-gray-800">{p.pitching.strikeOuts ?? 0}</strong></span>
+                              <span>IP <strong className="text-gray-800">{p.pitching.inningsPitched ?? 0}</strong></span>
+                            </span>
+                          ) : p.batting?.avg ? (
+                            <span className="flex gap-3 flex-wrap">
+                              <span>打率 <strong className="text-gray-800">{p.batting.avg}</strong></span>
+                              <span>HR <strong className="text-gray-800">{p.batting.homeRuns ?? 0}</strong></span>
+                              <span>RBI <strong className="text-gray-800">{p.batting.rbi ?? 0}</strong></span>
+                              <span>安打 <strong className="text-gray-800">{p.batting.hits ?? 0}</strong></span>
+                            </span>
+                          ) : (
+                            <span className="text-gray-300">賽季資料待更新</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -434,87 +522,7 @@ export default function MLBPage() {
         )}
 
         {/* 小聯盟台灣選手 */}
-        {twMinors.length > 0 && (
-          <section className="mb-10">
-            <h2 className="text-xl font-black text-gray-800 mb-4 border-l-4 border-red-600 pl-3">小聯盟台灣選手</h2>
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[600px]">
-                  <thead>
-                    <tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-wider border-b border-gray-100">
-                      <th className="py-2.5 pl-4 pr-2 text-left">球員</th>
-                      <th className="py-2.5 px-2 text-center w-12">層級</th>
-                      <th className="py-2.5 px-2 text-left">球隊</th>
-                      <th className="py-2.5 px-2 text-center w-8">位置</th>
-                      <th className="py-2.5 px-3 text-left">今年成績</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(() => {
-                      let lastLevel = '';
-                      return twMinors.map(p => {
-                        const showHeader = p.level !== lastLevel;
-                        lastLevel = p.level;
-                        const LEVEL_COLORS: Record<string, string> = {
-                          AAA: 'bg-purple-50 text-purple-700',
-                          AA: 'bg-blue-50 text-blue-700',
-                          'High-A': 'bg-green-50 text-green-700',
-                          A: 'bg-yellow-50 text-yellow-700',
-                          Rk: 'bg-gray-50 text-gray-500',
-                        };
-                        const levelColor = LEVEL_COLORS[p.level] ?? 'bg-gray-50 text-gray-500';
-                        return (
-                          <>
-                            {showHeader && (
-                              <tr key={`hdr-${p.level}`} className="bg-gray-50/80">
-                                <td colSpan={5} className="py-1.5 pl-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                  {p.level}
-                                </td>
-                              </tr>
-                            )}
-                            <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50 transition">
-                              <td className="py-2.5 pl-4 pr-2">
-                                <span className="font-black text-gray-900 text-sm">{p.nameZh ?? p.fullName}</span>
-                                {p.nameZh && <span className="ml-1.5 text-[10px] text-gray-400">{p.fullName}</span>}
-                                {p.jerseyNumber && <span className="ml-1.5 text-[10px] text-gray-300">#{p.jerseyNumber}</span>}
-                              </td>
-                              <td className="py-2.5 px-2 text-center">
-                                <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black ${levelColor}`}>
-                                  {p.level}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-2 text-xs text-gray-600">{p.currentTeam}</td>
-                              <td className="py-2.5 px-2 text-center text-xs font-bold text-gray-500">{p.primaryPosition}</td>
-                              <td className="py-2.5 px-3 text-xs text-gray-600">
-                                {p.pitching && p.pitching.era ? (
-                                  <span className="flex gap-3">
-                                    <span>ERA <strong className="text-gray-800">{p.pitching.era ?? '-'}</strong></span>
-                                    <span><strong className="text-gray-800">{p.pitching.wins ?? 0}</strong>勝 <strong className="text-gray-800">{p.pitching.losses ?? 0}</strong>敗</span>
-                                    <span>K <strong className="text-gray-800">{p.pitching.strikeOuts ?? 0}</strong></span>
-                                    <span>IP <strong className="text-gray-800">{p.pitching.inningsPitched ?? 0}</strong></span>
-                                  </span>
-                                ) : p.batting && (p.batting.gamesPlayed !== undefined || p.batting.avg) ? (
-                                  <span className="flex gap-3">
-                                    <span>打率 <strong className="text-gray-800">{p.batting.avg ?? '-'}</strong></span>
-                                    <span>HR <strong className="text-gray-800">{p.batting.homeRuns ?? 0}</strong></span>
-                                    <span>RBI <strong className="text-gray-800">{p.batting.rbi ?? 0}</strong></span>
-                                    <span>安打 <strong className="text-gray-800">{p.batting.hits ?? 0}</strong></span>
-                                  </span>
-                                ) : (
-                                  <span className="text-gray-300">—</span>
-                                )}
-                              </td>
-                            </tr>
-                          </>
-                        );
-                      });
-                    })()}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </section>
-        )}
+        <MinorLeaguePlayers players={twMinors} />
 
         {/* 最新消息 */}
         {mlbNews.length > 0 && (
