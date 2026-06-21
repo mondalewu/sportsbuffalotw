@@ -119,8 +119,10 @@ router.get('/standings', async (_req: Request, res: Response): Promise<void> => 
         streak: t.streak?.streakCode,
         runsScored: t.runsScored,
         runsAllowed: t.runsAllowed,
-        last10: t.records?.splitRecords?.find((s: any) => s.type === 'lastTen')?.wins + '-' +
-                t.records?.splitRecords?.find((s: any) => s.type === 'lastTen')?.losses ?? '',
+        last10: (() => {
+          const r = t.records?.splitRecords?.find((s: any) => s.type === 'lastTen');
+          return r ? `${r.wins ?? 0}-${r.losses ?? 0}` : '';
+        })(),
       })),
     }));
 
