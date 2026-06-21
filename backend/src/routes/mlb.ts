@@ -279,4 +279,79 @@ router.get('/players/taiwan', async (_req: Request, res: Response): Promise<void
   }
 });
 
+// ── GET /api/v1/mlb/players/taiwan/minors ─────────────────────────────────────
+// 旅美台灣選手（小聯盟層級）
+router.get('/players/taiwan/minors', async (_req: Request, res: Response): Promise<void> => {
+  const key = 'tw_minor_players';
+  const cached = ttl(key, 30 * 60_000);
+  if (cached) { res.json(cached); return; }
+
+  const SPORT_IDS = [11, 12, 13, 14, 16]; // AAA, AA, High-A, A, Rookie
+  const SPORT_LABEL: Record<number, string> = { 11: 'AAA', 12: 'AA', 13: 'High-A', 14: 'A', 16: 'Rk' };
+
+  // 中文名稱對照（ID → 中文名）
+  const TAIWAN_ZH: Record<number, string> = {
+    691907: '鄭宗哲', 827734: '林維恩', 801179: '林昱珉', 800018: '莊陳仲敔',
+    696040: '陳柏毓', 808207: '潘文輝', 813820: '林振瑋',
+    800213: '張弘稼', 809223: '沙子宸', 829473: '黃仲翔', 828430: '沈家義',
+    806823: '林盛恩', 828667: '柯敬賢',
+    806825: '陽念希', 808486: '李晨薰', 806836: '林鉑澔',
+    835879: '廖宥霖', 837088: '蘇嵐鴻', 835646: '林張子俊',
+  };
+
+  try {
+    const season = new Date().getFullYear();
+
+    // 各層級查 Taiwan 出生選手，保留最高層級
+    const idLevelMap = new Map<number, { sportId: number; level: string }>();
+    for (const sportId of SPORT_IDS) {
+      const data = await mlbGet(`/sports/${sportId}/players?season=${season}&gameType=R`) as any;
+      for (const p of (data.people ?? [])) {
+        if (p.birthCountry === 'Taiwan' || p.birthCountry === 'Chinese Taipei') {
+          if (!idLevelMap.has(p.id)) {
+            idLevelMap.set(p.id, { sportId, level: SPORT_LABEL[sportId] ?? 'Rk' });
+          }
+        }
+      }
+    }
+
+    if (idLevelMap.size === 0) { res.json([]); return; }
+
+    const ids = [...idLevelMap.keys()];
+    const detail = await mlbGet(
+      `/people?personIds=${ids.join(',')}&hydrate=currentTeam,stats(type=season,season=${season})`
+    ) as any;
+
+    const result = (detail.people ?? []).map((p: any) => {
+      const levelInfo = idLevelMap.get(p.id);
+      const batting = p.stats?.find((s: any) => s.group?.displayName === 'hitting')?.splits?.[0]?.stat ?? null;
+      const pitching = p.stats?.find((s: any) => s.group?.displayName === 'pitching')?.splits?.[0]?.stat ?? null;
+      return {
+        id: p.id,
+        fullName: p.fullName,
+        nameZh: TAIWAN_ZH[p.id] ?? null,
+        currentTeam: p.currentTeam?.name ?? 'N/A',
+        level: levelInfo?.level ?? 'Rk',
+        levelOrder: levelInfo?.sportId ?? 99,
+        primaryPosition: p.primaryPosition?.abbreviation ?? '',
+        jerseyNumber: p.primaryNumber ?? null,
+        batting: batting ? {
+          avg: batting.avg, homeRuns: batting.homeRuns, rbi: batting.rbi,
+          gamesPlayed: batting.gamesPlayed, hits: batting.hits,
+        } : null,
+        pitching: pitching ? {
+          era: pitching.era, wins: pitching.wins, losses: pitching.losses,
+          strikeOuts: pitching.strikeOuts, inningsPitched: pitching.inningsPitched,
+        } : null,
+      };
+    }).sort((a: any, b: any) => a.levelOrder - b.levelOrder || (a.nameZh ?? a.fullName).localeCompare(b.nameZh ?? b.fullName, 'zh'));
+
+    setCache(key, result);
+    res.json(result);
+  } catch (err) {
+    console.error('[MLB TW minor players]', (err as Error).message);
+    res.status(502).json({ message: '無法取得小聯盟選手資料' });
+  }
+});
+
 export default router;

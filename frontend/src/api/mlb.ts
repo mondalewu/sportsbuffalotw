@@ -104,6 +104,24 @@ export const getMLBTaiwanPlayers = async (): Promise<MLBTWPlayer[]> => {
   return res.data;
 };
 
+export interface MLBTWMinorPlayer {
+  id: number;
+  fullName: string;
+  nameZh: string | null;
+  currentTeam: string;
+  level: string;
+  levelOrder: number;
+  primaryPosition: string;
+  jerseyNumber: string | null;
+  batting?: { avg?: string; homeRuns?: number; rbi?: number; gamesPlayed?: number; hits?: number } | null;
+  pitching?: { era?: string; wins?: number; losses?: number; strikeOuts?: number; inningsPitched?: string } | null;
+}
+
+export const getMLBTaiwanMinors = async (): Promise<MLBTWMinorPlayer[]> => {
+  const res = await apiClient.get('/mlb/players/taiwan/minors');
+  return res.data;
+};
+
 // MLB 球隊代碼 → 中文名稱
 export const MLB_TEAM_ZH: Record<string, string> = {
   NYY: '紐約洋基', BOS: '波士頓紅襪', TOR: '多倫多藍鳥', TB: '坦帕灣光芒', BAL: '巴爾的摩金鶯',
