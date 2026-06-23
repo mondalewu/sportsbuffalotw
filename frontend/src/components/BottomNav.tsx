@@ -40,11 +40,13 @@ const tabs = [
     ),
   },
   {
-    label: '田徑',
-    path: '/athletics',
+    label: '桌球',
+    path: '/table-tennis',
     icon: (active: boolean) => (
       <svg className="w-6 h-6" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+        <circle cx="12" cy="8" r="4" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 20l7-7" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8 20h12" />
       </svg>
     ),
   },

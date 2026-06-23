@@ -24,6 +24,7 @@ import TPBLPage from './pages/TPBLPage';
 import TaiwanBasketballPage from './pages/TaiwanBasketballPage';
 import ProfilePage from './pages/ProfilePage';
 import MLBPage from './pages/MLBPage';
+import TableTennisPage from './pages/TableTennisPage';
 
 export default function App() {
   return (
@@ -56,6 +57,7 @@ export default function App() {
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/article" element={<ArticlePage />} />
             <Route path="/article/:slug" element={<ArticlePage />} />
+            <Route path="/table-tennis" element={<TableTennisPage />} />
           </Route>
         </Routes>
       </AppProvider>
