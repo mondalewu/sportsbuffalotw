@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { getWcFixtures, getWcStandings, getWcTopScorers, getWcLive } from '../api/worldcup';
+import type { WcFixture, WcStandingEntry, WcTopScorer } from '../api/worldcup';
 
 // ════════════════════════════════════════════════════════
 //  2026 FIFA World Cup 資料
@@ -165,7 +167,7 @@ const CONF_COLORS: Record<string, string> = {
 };
 
 type Section = 'worldcup' | 'jleague' | 'tpsl';
-type WcTab = 'groups' | 'schedule' | 'venues';
+type WcTab = 'groups' | 'schedule' | 'live' | 'scorers' | 'venues';
 
 export default function SoccerPage() {
   const navigate = useNavigate();
@@ -173,10 +175,83 @@ export default function SoccerPage() {
   const [section, setSection] = useState<Section>('worldcup');
   const [wcTab, setWcTab] = useState<WcTab>('groups');
 
+  // ── API 資料 ──────────────────────────────────────────────
+  const [fixtures, setFixtures] = useState<WcFixture[]>([]);
+  const [liveFixtures, setLiveFixtures] = useState<WcFixture[]>([]);
+  const [standings, setStandings] = useState<WcStandingEntry[][]>([]);
+  const [topScorers, setTopScorers] = useState<WcTopScorer[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [fixtureRound, setFixtureRound] = useState('');
+
+  const loadWcData = useCallback(async () => {
+    if (section !== 'worldcup') return;
+    setLoading(true);
+    setError('');
+    try {
+      const results = await Promise.allSettled([
+        getWcFixtures(),
+        getWcLive(),
+        getWcStandings(),
+        getWcTopScorers(),
+      ]);
+      const fix    = results[0].status === 'fulfilled' ? results[0].value : [];
+      const live   = results[1].status === 'fulfilled' ? results[1].value : [];
+      const stand  = results[2].status === 'fulfilled' ? results[2].value : [];
+      const scorers= results[3].status === 'fulfilled' ? results[3].value : [];
+      setFixtures(fix as typeof fixtures);
+      setLiveFixtures(live as typeof liveFixtures);
+      setStandings(stand as typeof standings);
+      setTopScorers(scorers as typeof topScorers);
+      // 預設顯示最近一輪
+      const fixArr = fix as typeof fixtures;
+      const rounds = [...new Set(fixArr.map(f => f.league.round))];
+      if (rounds.length > 0) {
+        const now = Date.now();
+        const upcoming = fixArr.filter(f => new Date(f.fixture.date).getTime() >= now);
+        setFixtureRound(upcoming.length > 0 ? upcoming[0].league.round : rounds[rounds.length - 1]);
+      }
+    } catch {
+      setError('無法連線，請稍後再試');
+    } finally {
+      setLoading(false);
+    }
+  }, [section]);
+
   useEffect(() => {
     const s = searchParams.get('section');
     if (s === 'worldcup' || s === 'jleague' || s === 'tpsl') setSection(s);
   }, [searchParams]);
+
+  useEffect(() => {
+    loadWcData();
+  }, [loadWcData]);
+
+  // 即時比賽每 30 秒刷新一次
+  useEffect(() => {
+    if (section !== 'worldcup') return;
+    const iv = setInterval(async () => {
+      try { setLiveFixtures(await getWcLive()); } catch {}
+    }, 30_000);
+    return () => clearInterval(iv);
+  }, [section]);
+
+  // 比賽狀態中文
+  const statusLabel = (f: WcFixture) => {
+    const s = f.fixture.status.short;
+    if (s === 'NS') return new Date(f.fixture.date).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Taipei' });
+    if (s === '1H') return `上半場 ${f.fixture.status.elapsed}'`;
+    if (s === 'HT') return '中場休息';
+    if (s === '2H') return `下半場 ${f.fixture.status.elapsed}'`;
+    if (s === 'FT') return '終場';
+    if (s === 'AET') return '延長終場';
+    if (s === 'PEN') return 'PK賽';
+    if (s === 'ET') return `延長 ${f.fixture.status.elapsed}'`;
+    return f.fixture.status.long;
+  };
+
+  const isLive = (f: WcFixture) => ['1H','2H','ET','HT','BT'].includes(f.fixture.status.short);
+  const isFinished = (f: WcFixture) => ['FT','AET','PEN'].includes(f.fixture.status.short);
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -218,7 +293,13 @@ export default function SoccerPage() {
 
           {/* Sub tabs */}
           <div className="flex gap-2 mb-5 flex-wrap">
-            {([['groups', '🏆 分組資料'], ['schedule', '📅 賽事時程'], ['venues', '🏟️ 主辦城市']] as [WcTab, string][]).map(([k, label]) => (
+            {([
+              ['live',    `⚡ 即時比賽${liveFixtures.length > 0 ? ` (${liveFixtures.length})` : ''}`],
+              ['groups',  '🏆 積分榜'],
+              ['schedule','📅 賽程'],
+              ['scorers', '⚽ 射手榜'],
+              ['venues',  '🏟️ 場館'],
+            ] as [WcTab, string][]).map(([k, label]) => (
               <button key={k} onClick={() => setWcTab(k)}
                 className={`px-4 py-2 rounded-xl font-black text-sm border transition-all ${wcTab === k ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}>
                 {label}
@@ -226,76 +307,217 @@ export default function SoccerPage() {
             ))}
           </div>
 
-          {/* 分組 */}
-          {wcTab === 'groups' && (
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-bold text-gray-500">12組 × 4隊，每組前2 + 8支最佳第3晉級</span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {WC_GROUPS.map(g => (
-                  <div key={g.name} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="bg-green-700 px-4 py-2">
-                      <span className="text-white font-black">Group {g.name}</span>
-                    </div>
-                    <div className="divide-y divide-gray-50">
-                      {g.teams.map(t => (
-                        <div key={t.name} className="flex items-center justify-between px-4 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xl">{t.flag}</span>
-                            <span className="font-bold text-sm">{t.name}</span>
-                          </div>
-                          <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${CONF_COLORS[t.conf] ?? 'bg-gray-100 text-gray-500'}`}>{t.conf}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {loading && wcTab !== 'venues' && <div className="text-center py-16 text-gray-400 font-bold">載入中...</div>}
+          {error && wcTab !== 'venues' && (
+            <div className="text-center py-10">
+              <p className="text-red-500 font-bold mb-3">{error}</p>
+              <button onClick={loadWcData} className="px-5 py-2 rounded-xl bg-green-700 text-white font-black text-sm hover:bg-green-800 transition">重新載入</button>
             </div>
           )}
 
-          {/* 時程 */}
-          {wcTab === 'schedule' && (
-            <div className="space-y-4">
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="divide-y divide-gray-50">
-                  {WC_KEY_DATES.map((d, i) => (
-                    <div key={i} className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition">
-                      <div className="w-40 shrink-0 text-sm font-black text-green-700">{d.date}</div>
-                      <div className="flex-1">
-                        <p className="font-black text-gray-900">{d.event}</p>
-                        {d.note && <p className="text-xs text-gray-400 mt-0.5">{d.note}</p>}
+          {(!loading && !error) || wcTab === 'venues' ? (
+            <>
+              {/* ── 即時比賽 ── */}
+              {wcTab === 'live' && (
+                <div className="space-y-3">
+                  {liveFixtures.length === 0 ? (
+                    <div className="text-center py-16 text-gray-400">
+                      <p className="text-4xl mb-3">⚽</p>
+                      <p className="font-bold">目前沒有進行中的比賽</p>
+                    </div>
+                  ) : liveFixtures.map(f => (
+                    <div key={f.fixture.id} className="bg-white rounded-2xl border border-red-200 shadow-sm p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="flex items-center gap-1 text-xs font-black text-red-600">
+                          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                          LIVE · {statusLabel(f)}
+                        </span>
+                        <span className="text-xs text-gray-400">{f.league.round}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3 flex-1 justify-end">
+                          <span className="font-black text-sm text-right">{f.teams.home.name}</span>
+                          <img src={f.teams.home.logo} alt="" className="w-8 h-8 object-contain" />
+                        </div>
+                        <div className="text-2xl font-black tabular-nums shrink-0 w-20 text-center">
+                          {f.goals.home ?? 0} : {f.goals.away ?? 0}
+                        </div>
+                        <div className="flex items-center gap-3 flex-1">
+                          <img src={f.teams.away.logo} alt="" className="w-8 h-8 object-contain" />
+                          <span className="font-black text-sm">{f.teams.away.name}</span>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
-              </div>
-              <div className="bg-green-50 border border-green-100 rounded-2xl p-5">
-                <h3 className="font-black text-green-800 mb-2">新賽制說明</h3>
-                <p className="text-sm text-green-700">48支球隊分12組，各組前2名 + 8支最佳第3名 = 32強，之後進行單淘汰賽至決賽。</p>
-              </div>
-            </div>
-          )}
+              )}
 
-          {/* 場館 */}
-          {wcTab === 'venues' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {WC_HOST_CITIES.map(v => (
-                <div key={v.city} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
-                  <span className="text-2xl shrink-0">{v.country}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-black text-gray-900 text-sm">{v.city}</span>
-                      {v.note && <span className="text-[10px] font-black bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">{v.note}</span>}
+              {/* ── 積分榜 ── */}
+              {wcTab === 'groups' && (
+                <div>
+                  {standings.length === 0 ? (
+                    <div className="text-center py-12 text-gray-400 font-bold">積分榜資料尚未開放（小組賽開始後更新）</div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {standings.map((group, gi) => (
+                        <div key={gi} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                          <div className="bg-green-700 px-4 py-2 flex items-center justify-between">
+                            <span className="text-white font-black">Group {group[0]?.group ?? String.fromCharCode(65 + gi)}</span>
+                          </div>
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="text-gray-400 border-b border-gray-100">
+                                <th className="text-left px-3 py-1.5">#</th>
+                                <th className="text-left px-2 py-1.5">球隊</th>
+                                <th className="px-1 py-1.5 text-center">場</th>
+                                <th className="px-1 py-1.5 text-center">勝</th>
+                                <th className="px-1 py-1.5 text-center">平</th>
+                                <th className="px-1 py-1.5 text-center">負</th>
+                                <th className="px-1 py-1.5 text-center">淨</th>
+                                <th className="px-2 py-1.5 text-center font-black text-gray-700">積</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                              {group.map(t => (
+                                <tr key={t.team.id} className={`hover:bg-gray-50 ${t.rank <= 2 ? 'bg-green-50/40' : ''}`}>
+                                  <td className="px-3 py-2 font-black text-gray-500">{t.rank}</td>
+                                  <td className="px-2 py-2">
+                                    <div className="flex items-center gap-1.5">
+                                      <img src={t.team.logo} alt="" className="w-4 h-4 object-contain" />
+                                      <span className="font-bold truncate max-w-[90px]">{t.team.name}</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-1 py-2 text-center text-gray-500">{t.all.played}</td>
+                                  <td className="px-1 py-2 text-center text-gray-700">{t.all.win}</td>
+                                  <td className="px-1 py-2 text-center text-gray-500">{t.all.draw}</td>
+                                  <td className="px-1 py-2 text-center text-gray-500">{t.all.lose}</td>
+                                  <td className="px-1 py-2 text-center text-gray-500">{t.goalsDiff > 0 ? `+${t.goalsDiff}` : t.goalsDiff}</td>
+                                  <td className="px-2 py-2 text-center font-black text-green-700">{t.points}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ))}
                     </div>
-                    <p className="text-xs text-gray-500 truncate">{v.stadium}</p>
-                    <p className="text-xs text-gray-400">容量 {v.cap}</p>
-                  </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
+              )}
+
+              {/* ── 賽程 ── */}
+              {wcTab === 'schedule' && (
+                <div className="space-y-4">
+                  {/* 輪次選擇 */}
+                  {fixtures.length > 0 && (
+                    <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                      {[...new Set(fixtures.map(f => f.league.round))].map(round => (
+                        <button key={round} onClick={() => setFixtureRound(round)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-black whitespace-nowrap border transition ${fixtureRound === round ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-500 border-gray-200 hover:border-green-400'}`}>
+                          {round}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    {fixtures.filter(f => f.league.round === fixtureRound).length === 0 && (
+                      <div className="text-center py-12 text-gray-400 font-bold">尚無此輪賽程資料</div>
+                    )}
+                    {fixtures.filter(f => f.league.round === fixtureRound).map(f => (
+                      <div key={f.fixture.id} className={`bg-white rounded-xl border shadow-sm p-3 ${isLive(f) ? 'border-red-200' : 'border-gray-100'}`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${isLive(f) ? 'bg-red-100 text-red-600' : isFinished(f) ? 'bg-gray-100 text-gray-500' : 'bg-green-50 text-green-700'}`}>
+                            {isLive(f) && <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse mr-1" />}
+                            {statusLabel(f)}
+                          </span>
+                          <span className="text-[10px] text-gray-400">{f.fixture.venue.city}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2 flex-1 justify-end">
+                            <span className="font-black text-sm text-right">{f.teams.home.name}</span>
+                            <img src={f.teams.home.logo} alt="" className="w-7 h-7 object-contain shrink-0" />
+                          </div>
+                          <div className={`text-xl font-black tabular-nums w-16 text-center ${isLive(f) ? 'text-red-600' : ''}`}>
+                            {f.goals.home ?? '-'} : {f.goals.away ?? '-'}
+                          </div>
+                          <div className="flex items-center gap-2 flex-1">
+                            <img src={f.teams.away.logo} alt="" className="w-7 h-7 object-contain shrink-0" />
+                            <span className="font-black text-sm">{f.teams.away.name}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* 靜態關鍵時程 */}
+                  {fixtures.length === 0 && (
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                      <div className="divide-y divide-gray-50">
+                        {WC_KEY_DATES.map((d, i) => (
+                          <div key={i} className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition">
+                            <div className="w-40 shrink-0 text-sm font-black text-green-700">{d.date}</div>
+                            <div className="flex-1">
+                              <p className="font-black text-gray-900">{d.event}</p>
+                              {d.note && <p className="text-xs text-gray-400 mt-0.5">{d.note}</p>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── 射手榜 ── */}
+              {wcTab === 'scorers' && (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  {topScorers.length === 0 ? (
+                    <div className="text-center py-12 text-gray-400 font-bold">射手榜資料尚未開放</div>
+                  ) : (
+                    <div className="divide-y divide-gray-50">
+                      {topScorers.slice(0, 20).map((p, i) => (
+                        <div key={p.player.id} className="flex items-center gap-3 px-4 py-3">
+                          <span className={`text-xs font-black w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${i === 0 ? 'bg-yellow-400 text-white' : i === 1 ? 'bg-gray-300 text-white' : i === 2 ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-500'}`}>{i + 1}</span>
+                          <img src={p.player.photo} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-black text-sm text-gray-800">{p.player.name}</p>
+                            <p className="text-xs text-gray-400">{p.statistics[0]?.team.name}</p>
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <div className="text-center">
+                              <div className="text-xl font-black text-green-700">{p.statistics[0]?.goals.total ?? 0}</div>
+                              <div className="text-[10px] text-gray-400">進球</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-xl font-black text-blue-600">{p.statistics[0]?.goals.assists ?? 0}</div>
+                              <div className="text-[10px] text-gray-400">助攻</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── 場館 ── */}
+              {wcTab === 'venues' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {WC_HOST_CITIES.map(v => (
+                    <div key={v.city} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
+                      <span className="text-2xl shrink-0">{v.country}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-black text-gray-900 text-sm">{v.city}</span>
+                          {v.note && <span className="text-[10px] font-black bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">{v.note}</span>}
+                        </div>
+                        <p className="text-xs text-gray-500 truncate">{v.stadium}</p>
+                        <p className="text-xs text-gray-400">容量 {v.cap}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : null}
         </div>
       )}
 

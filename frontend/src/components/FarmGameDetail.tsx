@@ -1605,8 +1605,9 @@ const SHORT_JA_TO_ZH: Record<string, string> = {
   '遊直': '游直', '二直': '二直', '三直': '三直', '一直': '一直', '投直': '投直', '左直': '左直', '右直': '右直', '中直': '中直',
   '中安': '中安', '左安': '左安', '右安': '右安', '三安': '三壘安', '内安': '內野安',
   '右2': '右二壘打', '左2': '左二壘打', '中2': '中二壘打', '右中2': '右中二壘打', '左中2': '左中二壘打',
-  '右３': '右三壘打', '左３': '左三壘打', '中３': '中三壘打',
-  '右3': '右三壘打', '左3': '左三壘打', '中3': '中三壘打',
+  '右２': '右二壘打', '左２': '左二壘打', '中２': '中二壘打', '右中２': '右中二壘打', '左中２': '左中二壘打',
+  '右３': '右三壘打', '左３': '左三壘打', '中３': '中三壘打', '右中３': '右中三壘打', '左中３': '左中三壘打',
+  '右3': '右三壘打', '左3': '左三壘打', '中3': '中三壘打', '右中3': '右中三壘打', '左中3': '左中三壘打',
   '右本': '右全壘', '左本': '左全壘', '中本': '中全壘', '右中本': '右中全壘', '左中本': '左中全壘',
   '空三振': '揮三振', '見三振': '看三振',
   '四球': '四壞球', '死球': '觸身球',
@@ -1734,14 +1735,22 @@ function BatterTable({ title, batters, pitchData }: {
                   {inningCols.map(n => {
                     const result = b.at_bat_results?.[n - 1] ?? '';
                     const translated = translateShortResult(result);
-                    const isHr  = /本$|本塁打|ホームラン|全壘/.test(result);
-                    const isHit = !isHr && (/安$|安打|ヒット|二壘打|三壘安/.test(result) || /[１1２2３3]$/.test(result));
+                    // 去除打點圓圈符號 ①②③... 再判斷結果類型
+                    // result 可能是 DB 日文短格式（"左中2"）或 computed 中文短格式（"二壘打"）
+                    const base = result.replace(/[①②③④⑤⑥⑦⑧⑨⑩]/g, '');
+                    const isHr     = /本$|本塁打|ホームラン|全壘打?/.test(base);
+                    const isTriple = !isHr && (/三塁打|三壘安/.test(base) || /[３3]$/.test(base));
+                    const isDouble = !isHr && !isTriple && (/二塁打|二壘打|二壘安打/.test(base) || /[２2]$/.test(base));
+                    const isSingle = !isHr && !isTriple && !isDouble &&
+                                     (/安$|安打|ヒット|内野安打|內野安/.test(base));
                     return (
                       <td key={n} className="px-1 py-1 text-center whitespace-nowrap">
                         {result ? (
                           <span className={
-                            isHr  ? 'inline-block px-1 rounded font-bold text-white bg-red-600' :
-                            isHit ? 'inline-block px-1 rounded font-bold text-red-600 bg-red-50' :
+                            isHr     ? 'inline-block px-1 rounded font-bold text-white bg-red-600' :
+                            isTriple ? 'inline-block px-1 rounded font-bold text-white bg-orange-500' :
+                            isDouble ? 'inline-block px-1 rounded font-bold text-yellow-900 bg-yellow-200' :
+                            isSingle ? 'inline-block px-1 rounded font-bold text-red-600 bg-red-50' :
                             'text-gray-500'
                           }>
                             {translated}

@@ -44,7 +44,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         SELECT player_name FROM game_batter_stats WHERE game_id = g.id
         UNION ALL
         SELECT player_name FROM game_pitcher_stats WHERE game_id = g.id
-      ) _p WHERE _p.player_name = ANY(${twPlayerParam}::text[])
+      ) _p WHERE REPLACE(_p.player_name, ' ', '') = ANY(${twPlayerParam}::text[])
     )`;
 
     let query = `SELECT g.id, g.league, g.team_home, g.team_away, g.score_home, g.score_away,

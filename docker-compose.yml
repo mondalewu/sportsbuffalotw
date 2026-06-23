@@ -3,6 +3,7 @@ services:
     build:
       context: ./frontend
       target: development
+    restart: always
     ports:
       - "5173:5173"
     volumes:
@@ -20,6 +21,7 @@ services:
     build:
       context: ./backend
       target: development
+    restart: always
     ports:
       - "3001:3001"
     volumes:
@@ -38,6 +40,7 @@ services:
 
   db:
     image: postgres:16-alpine
+    restart: always
     ports:
       - "5432:5432"
     environment:
@@ -57,6 +60,7 @@ services:
 
   pgadmin:
     image: dpage/pgadmin4:latest
+    restart: always
     ports:
       - "5050:80"
     environment:

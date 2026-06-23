@@ -2807,14 +2807,20 @@ function SanspoManualPanel({ addLog }: { addLog: (msg: string, type: 'success' |
 
 // ─── 影片管理 Tab（獨立元件避免主元件過長）────────────────────────────────────
 function VideoManagerTab({ showMsg }: { showMsg: (m: string) => void }) {
-  const [videos, setVideos] = useState<{ id: number; title: string; type: string; url: string; thumbnail_url: string | null; is_active: boolean }[]>([]);
+  const [videos, setVideos] = useState<{ id: number; title: string; type: string; url: string; thumbnail_url: string | null; is_active: boolean; category?: string }[]>([]);
   const [ytUrl, setYtUrl] = useState('');
   const [ytTitle, setYtTitle] = useState('');
   const [ytCategory, setYtCategory] = useState('');
   const [saving, setSaving] = useState(false);
+  const [previewId, setPreviewId] = useState<number | null>(null);
+
+  const authHeaders = () => {
+    const token = localStorage.getItem('authToken');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
 
   const load = () =>
-    fetch(`${API_BASE}/api/v1/videos/admin`, { credentials: 'include' })
+    fetch(`${API_BASE}/api/v1/videos/admin`, { credentials: 'include', headers: authHeaders() })
       .then(r => r.json()).then(d => Array.isArray(d) && setVideos(d)).catch(() => {});
 
   React.useEffect(() => { load(); }, []);
@@ -2825,7 +2831,7 @@ function VideoManagerTab({ showMsg }: { showMsg: (m: string) => void }) {
     try {
       const r = await fetch(`${API_BASE}/api/v1/videos`, {
         method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ title: ytTitle, type: 'youtube', url: ytUrl, category: ytCategory }),
       });
       if (!r.ok) throw new Error('新增失敗');
@@ -2837,14 +2843,14 @@ function VideoManagerTab({ showMsg }: { showMsg: (m: string) => void }) {
 
   const del = async (id: number) => {
     if (!confirm('確定刪除？')) return;
-    await fetch(`${API_BASE}/api/v1/videos/${id}`, { method: 'DELETE', credentials: 'include' });
+    await fetch(`${API_BASE}/api/v1/videos/${id}`, { method: 'DELETE', credentials: 'include', headers: authHeaders() });
     load(); showMsg('✅ 已刪除');
   };
 
   const toggle = async (id: number, is_active: boolean) => {
     await fetch(`${API_BASE}/api/v1/videos/${id}`, {
       method: 'PUT', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ is_active }),
     });
     load();
@@ -2895,31 +2901,77 @@ function VideoManagerTab({ showMsg }: { showMsg: (m: string) => void }) {
         {videos.length === 0 ? (
           <p className="text-gray-400 text-sm font-bold text-center py-8">尚無影片</p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {videos.map(v => (
-              <div key={v.id} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
-                {v.thumbnail_url && (
-                  <img src={v.thumbnail_url} alt="" className="w-20 h-12 rounded-lg object-cover flex-shrink-0" />
+              <div key={v.id} className={`rounded-2xl border overflow-hidden transition-all ${v.is_active ? 'border-green-200 bg-green-50/30' : 'border-gray-100 bg-gray-50'}`}>
+                {/* 影片資訊列 */}
+                <div className="flex items-center gap-3 p-3">
+                  {/* 縮圖（點擊預覽） */}
+                  <button
+                    onClick={() => setPreviewId(previewId === v.id ? null : v.id)}
+                    className="relative w-24 h-14 rounded-xl overflow-hidden flex-shrink-0 group"
+                    title="點擊預覽影片"
+                  >
+                    {v.thumbnail_url
+                      ? <img src={v.thumbnail_url} alt="" className="w-full h-full object-cover" />
+                      : <div className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-400 text-xl">▶</div>
+                    }
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                      <span className="text-white text-2xl">{previewId === v.id ? '✕' : '▶'}</span>
+                    </div>
+                  </button>
+
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-black text-gray-800 truncate">{v.title || '（無標題）'}</p>
+                    <p className="text-xs text-gray-400 font-mono truncate mt-0.5">
+                      {v.type === 'youtube' ? `youtube.com/watch?v=${v.url}` : v.url}
+                    </p>
+                    {v.category && (
+                      <span className="inline-block text-[9px] font-black px-2 py-0.5 rounded-full bg-blue-100 text-blue-600 mt-1">{v.category}</span>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                    {/* 首頁顯示切換開關 */}
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <span className="text-xs font-black text-gray-500">首頁顯示</span>
+                      <button
+                        onClick={() => toggle(v.id, !v.is_active)}
+                        className={`relative w-10 h-5 rounded-full transition-colors ${v.is_active ? 'bg-green-500' : 'bg-gray-300'}`}
+                      >
+                        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${v.is_active ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                      </button>
+                    </label>
+                    {/* 預覽 & 刪除 */}
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => setPreviewId(previewId === v.id ? null : v.id)}
+                        className="text-xs font-bold px-2 py-1 rounded-lg border border-blue-200 text-blue-500 hover:bg-blue-50 transition"
+                      >
+                        {previewId === v.id ? '收起' : '預覽'}
+                      </button>
+                      <button onClick={() => del(v.id)}
+                        className="text-xs font-bold px-2 py-1 rounded-lg border border-red-200 text-red-400 hover:bg-red-50 transition">
+                        刪除
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* YouTube 內嵌播放器（展開時顯示） */}
+                {previewId === v.id && v.type === 'youtube' && (
+                  <div className="px-3 pb-3">
+                    <div className="relative w-full rounded-xl overflow-hidden bg-black" style={{ paddingTop: '56.25%' }}>
+                      <iframe
+                        className="absolute inset-0 w-full h-full"
+                        src={`https://www.youtube.com/embed/${v.url}?autoplay=1`}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        title={v.title || 'YouTube 影片'}
+                      />
+                    </div>
+                  </div>
                 )}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-black text-gray-800 truncate">{v.title || '（無標題）'}</p>
-                  <p className="text-xs text-gray-400 font-mono truncate mt-0.5">
-                    {v.type === 'youtube' ? `youtube.com/watch?v=${v.url}` : v.url}
-                  </p>
-                  <span className={`inline-block text-[9px] font-black px-2 py-0.5 rounded-full mt-1 ${v.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
-                    {v.is_active ? '✅ 顯示中' : '⏸ 隱藏'}
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1 flex-shrink-0">
-                  <button onClick={() => toggle(v.id, !v.is_active)}
-                    className="text-xs font-bold px-3 py-1 rounded-lg border border-gray-200 hover:border-gray-400 transition">
-                    {v.is_active ? '隱藏' : '顯示'}
-                  </button>
-                  <button onClick={() => del(v.id)}
-                    className="text-xs font-bold px-3 py-1 rounded-lg border border-red-200 text-red-400 hover:bg-red-50 transition">
-                    刪除
-                  </button>
-                </div>
               </div>
             ))}
           </div>

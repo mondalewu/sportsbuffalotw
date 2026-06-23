@@ -8,6 +8,8 @@ const BASE_URL = 'https://v3.football.api-sports.io';
 const WC_LEAGUE = 1;   // FIFA World Cup
 const WC_SEASON = 2026;
 
+const NOT_CONFIGURED = { configured: false, message: 'API_FOOTBALL_KEY 未設定，足球功能尚未啟用' };
+
 // 簡易記憶體快取（避免超出免費 100 req/day 限制）
 const cache = new Map<string, { data: unknown; at: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 分鐘
@@ -26,6 +28,7 @@ async function apiFetch(path: string): Promise<unknown> {
 
 // GET /api/v1/worldcup/fixtures — 所有賽程（含即時比分）
 router.get('/fixtures', async (_req: Request, res: Response): Promise<void> => {
+  if (!API_KEY) { res.json(NOT_CONFIGURED); return; }
   try {
     const data = await apiFetch(`/fixtures?league=${WC_LEAGUE}&season=${WC_SEASON}`);
     res.json(data);
@@ -37,6 +40,7 @@ router.get('/fixtures', async (_req: Request, res: Response): Promise<void> => {
 
 // GET /api/v1/worldcup/fixtures/live — 正在進行的比賽
 router.get('/fixtures/live', async (_req: Request, res: Response): Promise<void> => {
+  if (!API_KEY) { res.json(NOT_CONFIGURED); return; }
   try {
     const data = await apiFetch(`/fixtures?live=all&league=${WC_LEAGUE}`);
     res.json(data);
@@ -48,6 +52,7 @@ router.get('/fixtures/live', async (_req: Request, res: Response): Promise<void>
 
 // GET /api/v1/worldcup/standings — 小組積分榜
 router.get('/standings', async (_req: Request, res: Response): Promise<void> => {
+  if (!API_KEY) { res.json(NOT_CONFIGURED); return; }
   try {
     const data = await apiFetch(`/standings?league=${WC_LEAGUE}&season=${WC_SEASON}`);
     res.json(data);
@@ -59,6 +64,7 @@ router.get('/standings', async (_req: Request, res: Response): Promise<void> => 
 
 // GET /api/v1/worldcup/teams — 所有參賽隊伍
 router.get('/teams', async (_req: Request, res: Response): Promise<void> => {
+  if (!API_KEY) { res.json(NOT_CONFIGURED); return; }
   try {
     const data = await apiFetch(`/teams?league=${WC_LEAGUE}&season=${WC_SEASON}`);
     res.json(data);
@@ -70,6 +76,7 @@ router.get('/teams', async (_req: Request, res: Response): Promise<void> => {
 
 // GET /api/v1/worldcup/topscorers — 射手榜
 router.get('/topscorers', async (_req: Request, res: Response): Promise<void> => {
+  if (!API_KEY) { res.json(NOT_CONFIGURED); return; }
   try {
     const data = await apiFetch(`/players/topscorers?league=${WC_LEAGUE}&season=${WC_SEASON}`);
     res.json(data);

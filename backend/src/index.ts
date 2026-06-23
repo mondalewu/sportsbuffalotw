@@ -196,6 +196,29 @@ app.use((_req, res) => {
   res.status(404).json({ message: '找不到該路由' });
 });
 
+// 自動修復：將過去日期卡住的 scheduled 遊戲標記為 final（無比分）
+async function fixStuckScheduledGames() {
+  try {
+    const r = await pool.query(`
+      UPDATE games SET status = 'final'
+      WHERE status = 'scheduled'
+        AND (
+          (league LIKE 'CPBL%'
+           AND DATE(game_date AT TIME ZONE 'Asia/Taipei')
+               < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Taipei')::date)
+          OR
+          (league LIKE 'NPB%'
+           AND DATE(game_date AT TIME ZONE 'Asia/Tokyo')
+               < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tokyo')::date)
+        )
+    `);
+    if (r.rowCount && r.rowCount > 0)
+      console.log(`[Cron] 自動修復 ${r.rowCount} 個卡住的 scheduled 遊戲 → final`);
+  } catch (e) {
+    console.warn('[Cron] fixStuckScheduledGames 失敗:', (e as Error).message);
+  }
+}
+
 // 自動修復：將過去日期卡住的 live 遊戲標記為 final
 async function fixStuckLiveGames() {
   try {
@@ -301,8 +324,11 @@ function startScraperCron() {
     await fixStuckLiveGames();
   });
 
-  // ── 每天 18:00 UTC（02:00 TWN）：自動修復卡住的 live 遊戲 ──────────────
-  cron.schedule('0 18 * * *', fixStuckLiveGames);
+  // ── 每天 18:00 UTC（02:00 TWN）：自動修復卡住的比賽 ─────────────────────
+  cron.schedule('0 18 * * *', async () => {
+    await fixStuckLiveGames();
+    await fixStuckScheduledGames();
+  });
 
   // ── 每週一 00:00 UTC（08:00 TWN）：CPBL 球員名冊更新 ───────────────────
   cron.schedule('0 0 * * 1', async () => {
@@ -320,6 +346,9 @@ autoMigrate().then(async () => {
   app.listen(PORT, () => {
     console.log(`🐃 水牛體育 API 已啟動: http://localhost:${PORT}`);
     startScraperCron();
+    // 啟動時立即修復所有卡住的比賽
+    fixStuckScheduledGames();
+    fixStuckLiveGames();
   });
 });
 
