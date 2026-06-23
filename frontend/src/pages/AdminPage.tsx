@@ -431,9 +431,52 @@ export default function AdminPage() {
                 <textarea placeholder="文章摘要" value={newArticle.summary} rows={2}
                   onChange={e => setNewArticle(f => ({ ...f, summary: e.target.value }))}
                   className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400 resize-none" />
-                <input type="url" placeholder="Instagram 貼文或個人檔案 URL（選填）" value={newArticle.igEmbedUrl}
-                  onChange={e => setNewArticle(f => ({ ...f, igEmbedUrl: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-pink-400" />
+                <div className="space-y-2">
+                  <div className="flex gap-2 items-center">
+                    <input type="url" placeholder="Instagram 貼文或個人檔案 URL（選填）" value={newArticle.igEmbedUrl}
+                      onChange={e => setNewArticle(f => ({ ...f, igEmbedUrl: e.target.value }))}
+                      className="flex-1 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-pink-400" />
+                    {newArticle.igEmbedUrl && (
+                      <button type="button"
+                        onClick={() => setNewArticle(f => ({ ...f, igEmbedUrl: '' }))}
+                        className="px-3 py-3 text-xs font-bold text-gray-400 hover:text-red-500 border border-gray-200 rounded-xl transition">
+                        ✕ 清除
+                      </button>
+                    )}
+                  </div>
+                  {/* IG 嵌入預覽 */}
+                  {newArticle.igEmbedUrl && (() => {
+                    const url = newArticle.igEmbedUrl;
+                    const isPost = /instagram\.com\/(p|reel|tv)\//.test(url);
+                    const cleanUrl = url.split('?')[0].replace(/\/$/, '') + '/';
+                    if (isPost) return (
+                      <div className="border border-pink-200 rounded-xl p-3 bg-pink-50">
+                        <p className="text-[10px] font-black text-pink-500 mb-2">📸 IG 貼文預覽（儲存文章後完整載入）</p>
+                        <div className="text-xs text-gray-500 font-mono break-all bg-white rounded-lg p-2 border border-pink-100">
+                          {cleanUrl}
+                        </div>
+                        <a href={cleanUrl} target="_blank" rel="noopener noreferrer"
+                          className="inline-block mt-2 text-xs font-bold text-pink-600 hover:underline">
+                          → 在 Instagram 開啟確認 ↗
+                        </a>
+                      </div>
+                    );
+                    const profileMatch = url.match(/instagram\.com\/([^/?#]+)/);
+                    if (profileMatch) return (
+                      <div className="border border-pink-200 rounded-xl p-3 bg-pink-50">
+                        <p className="text-[10px] font-black text-pink-500 mb-1">👤 IG 個人檔案</p>
+                        <p className="text-sm font-bold text-gray-700">@{profileMatch[1]}</p>
+                        <a href={url} target="_blank" rel="noopener noreferrer"
+                          className="inline-block mt-1 text-xs font-bold text-pink-600 hover:underline">
+                          → 在 Instagram 開啟確認 ↗
+                        </a>
+                      </div>
+                    );
+                    return (
+                      <p className="text-xs text-red-500 font-bold">⚠ 無法識別此 Instagram 網址，請確認格式正確</p>
+                    );
+                  })()}
+                </div>
                 <div data-color-mode="light">
                   <MDEditor
                     value={newArticle.content}
