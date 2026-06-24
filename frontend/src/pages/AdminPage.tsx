@@ -2857,7 +2857,7 @@ function VideoManagerTab({ showMsg }: { showMsg: (m: string) => void }) {
   const [saving, setSaving] = useState(false);
   const [previewId, setPreviewId] = useState<number | null>(null);
 
-  const authHeaders = () => {
+  const authHeaders = (): Record<string, string> => {
     const token = localStorage.getItem('authToken');
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
