@@ -24,6 +24,45 @@ function getCode(name: string) {
   return '';
 }
 
+// 二軍球場 → 主場球隊（後攻）對照表
+// 球場名稱用關鍵字做 includes 比對
+const FARM_VENUE_HOME: { keywords: string[]; team: string }[] = [
+  { keywords: ['鎌ケ谷', '鎌ヶ谷', 'ファイターズ鎌'], team: '日本ハム' },
+  { keywords: ['森林どり', 'ウェルファム', '泉'], team: '楽天' },
+  { keywords: ['浦和', 'ロッテ浦和'], team: 'ロッテ' },
+  { keywords: ['戸田', 'ヤクルト戸田'], team: 'ヤクルト' },
+  { keywords: ['HARD OFF', 'ハードオフ', '新潟'], team: 'Oisix新潟' },
+  { keywords: ['ジャイアンツ球場', 'ジャイアンツタウン', '読売ジャイアンツ球場'], team: '巨人' },
+  { keywords: ['横須賀'], team: 'DeNA' },
+  { keywords: ['CAR3219', 'カーサン', '西武第二', '西武ライオンズ球場'], team: '西武' },
+  { keywords: ['ナゴヤ球場', '名古屋球場'], team: '中日' },
+  { keywords: ['ちゅ〜る', '清水', 'ハヤテ', 'くふう'], team: 'くふうハヤテ' },
+  { keywords: ['尼崎', 'SGL', '鋼板'], team: '阪神' },
+  { keywords: ['舞洲', 'バファローズスタジアム'], team: 'オリックス' },
+  { keywords: ['由宇'], team: '広島' },
+  { keywords: ['筑後', 'タマホーム'], team: 'ソフトバンク' },
+];
+
+function resolveTeams(teamHome: string, teamAway: string, venue: string | null): {
+  homeName: string; awayName: string; swapped: boolean;
+} {
+  if (!venue) return { homeName: teamHome, awayName: teamAway, swapped: false };
+  const match = FARM_VENUE_HOME.find(v => v.keywords.some(k => venue.includes(k)));
+  if (!match) return { homeName: teamHome, awayName: teamAway, swapped: false };
+  // 球場說明的主場隊，看是否和 DB 的 team_home 吻合
+  const venueHomeTeam = match.team;
+  const awayMatches = teamAway.includes(venueHomeTeam) || venueHomeTeam.includes(teamAway) ||
+    FARM_VENUE_HOME.some(v => v.team === venueHomeTeam && v.keywords.some(k => teamAway.includes(k)));
+  // 若 DB 的 away 才是真正主場，就 swap
+  if (teamHome.includes(venueHomeTeam) || venueHomeTeam.includes(teamHome)) {
+    return { homeName: teamHome, awayName: teamAway, swapped: false };
+  }
+  if (awayMatches || teamAway.includes(venueHomeTeam) || venueHomeTeam.includes(teamAway)) {
+    return { homeName: teamAway, awayName: teamHome, swapped: true };
+  }
+  return { homeName: teamHome, awayName: teamAway, swapped: false };
+}
+
 // team_code in DB can be either full name ("阪神") or short code ("t"/"T")
 function teamMatches(teamCode: string, teamName: string): boolean {
   if (teamCode === teamName) return true;
@@ -566,11 +605,16 @@ function InningScoreTable({ innings, stats, awayName, homeName, totalAway, total
         </thead>
         <tbody>
           {[
-            { name: awayName, getScore: (i: GameInning) => i.score_away, total: totalAway, hits: stats?.hits_away, errors: stats?.errors_away },
-            { name: homeName, getScore: (i: GameInning) => i.score_home, total: totalHome, hits: stats?.hits_home, errors: stats?.errors_home },
+            { name: awayName, getScore: (i: GameInning) => i.score_away, total: totalAway, hits: stats?.hits_away, errors: stats?.errors_away, label: '先攻' },
+            { name: homeName, getScore: (i: GameInning) => i.score_home, total: totalHome, hits: stats?.hits_home, errors: stats?.errors_home, label: '後攻' },
           ].map((team, ri) => (
             <tr key={ri} className={ri === 0 ? 'border-b border-gray-200' : ''}>
-              <td className="text-left px-3 py-2 font-bold text-gray-800">{team.name}</td>
+              <td className="text-left px-3 py-2 font-bold text-gray-800">
+                <div className="flex flex-col gap-0.5">
+                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded w-fit ${team.label === '先攻' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}>{team.label}</span>
+                  <span>{team.name}</span>
+                </div>
+              </td>
               {cols.map(n => {
                 const inn = innings.find(i => i.inning === n);
                 const score = inn ? team.getScore(inn) : null;
@@ -1894,6 +1938,9 @@ function mergeDuplicateBatters(batters: BatterStat[]): BatterStat[] {
 // ── 主元件 ────────────────────────────────────────────────────────────────────
 
 export default function FarmGameDetail({ game, onClose, standalone = false, onPrev, onNext, hasPrev = false, hasNext = false }: Props) {
+  // 依球場決定主客場（後攻/先攻）— 在所有 state 之前計算
+  const { awayName, homeName, swapped } = resolveTeams(game.team_home, game.team_away, game.venue ?? null);
+
   const [innings,    setInnings]    = useState<GameInning[]>([]);
   const [stats,      setStats]      = useState<GameStats | null>(null);
   const [batters,    setBatters]    = useState<BatterStat[]>([]);
@@ -1908,16 +1955,13 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
   const [showReplay,       setShowReplay]       = useState(false);
   const [replayInitialAb,  setReplayInitialAb]  = useState(0);
   const [replayKey,        setReplayKey]        = useState(0);
-  const [awayScore, setAwayScore] = useState<number | null>(game.score_away);
-  const [homeScore, setHomeScore] = useState<number | null>(game.score_home);
+  const [awayScore, setAwayScore] = useState<number | null>(swapped ? game.score_home : game.score_away);
+  const [homeScore, setHomeScore] = useState<number | null>(swapped ? game.score_away : game.score_home);
   const [liveStatus, setLiveStatus] = useState<string>(game.status);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isLive  = liveStatus === 'live';
   const isFinal = liveStatus === 'final';
-
-  const awayName = game.team_away;
-  const homeName = game.team_home;
 
   const loadData = async () => {
     const [inn, st, bat, pit, pbp, pitches] = await Promise.all([
@@ -1935,8 +1979,10 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
     setPlayByPlay(pbp);
     setPitchData(pitches);
     if (inn.length > 0) {
-      setAwayScore(inn.reduce((s, i) => s + (i.score_away ?? 0), 0));
-      setHomeScore(inn.reduce((s, i) => s + (i.score_home ?? 0), 0));
+      const rawAway = inn.reduce((s, i) => s + (i.score_away ?? 0), 0);
+      const rawHome = inn.reduce((s, i) => s + (i.score_home ?? 0), 0);
+      setAwayScore(swapped ? rawHome : rawAway);
+      setHomeScore(swapped ? rawAway : rawHome);
     }
   };
 
@@ -1988,8 +2034,15 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
   const awayPitchers = pitchers.filter(p => p.team_code === awayName).sort((a, b) => a.pitcher_order - b.pitcher_order);
   const homePitchers = pitchers.filter(p => p.team_code === homeName).sort((a, b) => a.pitcher_order - b.pitcher_order);
 
-  const totalAway = awayScore ?? innings.reduce((s, i) => s + (i.score_away ?? 0), 0);
-  const totalHome = homeScore ?? innings.reduce((s, i) => s + (i.score_home ?? 0), 0);
+  const rawTotalAway = innings.reduce((s, i) => s + (i.score_away ?? 0), 0);
+  const rawTotalHome = innings.reduce((s, i) => s + (i.score_home ?? 0), 0);
+  const totalAway = awayScore ?? (swapped ? rawTotalHome : rawTotalAway);
+  const totalHome = homeScore ?? (swapped ? rawTotalAway : rawTotalHome);
+
+  // 如果球場判斷後 home/away 對調，需要同步調換 innings 的分數
+  const displayInnings: GameInning[] = swapped
+    ? innings.map(i => ({ ...i, score_away: i.score_home, score_home: i.score_away }))
+    : innings;
 
   const latestPbpEvent = playByPlay.length > 0 ? playByPlay[playByPlay.length - 1] : undefined;
   const isTopAttack = latestPbpEvent?.is_top ?? true;
@@ -2100,7 +2153,7 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
         {/* ── 局分表 ── */}
         {!loading && (
           <div className="shrink-0 border-b border-gray-200 bg-white">
-            <InningScoreTable innings={innings} stats={stats} awayName={awayName} homeName={homeName} totalAway={totalAway} totalHome={totalHome} onInningClick={pitchData.length > 0 ? handleInningClick : undefined} />
+            <InningScoreTable innings={displayInnings} stats={stats} awayName={awayName} homeName={homeName} totalAway={totalAway} totalHome={totalHome} onInningClick={pitchData.length > 0 ? handleInningClick : undefined} />
           </div>
         )}
 
