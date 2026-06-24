@@ -14,6 +14,7 @@ export interface CreateArticlePayload {
   content: string;
   image_url: string;
   ig_embed_url?: string | null;
+  status?: 'draft' | 'published';
 }
 
 export const getArticles = async (params?: ArticlesParams): Promise<Article[]> => {
@@ -38,6 +39,16 @@ export const updateArticle = async (id: number, payload: Partial<CreateArticlePa
 
 export const deleteArticle = async (id: number): Promise<void> => {
   await apiClient.delete(`/articles/${id}`);
+};
+
+export const getDrafts = async (): Promise<Article[]> => {
+  const res = await apiClient.get('/articles/drafts');
+  return res.data;
+};
+
+export const publishDraft = async (id: number): Promise<Article> => {
+  const res = await apiClient.patch(`/articles/${id}/publish`);
+  return res.data;
 };
 
 export const fetchExternalNews = async (): Promise<Article[]> => {

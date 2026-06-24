@@ -5,7 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import ScraperStatusCard from '../components/ScraperStatusCard';
-import { getArticles, createArticle, updateArticle, deleteArticle, fetchExternalNews, uploadArticleImages, deleteArticleImage, uploadCoverImage } from '../api/articles';
+import { getArticles, createArticle, updateArticle, deleteArticle, fetchExternalNews, uploadArticleImages, deleteArticleImage, uploadCoverImage, getDrafts, publishDraft } from '../api/articles';
 import { getGames, updateGame, addPlayByPlay } from '../api/games';
 import { getAllPolls, createPoll, updatePoll, deletePoll, addPollOption, deletePollOption, getAdminAnalytics } from '../api/polls';
 import type { Poll, AdminAnalytics } from '../api/polls';
@@ -55,6 +55,8 @@ export default function AdminPage() {
 
   // Article state
   const [articles, setArticles] = useState<Article[]>([]);
+  const [drafts, setDrafts] = useState<Article[]>([]);
+  const [articleSubTab, setArticleSubTab] = useState<'published' | 'draft'>('published');
   const [newArticle, setNewArticle] = useState({ title: '', category: 'CPBL', imageUrl: '', summary: '', content: '', igEmbedUrl: '' });
   const [editingAdminArticle, setEditingAdminArticle] = useState<Article | null>(null);
   const [articleFilterCat, setArticleFilterCat] = useState('全部');
@@ -193,6 +195,7 @@ export default function AdminPage() {
 
   const loadArticles = () => {
     getArticles({ limit: 50 }).then(setArticles).catch(() => {});
+    getDrafts().then(setDrafts).catch(() => {});
   };
 
   const loadAdminGames = () => {
@@ -234,7 +237,7 @@ export default function AdminPage() {
     if (tab === 'stories') loadStories();
   };
 
-  const handlePublishNews = async (e: React.FormEvent) => {
+  const handlePublishNews = async (e: React.FormEvent, asDraft = false) => {
     e.preventDefault();
     try {
       if (editingAdminArticle) {
@@ -250,11 +253,13 @@ export default function AdminPage() {
           title: newArticle.title, category: newArticle.category,
           summary: newArticle.summary, content: newArticle.content, image_url: newArticle.imageUrl,
           ig_embed_url: newArticle.igEmbedUrl || null,
+          status: asDraft ? 'draft' : 'published',
         });
-        showMsg('✅ 文章已發布');
+        showMsg(asDraft ? '📝 草稿已儲存' : '✅ 文章已發布');
       }
       setNewArticle({ title: '', category: 'CPBL', imageUrl: '', summary: '', content: '', igEmbedUrl: '' });
       loadArticles();
+      if (asDraft) setArticleSubTab('draft');
     } catch {
       showMsg('❌ 操作失敗，請確認登入狀態');
     }
@@ -485,9 +490,18 @@ export default function AdminPage() {
                     preview="live"
                   />
                 </div>
-                <button type="submit" className={`w-full py-3 rounded-xl font-black transition ${editingAdminArticle ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}`}>
-                  {editingAdminArticle ? '儲存更新' : '發布文章'}
-                </button>
+                <div className="flex gap-3">
+                  {!editingAdminArticle && (
+                    <button type="button"
+                      onClick={e => handlePublishNews(e as unknown as React.FormEvent, true)}
+                      className="flex-1 py-3 rounded-xl font-black transition bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-200">
+                      📝 暫存草稿
+                    </button>
+                  )}
+                  <button type="submit" className={`flex-1 py-3 rounded-xl font-black transition ${editingAdminArticle ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}`}>
+                    {editingAdminArticle ? '儲存更新' : '🚀 發布文章'}
+                  </button>
+                </div>
               </form>
 
               {/* ─── 多圖管理（僅編輯現有文章時顯示）─────────────── */}
@@ -606,9 +620,73 @@ export default function AdminPage() {
 
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-black">已發布文章（{articles.filter(a => articleFilterCat === '全部' || a.category === articleFilterCat).length}）</h2>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setArticleSubTab('published')}
+                    className={`px-4 py-2 rounded-xl font-black text-sm border transition ${articleSubTab === 'published' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}>
+                    已發布 ({articles.length})
+                  </button>
+                  <button onClick={() => setArticleSubTab('draft')}
+                    className={`px-4 py-2 rounded-xl font-black text-sm border transition ${articleSubTab === 'draft' ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white text-gray-500 border-gray-200 hover:border-yellow-400'}`}>
+                    草稿 {drafts.length > 0 && <span className="ml-1 bg-yellow-400 text-black text-[10px] px-1.5 py-0.5 rounded-full">{drafts.length}</span>}
+                  </button>
+                </div>
                 <button onClick={loadArticles} className="text-sm font-bold text-gray-400 hover:text-red-600 transition">↻ 重新整理</button>
               </div>
+
+              {/* 草稿列表 */}
+              {articleSubTab === 'draft' && (
+                <div className="space-y-3">
+                  {drafts.length === 0 && (
+                    <div className="text-center py-10 text-gray-400">
+                      <p className="text-4xl mb-2">📝</p>
+                      <p className="font-bold">目前沒有草稿</p>
+                      <p className="text-sm mt-1">撰寫文章時點「暫存草稿」即可保存</p>
+                    </div>
+                  )}
+                  {drafts.map(a => (
+                    <div key={a.id} className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 flex gap-3 items-start">
+                      {a.image_url && (
+                        <img src={a.image_url} alt="" className="w-14 h-14 object-cover rounded-lg shrink-0" referrerPolicy="no-referrer"
+                          onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-black bg-yellow-300 text-yellow-800 px-2 py-0.5 rounded">草稿</span>
+                          <span className="text-[10px] font-black bg-gray-200 px-2 py-0.5 rounded shrink-0">{a.category}</span>
+                          <span className="text-[10px] text-gray-400">{a.published_at?.split('T')[0]}</span>
+                        </div>
+                        <p className="font-bold text-sm text-gray-800 truncate">{a.title}</p>
+                        {a.summary && <p className="text-xs text-gray-500 truncate mt-0.5">{a.summary}</p>}
+                      </div>
+                      <div className="flex flex-col gap-1 shrink-0">
+                        <button onClick={async () => {
+                          setEditingAdminArticle(a);
+                          setNewArticle({ title: a.title, category: a.category, imageUrl: a.image_url || '', summary: a.summary || '', content: a.content || '', igEmbedUrl: (a as any).ig_embed_url || '' });
+                          setArticleSubTab('published');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }} className="text-xs font-bold px-3 py-1 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 transition">✏️ 編輯</button>
+                        <button onClick={async () => {
+                          if (!confirm(`確定發布「${a.title}」？`)) return;
+                          try {
+                            await publishDraft(a.id);
+                            showMsg('✅ 文章已發布');
+                            loadArticles();
+                            setArticleSubTab('published');
+                          } catch { showMsg('❌ 發布失敗'); }
+                        }} className="text-xs font-bold px-3 py-1 rounded-lg border border-green-300 text-green-700 hover:bg-green-50 transition">🚀 發布</button>
+                        <button onClick={async () => {
+                          if (!confirm('確定刪除此草稿？')) return;
+                          try { await deleteArticle(a.id); showMsg('✅ 草稿已刪除'); loadArticles(); }
+                          catch { showMsg('❌ 刪除失敗'); }
+                        }} className="text-xs font-bold px-3 py-1 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition">🗑 刪除</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 已發布文章列表 */}
+              {articleSubTab === 'published' && <>
               <div className="flex flex-wrap gap-2 mb-4">
                 {['全部', 'CPBL', 'NPB', 'WBC', 'MLB', 'NBA', '田徑', '三級棒球', '足球', '籃球', '其他'].map(cat => (
                   <button key={cat} onClick={() => setArticleFilterCat(cat)}
@@ -762,6 +840,7 @@ export default function AdminPage() {
                   <p className="text-gray-400 text-sm text-center py-8">尚無文章</p>
                 )}
               </div>
+              </>}
             </div>
           </div>
         )}

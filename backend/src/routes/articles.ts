@@ -44,20 +44,21 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
 
   try {
-    let query = `
+    const params: (string | number)[] = [];
+    let where = `WHERE COALESCE(a.status, 'published') = 'published'`;
+
+    if (category) {
+      params.push(category as string);
+      where += ` AND a.category = $${params.length}`;
+    }
+
+    const query = `
       SELECT a.id, a.title, a.slug, a.category, a.summary, a.content, a.image_url, a.is_hot, a.published_at,
              u.username as author_name
       FROM articles a
       LEFT JOIN users u ON a.author_id = u.id
-    `;
-    const params: (string | number)[] = [];
-
-    if (category) {
-      params.push(category as string);
-      query += ` WHERE a.category = $${params.length}`;
-    }
-
-    query += ` ORDER BY a.published_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      ${where}
+      ORDER BY a.published_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(parseInt(limit as string), offset);
 
     const result = await pool.query(query, params);
@@ -65,6 +66,24 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   } catch (err) {
     console.error('Get articles error:', err);
     res.status(500).json({ message: '無法取得新聞列表' });
+  }
+});
+
+// GET /api/v1/articles/drafts  [editor+]
+router.get('/drafts', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(
+      `SELECT a.id, a.title, a.slug, a.category, a.summary, a.image_url, a.published_at, a.status,
+              u.username as author_name
+       FROM articles a
+       LEFT JOIN users u ON a.author_id = u.id
+       WHERE COALESCE(a.status, 'published') = 'draft'
+       ORDER BY a.published_at DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get drafts error:', err);
+    res.status(500).json({ message: '無法取得草稿列表' });
   }
 });
 
@@ -79,7 +98,8 @@ router.get('/search', async (req: Request, res: Response): Promise<void> => {
     const result = await pool.query(
       `SELECT id, title, slug, category, summary, image_url, published_at
        FROM articles
-       WHERE title ILIKE $1 OR COALESCE(summary, '') ILIKE $1 OR content ILIKE $1
+       WHERE COALESCE(status, 'published') = 'published'
+         AND (title ILIKE $1 OR COALESCE(summary, '') ILIKE $1 OR content ILIKE $1)
        ORDER BY published_at DESC
        LIMIT 12`,
       [`%${q}%`]
@@ -124,7 +144,7 @@ router.get('/:slug', async (req: Request, res: Response): Promise<void> => {
 
 // POST /api/v1/articles  [editor+]
 router.post('/', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
-  const { title, category, summary, content, image_url, ig_embed_url } = req.body;
+  const { title, category, summary, content, image_url, ig_embed_url, status = 'published' } = req.body;
 
   if (!title || !category || !content) {
     res.status(400).json({ message: '標題、分類、內文為必填欄位' });
@@ -133,18 +153,38 @@ router.post('/', verifyToken, requireRole('editor', 'admin'), async (req: Reques
 
   try {
     const slug = generateSlug(title);
+    const isDraft = status === 'draft';
     const result = await pool.query(
-      `INSERT INTO articles (title, slug, category, summary, content, image_url, author_id, is_hot, ig_embed_url)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8)
+      `INSERT INTO articles (title, slug, category, summary, content, image_url, author_id, is_hot, ig_embed_url, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
-      [title, slug, category, summary || '', content, image_url || '', req.user!.userId, ig_embed_url || null]
+      [title, slug, category, summary || '', content, image_url || '', req.user!.userId, !isDraft, ig_embed_url || null, isDraft ? 'draft' : 'published']
     );
 
-    await pool.query('UPDATE articles SET is_hot = false WHERE id != $1', [result.rows[0].id]);
+    if (!isDraft) {
+      await pool.query('UPDATE articles SET is_hot = false WHERE id != $1', [result.rows[0].id]);
+    }
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Create article error:', err);
     res.status(500).json({ message: '建立文章失敗' });
+  }
+});
+
+// PATCH /api/v1/articles/:id/publish  [editor+]
+router.patch('/:id/publish', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(
+      `UPDATE articles SET status = 'published', is_hot = true, published_at = NOW()
+       WHERE id = $1 RETURNING *`,
+      [req.params.id]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ message: '文章不存在' }); return; }
+    await pool.query('UPDATE articles SET is_hot = false WHERE id != $1', [req.params.id]);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Publish article error:', err);
+    res.status(500).json({ message: '發布失敗' });
   }
 });
 

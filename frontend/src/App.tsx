@@ -4,7 +4,7 @@ import { AppProvider } from './context/AppContext';
 import Layout from './components/Layout';
 import SplashScreen from './components/SplashScreen';
 import HomePage from './pages/HomePage';
-import NPBPage from './pages/NPBPage';
+import NPBPage from './pages/NpbPage';
 import CPBLPage from './pages/CPBLPage';
 import WBSCPage from './pages/WBSCPage';
 import PlayersPage from './pages/PlayersPage';

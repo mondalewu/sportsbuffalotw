@@ -51,6 +51,7 @@ async function autoMigrate() {
 async function patchColumns() {
   const patches = [
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS ig_embed_url VARCHAR(500)`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'published' CHECK (status IN ('draft', 'published'))`,
     // 更新 category check constraint 以支援三級棒球、足球、籃球
     `ALTER TABLE articles DROP CONSTRAINT IF EXISTS articles_category_check`,
     `ALTER TABLE articles ADD CONSTRAINT articles_category_check
