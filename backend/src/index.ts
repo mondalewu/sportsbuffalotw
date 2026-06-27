@@ -23,6 +23,7 @@ import taiwanBaseballRoutes from './routes/taiwanBaseball';
 import worldcupRoutes from './routes/worldcup';
 import nbaRoutes from './routes/nba';
 import mlbRoutes from './routes/mlb';
+import aiRoutes from './routes/ai';
 import { runScraper, runCpblFullScheduleScraper, runCpblFarmScheduleScraper, runFarmScoreScraper, runCpblStandingsScraper } from './services/cpblScraper';
 import { runNpbScraper, runLiveBoxScoreUpdate, populateNpbUrls } from './services/npbScraper';
 import { runNpbFarmScraperMonth } from './services/npbFarmScraper';
@@ -124,6 +125,7 @@ app.use('/api/v1/taiwan-baseball', taiwanBaseballRoutes);
 app.use('/api/v1/worldcup', worldcupRoutes);
 app.use('/api/v1/nba', nbaRoutes);
 app.use('/api/v1/mlb', mlbRoutes);
+app.use('/api/v1/ai', aiRoutes);
 
 // Analytics endpoint (editor+)
 app.get('/api/v1/admin/analytics', verifyToken, requireRole('editor', 'admin'), async (_req: any, res: any) => {

@@ -68,6 +68,12 @@ export default function AdminPage() {
   const [coverUploading, setCoverUploading] = useState(false);
   const [imgUrlInput, setImgUrlInput] = useState('');
 
+  // AI 生成
+  const [aiKeyPoints, setAiKeyPoints] = useState('');
+  const [aiStyle, setAiStyle] = useState<'news' | 'feature' | 'recap'>('news');
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [showAiPanel, setShowAiPanel] = useState(false);
+
   // Athletes state
   interface AthleteRow { id: number; name: string; country: string; event: string; pb: string; note: string; image_url: string; sort_order: number; is_active: boolean; }
   const [athletes, setAthletes] = useState<AthleteRow[]>([]);
@@ -237,6 +243,28 @@ export default function AdminPage() {
     if (tab === 'stories') loadStories();
   };
 
+  const handleAiGenerate = async () => {
+    if (!newArticle.title) { showMsg('❌ 請先填寫文章標題'); return; }
+    setAiGenerating(true);
+    try {
+      const token = localStorage.getItem('authToken');
+      const res = await fetch(`${API_BASE}/api/v1/ai/generate-article`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ title: newArticle.title, category: newArticle.category, key_points: aiKeyPoints, style: aiStyle }),
+      });
+      const data = await res.json();
+      if (!res.ok) { showMsg(`❌ ${data.message ?? 'AI 生成失敗'}`); return; }
+      setNewArticle(f => ({ ...f, content: data.content, summary: data.summary || f.summary }));
+      setShowAiPanel(false);
+      showMsg('🤖 AI 已生成文章草稿，請確認後再發布');
+    } catch {
+      showMsg('❌ AI 生成失敗，請稍後再試');
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
   const handlePublishNews = async (e: React.FormEvent, asDraft = false) => {
     e.preventDefault();
     try {
@@ -397,6 +425,37 @@ export default function AdminPage() {
                   )}
                 </div>
               </div>
+              {/* AI 輔助生成面板 */}
+              {!editingAdminArticle && (
+                <div className="mb-4">
+                  <button type="button" onClick={() => setShowAiPanel(p => !p)}
+                    className="flex items-center gap-2 text-sm font-bold text-purple-600 hover:text-purple-800 border border-purple-200 bg-purple-50 px-4 py-2 rounded-xl transition">
+                    🤖 {showAiPanel ? '收起 AI 輔助' : 'AI 輔助生成文章'}
+                  </button>
+                  {showAiPanel && (
+                    <div className="mt-3 p-5 border border-purple-200 rounded-2xl bg-purple-50 space-y-3">
+                      <p className="text-xs text-purple-500 font-medium">填寫標題 + 重點後，AI 自動生成完整文章草稿，你再審閱後發布</p>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <span className="text-xs font-bold text-gray-600">風格：</span>
+                        {(['news', 'feature', 'recap'] as const).map(s => (
+                          <button key={s} type="button" onClick={() => setAiStyle(s)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${aiStyle === s ? 'bg-purple-600 text-white' : 'bg-white border border-gray-200 text-gray-600'}`}>
+                            {s === 'news' ? '📰 新聞報導' : s === 'feature' ? '📊 深度報導' : '🏆 賽後報導'}
+                          </button>
+                        ))}
+                      </div>
+                      <textarea rows={4} placeholder={'撰寫重點（選填）\n例如：\n• 林昀儒奪得 WTT 大滿貫銀牌\n• 決賽對手為中國選手樊振東\n• 這是他今年第 3 面獎牌'}
+                        value={aiKeyPoints} onChange={e => setAiKeyPoints(e.target.value)}
+                        className="w-full border border-purple-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-purple-400 bg-white resize-none" />
+                      <button type="button" onClick={handleAiGenerate} disabled={aiGenerating}
+                        className="w-full py-3 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-xl font-bold text-sm transition flex items-center justify-center gap-2">
+                        {aiGenerating ? <><span className="animate-spin inline-block">⟳</span> AI 生成中…</> : '🤖 一鍵生成文章'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <form onSubmit={handlePublishNews} className="space-y-4">
                 <input type="text" placeholder="文章標題" value={newArticle.title} required
                   onChange={e => setNewArticle(f => ({ ...f, title: e.target.value }))}
