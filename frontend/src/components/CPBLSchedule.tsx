@@ -156,16 +156,16 @@ function CPBLScoreCard({ game, onClick }: { game: CPBLGame; onClick: () => void 
       onClick={onClick}
       className={`w-full text-left rounded-2xl border p-4 shadow-sm transition hover:shadow-md ${
         isLive ? 'border-red-300 shadow-red-100' :
-        isRainout ? 'border-blue-200 bg-blue-50/60' :
+        isRainout ? 'border-blue-200 bg-blue-50/40' :
         'border-gray-100'
       } ${!isRainout ? (bg || 'bg-white') : ''}`}
     >
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs text-gray-400 font-mono">{time}</span>
         {isLive && <span className="text-xs font-black text-red-600 animate-pulse bg-red-50 px-2 py-0.5 rounded-full">● LIVE {game.game_detail || ''}</span>}
-        {isRainout && <span className="text-xs font-bold text-blue-500 bg-blue-100 px-2 py-0.5 rounded-full">🌧 雨天延賽</span>}
+        {isRainout && <span className="text-xs font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">🌧 雨天延賽</span>}
         {isFinal && !isRainout && <span className="text-xs font-bold text-gray-500 bg-white/80 px-2 py-0.5 rounded-full">終場</span>}
-        {!isLive && !isFinal && <span className="text-xs text-gray-400">{game.venue?.slice(0, 3) || ''}</span>}
+        {!isLive && !isFinal && !isRainout && <span className="text-xs text-gray-400">{game.venue?.slice(0, 3) || ''}</span>}
       </div>
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
