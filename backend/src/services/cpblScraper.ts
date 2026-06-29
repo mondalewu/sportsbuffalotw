@@ -204,14 +204,7 @@ async function fetchDailyGames(date: Date, kindCode: string): Promise<GameApiIte
   const cookie = await getHomeSession();
   let res;
   try {
-    res = await axios.post(`${CPBL_BASE}/home/getdetaillist`, params.toString(), {
-      timeout: 15000,
-      headers: {
-        ...COMMON_HEADERS,
-        ...(cookie ? { Cookie: cookie } : {}),
-      },
-      maxRedirects: 5,
-    });
+    res = await cdnPost(`${CPBL_BASE}/home/getdetaillist`, params.toString(), cookie);
   } catch (e: unknown) {
     const status = (e as { response?: { status?: number } })?.response?.status;
     console.warn(`[CPBL] /home/getdetaillist 請求失敗 (KindCode=${kindCode}, HTTP ${status ?? 'N/A'}):`, (e as Error).message);
@@ -247,27 +240,95 @@ const SESSION_TTL_MS = 4 * 60 * 1000; // 4 分鐘（CPBL session 壽命較短）
 // 首頁 session — 給 fetchDailyGames 使用
 let homeSessionCache: { cookie: string; ts: number } | null = null;
 
+// HiNetCDN 308 challenge handler：攔截 308 取出 cookie，再帶 cookie 重試
+function extractCookies(headers: Record<string, unknown>): string {
+  const raw = headers['set-cookie'];
+  const parts = Array.isArray(raw) ? raw : (raw ? [raw as string] : []);
+  return parts.map((c: string) => c.split(';')[0]).filter(Boolean).join('; ');
+}
+
+async function cdnGet(url: string, extraHeaders: Record<string, string> = {}, existingCookie = ''): Promise<string> {
+  const hdrs = {
+    ...COMMON_HEADERS,
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Upgrade-Insecure-Requests': '1',
+    'sec-fetch-site': 'none',
+    'sec-fetch-mode': 'navigate',
+    'sec-fetch-dest': 'document',
+    ...extraHeaders,
+    ...(existingCookie ? { Cookie: existingCookie } : {}),
+  };
+
+  // 先用 maxRedirects:0 攔截 308，取出 CDN cookie
+  let cdnCookie = existingCookie;
+  try {
+    await axios.get(url, { timeout: 15000, headers: hdrs, maxRedirects: 0 });
+  } catch (e: unknown) {
+    const err = e as { response?: { status?: number; headers?: Record<string, unknown> } };
+    if (err.response?.status === 308 && err.response.headers) {
+      const newCookie = extractCookies(err.response.headers);
+      if (newCookie) {
+        const merged = new Map<string, string>();
+        [...(cdnCookie ? cdnCookie.split('; ') : []), ...newCookie.split('; ')]
+          .filter(Boolean).forEach(c => merged.set(c.split('=')[0], c));
+        cdnCookie = [...merged.values()].join('; ');
+        console.log('[CPBL] CDN 308 challenge → 取得 cookie，重試中');
+      }
+    }
+  }
+
+  // 帶 cookie 正式取頁面
+  const resp = await axios.get(url, {
+    timeout: 15000,
+    headers: { ...hdrs, ...(cdnCookie ? { Cookie: cdnCookie } : {}) },
+    maxRedirects: 5,
+  });
+  const newCookie = extractCookies(resp.headers as Record<string, unknown>);
+  if (newCookie) {
+    const merged = new Map<string, string>();
+    [...(cdnCookie ? cdnCookie.split('; ') : []), ...newCookie.split('; ')]
+      .filter(Boolean).forEach(c => merged.set(c.split('=')[0], c));
+    cdnCookie = [...merged.values()].join('; ');
+  }
+  return cdnCookie;
+}
+
+async function cdnPost(url: string, data: string, cookie: string): Promise<import('axios').AxiosResponse> {
+  const hdrs = { ...COMMON_HEADERS, ...(cookie ? { Cookie: cookie } : {}) };
+
+  // 先 maxRedirects:0 攔截 308
+  try {
+    return await axios.post(url, data, { timeout: 15000, headers: hdrs, maxRedirects: 0 });
+  } catch (e: unknown) {
+    const err = e as { response?: { status?: number; headers?: Record<string, unknown> } };
+    if (err.response?.status === 308 && err.response.headers) {
+      const newCookie = extractCookies(err.response.headers);
+      if (newCookie) {
+        const merged = new Map<string, string>();
+        [...(cookie ? cookie.split('; ') : []), ...newCookie.split('; ')]
+          .filter(Boolean).forEach(c => merged.set(c.split('=')[0], c));
+        cookie = [...merged.values()].join('; ');
+        homeSessionCache = { cookie, ts: Date.now() };
+        console.log('[CPBL] POST CDN 308 challenge → 取得 cookie，重試中');
+      }
+      // 重試帶新 cookie
+      return await axios.post(url, data, {
+        timeout: 15000,
+        headers: { ...COMMON_HEADERS, Cookie: cookie },
+        maxRedirects: 5,
+      });
+    }
+    throw e;
+  }
+}
+
 async function getHomeSession(): Promise<string> {
   if (homeSessionCache && Date.now() - homeSessionCache.ts < SESSION_TTL_MS) return homeSessionCache.cookie;
   try {
-    const resp = await axios.get(CPBL_BASE, {
-      timeout: 15000,
-      headers: {
-        ...COMMON_HEADERS,
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Upgrade-Insecure-Requests': '1',
-        'sec-fetch-site': 'none',
-        'sec-fetch-mode': 'navigate',
-        'sec-fetch-dest': 'document',
-      },
-      maxRedirects: 5,
-    });
-    const raw = resp.headers['set-cookie'];
-    const parts = Array.isArray(raw) ? raw : (raw ? [raw] : []);
-    const cookie = parts.map((c: string) => c.split(';')[0]).join('; ');
+    const cookie = await cdnGet(`${CPBL_BASE}/schedule`);
     if (cookie) {
       homeSessionCache = { cookie, ts: Date.now() };
-      console.log(`[CPBL] 取得首頁 session cookie`);
+      console.log(`[CPBL] 取得首頁 session cookie (${cookie.length} chars)`);
     }
     return cookie;
   } catch (e) {
@@ -281,31 +342,14 @@ async function getBoxSession(year: number, kindCode: string, gameSno: number): P
   const cached = boxSessionCache.get(key);
   if (cached && Date.now() - cached.ts < SESSION_TTL_MS) return cached.cookie;
 
-  // 先取首頁 session，再帶著它訪問 box/live 頁取得 box session
   const homeCookie = await getHomeSession();
-
   const pageUrl = `${CPBL_BASE}/box/live?year=${year}&kindCode=${kindCode}&gameSno=${gameSno}`;
   try {
-    const resp = await axios.get(pageUrl, {
-      timeout: 15000,
-      headers: {
-        ...COMMON_HEADERS,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'sec-fetch-site': 'same-origin',
-        'sec-fetch-mode': 'navigate',
-        'sec-fetch-dest': 'document',
-        'Upgrade-Insecure-Requests': '1',
-        ...(homeCookie ? { Cookie: homeCookie } : {}),
-      },
-      maxRedirects: 10,
-    });
-    const raw = resp.headers['set-cookie'];
-    const parts = Array.isArray(raw) ? raw : (raw ? [raw] : []);
-    // 合併 home + box cookie
-    const boxParts = parts.map((c: string) => c.split(';')[0]).filter(Boolean);
-    const homeParts = homeCookie ? homeCookie.split('; ').filter(Boolean) : [];
-    const allCookies = [...new Map([...homeParts, ...boxParts].map(c => [c.split('=')[0], c])).values()];
-    const cookie = allCookies.join('; ');
+    const cookie = await cdnGet(pageUrl, {
+      'sec-fetch-site': 'same-origin',
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-dest': 'document',
+    }, homeCookie);
     if (cookie) {
       boxSessionCache.set(key, { cookie, ts: Date.now() });
       console.log(`[CPBL box] 取得 session (${cookie.length} chars)`);
@@ -313,7 +357,6 @@ async function getBoxSession(year: number, kindCode: string, gameSno: number): P
     return cookie || homeCookie;
   } catch (e) {
     console.warn('[CPBL box] 取 session 失敗:', (e as Error).message);
-    // box page 失敗時改用 home session
     return homeCookie;
   }
 }
@@ -325,19 +368,7 @@ async function fetchBoxLive(
   const cookie  = await getBoxSession(year, kindCode, gameSno);
 
   const params = new URLSearchParams({ Year: String(year), KindCode: kindCode, GameSno: String(gameSno) });
-  const res = await axios.post(`${CPBL_BASE}/box/getlive`, params.toString(), {
-    timeout: 20000,
-    headers: {
-      ...COMMON_HEADERS,
-      Referer: pageRef,
-      'sec-fetch-site': 'same-origin',
-      'sec-fetch-mode': 'cors',
-      'sec-fetch-dest': 'empty',
-      ...(cookie ? { Cookie: cookie } : {}),
-    },
-    maxRedirects: 5,
-    validateStatus: (s) => s < 400,
-  });
+  const res = await cdnPost(`${CPBL_BASE}/box/getlive`, params.toString(), cookie);
 
   if (!res.data || typeof res.data !== 'object' || !('Success' in res.data)) {
     console.warn(`[CPBL box] getlive 回傳非 JSON (gameSno=${gameSno}, status=${res.status})`);
