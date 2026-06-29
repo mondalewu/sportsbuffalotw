@@ -2029,13 +2029,18 @@ function BatterTable({ title, batters }: { title: string; batters: BatterStat[] 
                     const result = b.at_bat_results?.[n - 1] ?? '';
                     const translated = translateResult(result);
                     const isHr  = result.includes('本');
-                    const isHit = !isHr && (result.includes('安') || result.includes('二塁') || result.includes('三塁') || /[123]$/.test(result) || /[23][①②③④⑤⑥⑦⑧⑨]/.test(result));
+                    const isHit = !isHr && (
+                      result.includes('安') ||
+                      result.includes('二塁') || result.includes('三塁') ||
+                      /[123]$/.test(result) || /[１２３]$/.test(result) ||
+                      /[23][①②③④⑤⑥⑦⑧⑨]/.test(result) || /[２３][①②③④⑤⑥⑦⑧⑨]/.test(result)
+                    );
                     return (
                       <td key={n} className="px-1 py-1 text-center whitespace-nowrap">
                         {result ? (
                           <span className={
                             isHr  ? 'inline-block px-1 rounded font-bold text-white bg-red-600' :
-                            isHit ? 'inline-block px-1 rounded font-bold text-red-600 bg-red-50' :
+                            isHit ? 'inline-block px-1 rounded font-bold text-white bg-green-500' :
                             'text-gray-500'
                           }>
                             {translated}
