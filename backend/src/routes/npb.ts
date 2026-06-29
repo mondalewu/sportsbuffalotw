@@ -403,42 +403,23 @@ router.get('/games/:id/pitch-data', async (req: Request, res: Response): Promise
 // 主場球隊對應官方 YouTube 頻道，在該頻道內搜尋賽後精華
 const ytCache = new Map<string, { data: object; at: number }>();
 
-// 主場球隊 → YouTube handle 對照表
-const TEAM_YT_HANDLE: Record<string, string> = {
+// 主場球隊 → YouTube channel ID（直接硬編碼，避免 handle lookup API 消耗配額）
+const TEAM_YT_CHANNEL: Record<string, string> = {
   // 太平洋聯盟
-  'ソフトバンク': 'PacificLeagueTVofficial',
-  '日本ハム':     'PacificLeagueTVofficial',
-  '楽天':         'PacificLeagueTVofficial',
-  'ロッテ':       'PacificLeagueTVofficial',
-  '西武':         'PacificLeagueTVofficial',
-  'オリックス':   'PacificLeagueTVofficial',
+  'ソフトバンク': 'UCFLlVBMqvBRVKQFa3vxl2oA', // PacificLeagueTVofficial
+  '日本ハム':     'UCFLlVBMqvBRVKQFa3vxl2oA',
+  '楽天':         'UCFLlVBMqvBRVKQFa3vxl2oA',
+  'ロッテ':       'UCFLlVBMqvBRVKQFa3vxl2oA',
+  '西武':         'UCFLlVBMqvBRVKQFa3vxl2oA',
+  'オリックス':   'UCFLlVBMqvBRVKQFa3vxl2oA',
   // 中央聯盟
-  '巨人':   'ntv_baseball',
-  '阪神':   'hanshintigers_official',
-  '中日':   'jsports_yakyu',
-  '広島':   'jsports_yakyu',
-  'DeNA':   'baystarsofficial',
+  '巨人':   'UCWmpFBbHOphUFBymCkBT6vA', // ntv_baseball
+  '阪神':   'UCJlRHDvGMt0FeSEEOKBJB2g', // hanshintigers_official
+  '中日':   'UCqI3hJJE1RsHVLG2GFkJJ1A', // jsports_yakyu
+  '広島':   'UCqI3hJJE1RsHVLG2GFkJJ1A',
+  'DeNA':   'UChJI9KrjSgPzv_kfX6yuqhA', // baystarsofficial（横浜DeNAベイスターズ公式チャンネル）
   // ヤクルト 無官方頻道，fallback 全域搜尋
 };
-
-// handle → channelId 快取（啟動後只 fetch 一次）
-const handleToChannelId = new Map<string, string>();
-
-async function getChannelId(handle: string, apiKey: string): Promise<string | null> {
-  if (handleToChannelId.has(handle)) return handleToChannelId.get(handle)!;
-  try {
-    const url = new URL('https://www.googleapis.com/youtube/v3/channels');
-    url.searchParams.set('part', 'id');
-    url.searchParams.set('forHandle', handle);
-    url.searchParams.set('key', apiKey);
-    const res = await fetch(url.toString());
-    if (!res.ok) return null;
-    const json = await res.json() as { items?: { id: string }[] };
-    const id = json.items?.[0]?.id ?? null;
-    if (id) handleToChannelId.set(handle, id);
-    return id;
-  } catch { return null; }
-}
 
 router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): Promise<void> => {
   const apiKey = process.env.YOUTUBE_API_KEY;
@@ -484,12 +465,9 @@ router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): 
     url.searchParams.set('publishedAfter', afterDate.toISOString());
     url.searchParams.set('publishedBefore', beforeDate.toISOString());
 
-    // 依主場球隊查對應官方頻道
-    const handle = TEAM_YT_HANDLE[team_home];
-    if (handle) {
-      const chId = await getChannelId(handle, apiKey);
-      if (chId) url.searchParams.set('channelId', chId);
-    }
+    // 依主場球隊直接用硬編碼 channel ID 限制搜尋範圍
+    const chId = TEAM_YT_CHANNEL[team_home];
+    if (chId) url.searchParams.set('channelId', chId);
 
     const ytRes = await fetch(url.toString());
     if (!ytRes.ok) {
