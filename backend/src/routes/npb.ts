@@ -475,6 +475,15 @@ router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): 
     url.searchParams.set('order', 'relevance');
     url.searchParams.set('key', apiKey);
 
+    // 限制只搜尋比賽日期前後 3 天內的影片，避免出現舊年度影片
+    const gameDay = new Date(game_date);
+    const afterDate = new Date(gameDay);
+    afterDate.setDate(afterDate.getDate() - 1);
+    const beforeDate = new Date(gameDay);
+    beforeDate.setDate(beforeDate.getDate() + 3);
+    url.searchParams.set('publishedAfter', afterDate.toISOString());
+    url.searchParams.set('publishedBefore', beforeDate.toISOString());
+
     // 依主場球隊查對應官方頻道
     const handle = TEAM_YT_HANDLE[team_home];
     if (handle) {
