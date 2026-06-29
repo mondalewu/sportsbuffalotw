@@ -2040,7 +2040,7 @@ function BatterTable({ title, batters }: { title: string; batters: BatterStat[] 
                         {result ? (
                           <span className={
                             isHr  ? 'inline-block px-1 rounded font-bold text-white bg-red-600' :
-                            isHit ? 'inline-block px-1 rounded font-bold text-white bg-green-500' :
+                            isHit ? 'inline-block px-1 rounded font-bold text-red-600 bg-red-100' :
                             'text-gray-500'
                           }>
                             {translated}
