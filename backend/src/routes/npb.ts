@@ -460,8 +460,7 @@ router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): 
       timeZone: 'Asia/Tokyo', year: 'numeric', month: 'long', day: 'numeric',
     });
 
-    // DeNA 官方頻道影片標題格式為「YYYY.M.DD ハイライト【DeNA vs 相手】」
-    // 主場名稱在前，故搜尋時也以主場優先，並縮小日期範圍避免誤抓其他日期影片
+    // DeNA 官方頻道影片標題格式為「YYYY.M.DD ハイライト【DeNA vs 相手】」，主場在前
     const isDeNAHome = team_home === 'DeNA';
     const query = isDeNAHome
       ? `DeNA ハイライト ${dateStr}`
@@ -470,8 +469,7 @@ router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): 
     const afterDate = new Date(gameDay);
     afterDate.setDate(afterDate.getDate() - 1);
     const beforeDate = new Date(gameDay);
-    // DeNA 頻道通常隔天上傳，給 3 天緩衝；其他隊維持寬鬆範圍
-    beforeDate.setDate(beforeDate.getDate() + (isDeNAHome ? 3 : 14));
+    beforeDate.setDate(beforeDate.getDate() + 14);
 
     const buildUrl = (channelId?: string) => {
       const u = new URL('https://www.googleapis.com/youtube/v3/search');
