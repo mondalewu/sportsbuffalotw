@@ -400,13 +400,12 @@ router.get('/games/:id/pitch-data', async (req: Request, res: Response): Promise
 });
 
 // GET /api/v1/npb/games/:id/youtube-highlight
-// 主場球隊對應官方 YouTube 頻道，在該頻道內搜尋賽後精華
 const ytCache = new Map<string, { data: object; at: number }>();
 
-// 主場球隊 → YouTube channel ID（直接硬編碼，避免 handle lookup API 消耗配額）
+// 主場球隊 → YouTube channel ID（硬編碼，省去 handle lookup API 配額）
 const TEAM_YT_CHANNEL: Record<string, string> = {
-  // 太平洋聯盟
-  'ソフトバンク': 'UCFLlVBMqvBRVKQFa3vxl2oA', // PacificLeagueTVofficial
+  // 太平洋聯盟 → PacificLeagueTV 官方頻道
+  'ソフトバンク': 'UCFLlVBMqvBRVKQFa3vxl2oA',
   '日本ハム':     'UCFLlVBMqvBRVKQFa3vxl2oA',
   '楽天':         'UCFLlVBMqvBRVKQFa3vxl2oA',
   'ロッテ':       'UCFLlVBMqvBRVKQFa3vxl2oA',
@@ -415,10 +414,8 @@ const TEAM_YT_CHANNEL: Record<string, string> = {
   // 中央聯盟
   '巨人':   'UCWmpFBbHOphUFBymCkBT6vA', // ntv_baseball
   '阪神':   'UCJlRHDvGMt0FeSEEOKBJB2g', // hanshintigers_official
-  '中日':   'UCqI3hJJE1RsHVLG2GFkJJ1A', // jsports_yakyu
-  '広島':   'UCqI3hJJE1RsHVLG2GFkJJ1A',
-  'DeNA':   'UChJI9KrjSgPzv_kfX6yuqhA', // baystarsofficial（横浜DeNAベイスターズ公式チャンネル）
-  // ヤクルト 無官方頻道，fallback 全域搜尋
+  'DeNA':   'UChJI9KrjSgPzv_kfX6yuqhA', // baystarsofficial
+  // 中日・広島・ヤクルト → 無穩定官方頻道，fallback 全域搜尋
 };
 
 router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): Promise<void> => {
@@ -448,28 +445,36 @@ router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): 
     });
     const query = `${team_away} ${team_home} ハイライト ${dateStr}`;
 
-    const url = new URL('https://www.googleapis.com/youtube/v3/search');
-    url.searchParams.set('part', 'snippet');
-    url.searchParams.set('q', query);
-    url.searchParams.set('type', 'video');
-    url.searchParams.set('maxResults', '3');
-    url.searchParams.set('order', 'relevance');
-    url.searchParams.set('key', apiKey);
-
-    // 限制只搜尋比賽日期前後 3 天內的影片，避免出現舊年度影片
+    // 限制在比賽當年度（避免舊年度影片），精華影片最晚 14 天後上傳
     const gameDay = new Date(game_date);
-    const afterDate = new Date(gameDay);
-    afterDate.setDate(afterDate.getDate() - 1);
-    const beforeDate = new Date(gameDay);
-    beforeDate.setDate(beforeDate.getDate() + 3);
-    url.searchParams.set('publishedAfter', afterDate.toISOString());
-    url.searchParams.set('publishedBefore', beforeDate.toISOString());
+    const yearStart = new Date(gameDay.getFullYear(), 0, 1);
+    const afterDeadline = new Date(gameDay);
+    afterDeadline.setDate(afterDeadline.getDate() + 14);
 
-    // 依主場球隊直接用硬編碼 channel ID 限制搜尋範圍
-    const chId = TEAM_YT_CHANNEL[team_home];
-    if (chId) url.searchParams.set('channelId', chId);
+    const buildUrl = (channelId?: string) => {
+      const u = new URL('https://www.googleapis.com/youtube/v3/search');
+      u.searchParams.set('part', 'snippet');
+      u.searchParams.set('q', query);
+      u.searchParams.set('type', 'video');
+      u.searchParams.set('maxResults', '3');
+      u.searchParams.set('order', 'relevance');
+      u.searchParams.set('key', apiKey);
+      u.searchParams.set('publishedAfter', yearStart.toISOString());
+      u.searchParams.set('publishedBefore', afterDeadline.toISOString());
+      if (channelId) u.searchParams.set('channelId', channelId);
+      return u;
+    };
 
-    const ytRes = await fetch(url.toString());
+    const channelId = TEAM_YT_CHANNEL[team_home];
+    let ytRes = await fetch(buildUrl(channelId).toString());
+    // 若指定頻道找不到影片，fallback 全域搜尋
+    if (ytRes.ok) {
+      const peek = await ytRes.clone().json() as { items?: unknown[] };
+      if (channelId && (!peek.items || peek.items.length === 0)) {
+        console.log(`[NPB YT] ${team_home} channel search empty, fallback to global`);
+        ytRes = await fetch(buildUrl().toString());
+      }
+    }
     if (!ytRes.ok) {
       res.status(502).json({ message: 'YouTube API 錯誤', detail: await ytRes.text() });
       return;
