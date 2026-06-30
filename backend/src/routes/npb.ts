@@ -419,18 +419,18 @@ const TEAM_YT_CHANNEL: Record<string, string> = {
   // 中日・広島 → fallback 全域搜尋
 };
 
-// 二軍：主場球隊 → YouTube channel ID（各球隊官方頻道均上傳ファーム精華）
+// 二軍：主場球隊 → YouTube channel ID
 const FARM_TEAM_YT_CHANNEL: Record<string, string> = {
-  'ヤクルト': 'UCt7cNctKXoKece38M9gJV7A', // 東京ヤクルトスワローズ公式
-  '阪神':     'UCJlRHDvGMt0FeSEEOKBJB2g', // 阪神タイガース公式
-  'DeNA':     'UChJI9KrjSgPzv_kfX6yuqhA', // baystarsofficial
-  '巨人':     'UCWmpFBbHOphUFBymCkBT6vA', // ntv_baseball
-  'ソフトバンク': 'UCFLlVBMqvBRVKQFa3vxl2oA',
-  '日本ハム':     'UCFLlVBMqvBRVKQFa3vxl2oA',
-  '楽天':         'UCFLlVBMqvBRVKQFa3vxl2oA',
+  'ヤクルト':     'UCt7cNctKXoKece38M9gJV7A', // @Yakult-swallowsCoJp
+  '阪神':         'UCJlRHDvGMt0FeSEEOKBJB2g', // @hanshintigers_official
+  'DeNA':         'UChJI9KrjSgPzv_kfX6yuqhA', // @baystarsofficial
+  '巨人':         'UCWmpFBbHOphUFBymCkBT6vA', // ntv_baseball
+  'ソフトバンク': 'UCbDAmhyRx9bakv-0Gucglgg', // @SBHawksOfficial
+  '日本ハム':     'UCc8GvFE9z3j6vphwhGpyjMQ', // @GAORATV
+  'オリックス':   'UCE_pCd9bB79Tf8eC_QZHkpA', // @buffaloestv
+  '楽天':         'UCFLlVBMqvBRVKQFa3vxl2oA', // PacificLeagueTV（個別頻道未確認）
   'ロッテ':       'UCFLlVBMqvBRVKQFa3vxl2oA',
   '西武':         'UCFLlVBMqvBRVKQFa3vxl2oA',
-  'オリックス':   'UCFLlVBMqvBRVKQFa3vxl2oA',
 };
 
 router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): Promise<void> => {
