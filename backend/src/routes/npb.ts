@@ -402,7 +402,7 @@ router.get('/games/:id/pitch-data', async (req: Request, res: Response): Promise
 // GET /api/v1/npb/games/:id/youtube-highlight
 const ytCache = new Map<string, { data: object; at: number }>();
 
-// 主場球隊 → YouTube channel ID（硬編碼，省去 handle lookup API 配額）
+// 一軍：主場球隊 → YouTube channel ID
 const TEAM_YT_CHANNEL: Record<string, string> = {
   // 太平洋聯盟 → PacificLeagueTV 官方頻道
   'ソフトバンク': 'UCFLlVBMqvBRVKQFa3vxl2oA',
@@ -415,7 +415,22 @@ const TEAM_YT_CHANNEL: Record<string, string> = {
   '巨人':   'UCWmpFBbHOphUFBymCkBT6vA', // ntv_baseball
   '阪神':   'UCJlRHDvGMt0FeSEEOKBJB2g', // hanshintigers_official
   'DeNA':   'UChJI9KrjSgPzv_kfX6yuqhA', // baystarsofficial
-  // 中日・広島・ヤクルト → 無穩定官方頻道，fallback 全域搜尋
+  'ヤクルト': 'UCt7cNctKXoKece38M9gJV7A', // Yakult-swallowsCoJp
+  // 中日・広島 → fallback 全域搜尋
+};
+
+// 二軍：主場球隊 → YouTube channel ID（各球隊官方頻道均上傳ファーム精華）
+const FARM_TEAM_YT_CHANNEL: Record<string, string> = {
+  'ヤクルト': 'UCt7cNctKXoKece38M9gJV7A', // 東京ヤクルトスワローズ公式
+  '阪神':     'UCJlRHDvGMt0FeSEEOKBJB2g', // 阪神タイガース公式
+  'DeNA':     'UChJI9KrjSgPzv_kfX6yuqhA', // baystarsofficial
+  '巨人':     'UCWmpFBbHOphUFBymCkBT6vA', // ntv_baseball
+  'ソフトバンク': 'UCFLlVBMqvBRVKQFa3vxl2oA',
+  '日本ハム':     'UCFLlVBMqvBRVKQFa3vxl2oA',
+  '楽天':         'UCFLlVBMqvBRVKQFa3vxl2oA',
+  'ロッテ':       'UCFLlVBMqvBRVKQFa3vxl2oA',
+  '西武':         'UCFLlVBMqvBRVKQFa3vxl2oA',
+  'オリックス':   'UCFLlVBMqvBRVKQFa3vxl2oA',
 };
 
 router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): Promise<void> => {
@@ -491,6 +506,73 @@ router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): 
 
     const data = { query, items, status };
     ytCache.set(req.params.id, { data, at: Date.now() });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ message: '無法取得 YouTube 精華', detail: (err as Error).message });
+  }
+});
+
+// GET /api/v1/npb/games/:id/youtube-farm-highlight — 二軍賽後精華
+const ytFarmCache = new Map<string, { data: object; at: number }>();
+
+router.get('/games/:id/youtube-farm-highlight', async (req: Request, res: Response): Promise<void> => {
+  const apiKey = process.env.YOUTUBE_API_KEY;
+  if (!apiKey) { res.status(503).json({ message: 'YOUTUBE_API_KEY 未設定' }); return; }
+
+  const cached = ytFarmCache.get(req.params.id);
+  if (cached && Date.now() - cached.at < 60 * 60 * 1000) { res.json(cached.data); return; }
+
+  try {
+    const gameRes = await pool.query(
+      `SELECT team_away, team_home, game_date, status FROM games WHERE id = $1`,
+      [req.params.id],
+    );
+    if (!gameRes.rows.length) { res.status(404).json({ message: '找不到比賽' }); return; }
+    const { team_away, team_home, game_date, status } = gameRes.rows[0];
+
+    const gameDay = new Date(game_date);
+    const mm = String(gameDay.getMonth() + 1);
+    const dd = String(gameDay.getDate());
+    const query = `ファームハイライト ${mm}月${dd}日 ${team_away} ${team_home}`;
+
+    const afterDate = new Date(gameDay); afterDate.setDate(afterDate.getDate() - 1);
+    const beforeDate = new Date(gameDay); beforeDate.setDate(beforeDate.getDate() + 5);
+
+    const buildUrl = (channelId?: string) => {
+      const u = new URL('https://www.googleapis.com/youtube/v3/search');
+      u.searchParams.set('part', 'snippet');
+      u.searchParams.set('q', query);
+      u.searchParams.set('type', 'video');
+      u.searchParams.set('maxResults', '3');
+      u.searchParams.set('order', 'relevance');
+      u.searchParams.set('key', apiKey);
+      u.searchParams.set('publishedAfter', afterDate.toISOString());
+      u.searchParams.set('publishedBefore', beforeDate.toISOString());
+      if (channelId) u.searchParams.set('channelId', channelId);
+      return u;
+    };
+
+    const channelId = FARM_TEAM_YT_CHANNEL[team_home];
+    let ytRes = await fetch(buildUrl(channelId).toString());
+    if (ytRes.ok) {
+      const peek = await ytRes.clone().json() as { items?: unknown[] };
+      if (channelId && (!peek.items || peek.items.length === 0)) {
+        ytRes = await fetch(buildUrl().toString());
+      }
+    }
+    if (!ytRes.ok) { res.status(502).json({ message: 'YouTube API 錯誤' }); return; }
+
+    const ytJson = await ytRes.json() as {
+      items?: { id: { videoId: string }; snippet: { title: string; thumbnails: { medium: { url: string } } } }[];
+    };
+    const items = (ytJson.items ?? []).map(v => ({
+      videoId: v.id.videoId,
+      title: v.snippet.title,
+      thumbnail: v.snippet.thumbnails?.medium?.url ?? '',
+    }));
+
+    const data = { query, items, status };
+    ytFarmCache.set(req.params.id, { data, at: Date.now() });
     res.json(data);
   } catch (err) {
     res.status(500).json({ message: '無法取得 YouTube 精華', detail: (err as Error).message });

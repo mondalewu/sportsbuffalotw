@@ -1951,6 +1951,7 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tab,          setTab]          = useState<MainTab>('score');
   const [statsTab,     setStatsTab]     = useState<StatsTab>('batter');
+  const [ytItems, setYtItems] = useState<{ videoId: string; title: string }[]>([]);
   const [pbpMode,      setPbpMode]      = useState<'list' | 'review'>('list');
   const [showReplay,       setShowReplay]       = useState(false);
   const [replayInitialAb,  setReplayInitialAb]  = useState(0);
@@ -1989,6 +1990,14 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
   useEffect(() => {
     loadData().catch(() => {}).finally(() => setLoading(false));
     intervalRef.current = setInterval(() => loadData().catch(() => {}), 30_000);
+    // 賽後精華（終場後才取，不佔用直播輪詢配額）
+    if (game.status === 'final') {
+      fetch(`/api/v1/npb/games/${game.id}/youtube-farm-highlight`)
+        .then(r => r.ok ? r.json() : null)
+        .then((d: { items?: { videoId: string; title: string }[] } | null) => {
+          if (d?.items?.length) setYtItems(d.items);
+        }).catch(() => {});
+    }
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [game.id]);
 
@@ -2290,6 +2299,31 @@ export default function FarmGameDetail({ game, onClose, standalone = false, onPr
                 <LineupPanel name={awayName} batters={awayBatters} />
                 <LineupPanel name={homeName} batters={homeBatters} />
               </div>
+              {ytItems.length > 0 && (
+                <div>
+                  <p className="text-xs font-black text-gray-500 mb-2">賽後精華</p>
+                  {ytItems.slice(0, 1).map(v => (
+                    <a key={v.videoId} href={`https://www.youtube.com/watch?v=${v.videoId}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="block rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition">
+                      <div className="relative bg-black aspect-video">
+                        <img src={`https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`} alt={v.title}
+                          className="w-full h-full object-cover opacity-90" />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="w-14 h-14 bg-red-600 rounded-full flex items-center justify-center shadow-lg">
+                            <svg className="w-6 h-6 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M8 5v14l11-7z" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="p-3 bg-white">
+                        <p className="text-xs font-bold text-gray-700 line-clamp-2">{v.title}</p>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
 
           ) : (
