@@ -455,16 +455,23 @@ router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): 
     if (!gameRes.rows.length) { res.status(404).json({ message: '找不到比賽' }); return; }
     const { team_away, team_home, game_date, status } = gameRes.rows[0];
 
-    const dateStr = new Date(game_date).toLocaleDateString('ja-JP', {
+    const gameDay = new Date(game_date);
+    const dateStr = gameDay.toLocaleDateString('ja-JP', {
       timeZone: 'Asia/Tokyo', year: 'numeric', month: 'long', day: 'numeric',
     });
-    const query = `${team_away} ${team_home} ハイライト ${dateStr}`;
 
-    // 限制在比賽當年度（避免舊年度影片），精華影片最晚 14 天後上傳
-    const gameDay = new Date(game_date);
-    const yearStart = new Date(gameDay.getFullYear(), 0, 1);
-    const afterDeadline = new Date(gameDay);
-    afterDeadline.setDate(afterDeadline.getDate() + 14);
+    // DeNA 官方頻道影片標題格式為「YYYY.M.DD ハイライト【DeNA vs 相手】」
+    // 主場名稱在前，故搜尋時也以主場優先，並縮小日期範圍避免誤抓其他日期影片
+    const isDeNAHome = team_home === 'DeNA';
+    const query = isDeNAHome
+      ? `DeNA ハイライト ${dateStr}`
+      : `${team_away} ${team_home} ハイライト ${dateStr}`;
+
+    const afterDate = new Date(gameDay);
+    afterDate.setDate(afterDate.getDate() - 1);
+    const beforeDate = new Date(gameDay);
+    // DeNA 頻道通常隔天上傳，給 3 天緩衝；其他隊維持寬鬆範圍
+    beforeDate.setDate(beforeDate.getDate() + (isDeNAHome ? 3 : 14));
 
     const buildUrl = (channelId?: string) => {
       const u = new URL('https://www.googleapis.com/youtube/v3/search');
@@ -474,8 +481,8 @@ router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): 
       u.searchParams.set('maxResults', '3');
       u.searchParams.set('order', 'relevance');
       u.searchParams.set('key', apiKey);
-      u.searchParams.set('publishedAfter', yearStart.toISOString());
-      u.searchParams.set('publishedBefore', afterDeadline.toISOString());
+      u.searchParams.set('publishedAfter', afterDate.toISOString());
+      u.searchParams.set('publishedBefore', beforeDate.toISOString());
       if (channelId) u.searchParams.set('channelId', channelId);
       return u;
     };
