@@ -259,20 +259,21 @@ async function cdnGet(url: string, extraHeaders: Record<string, string> = {}, ex
     ...(existingCookie ? { Cookie: existingCookie } : {}),
   };
 
-  // 先用 maxRedirects:0 攔截 308，取出 CDN cookie
+  // 先用 maxRedirects:0 攔截 307/308，取出 CDN cookie
   let cdnCookie = existingCookie;
   try {
     await axios.get(url, { timeout: 15000, headers: hdrs, maxRedirects: 0 });
   } catch (e: unknown) {
     const err = e as { response?: { status?: number; headers?: Record<string, unknown> } };
-    if (err.response?.status === 308 && err.response.headers) {
+    const status = err.response?.status;
+    if ((status === 307 || status === 308) && err.response?.headers) {
       const newCookie = extractCookies(err.response.headers);
       if (newCookie) {
         const merged = new Map<string, string>();
         [...(cdnCookie ? cdnCookie.split('; ') : []), ...newCookie.split('; ')]
           .filter(Boolean).forEach(c => merged.set(c.split('=')[0], c));
         cdnCookie = [...merged.values()].join('; ');
-        console.log('[CPBL] CDN 308 challenge → 取得 cookie，重試中');
+        console.log(`[CPBL] CDN ${status} challenge → 取得 cookie，重試中`);
       }
     }
   }
@@ -325,7 +326,7 @@ async function cdnPost(url: string, data: string, cookie: string): Promise<impor
 async function getHomeSession(): Promise<string> {
   if (homeSessionCache && Date.now() - homeSessionCache.ts < SESSION_TTL_MS) return homeSessionCache.cookie;
   try {
-    const cookie = await cdnGet(`${CPBL_BASE}/schedule`);
+    const cookie = await cdnGet(`${CPBL_BASE}/games`);
     if (cookie) {
       homeSessionCache = { cookie, ts: Date.now() };
       console.log(`[CPBL] 取得首頁 session cookie (${cookie.length} chars)`);
