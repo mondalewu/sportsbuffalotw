@@ -137,7 +137,9 @@ function GameCell({ game, onClick }: { game: CPBLGame; onClick: () => void }) {
         <span className="text-[10px] text-gray-500 ml-7">{venueShort}</span>
         {isLive && <span className="text-[9px] font-black text-red-600 animate-pulse">LIVE</span>}
         {isRainout && <span className="text-[9px] font-bold text-blue-500">🌧 延賽</span>}
-        {isFinal && !isRainout && <span className="text-[10px] font-bold text-gray-700">{game.score_away}-{game.score_home}</span>}
+        {isFinal && !isRainout && game.score_away !== null && game.score_home !== null && (
+          <span className="text-[10px] font-bold text-gray-700">{game.score_away}-{game.score_home}</span>
+        )}
       </div>
     </button>
   );

@@ -1676,6 +1676,56 @@ export async function backfillCpblScheduledGames(
     }
   }
 
+  // ── 補抓「final 但缺分數」的比賽 ──────────────────────────────────────────
+  const missingScoreGames = await pool.query<{
+    id: number; game_detail: string; league: string; game_date: string; team_away: string; team_home: string;
+  }>(
+    `SELECT id, game_detail, league, game_date, team_away, team_home
+     FROM games
+     WHERE league IN ('CPBL','CPBL-W')
+       AND status = 'final'
+       AND (score_home IS NULL OR score_away IS NULL)
+       AND game_date >= NOW() - ($1 || ' days')::interval
+     ORDER BY game_date ASC`,
+    [daysBack],
+  );
+
+  for (const g of missingScoreGames.rows) {
+    const gameSno = parseInt(g.game_detail ?? '', 10);
+    if (!gameSno || isNaN(gameSno)) { skipped++; continue; }
+    const kindCode = g.league === 'CPBL' ? 'A' : 'G';
+    const gameYear = new Date(g.game_date).getFullYear();
+    try {
+      const { visitingScoreboards, homeScoreboards, liveLog } =
+        await fetchBoxLive(gameYear, kindCode, gameSno);
+      let scoreAway: number | null = null;
+      let scoreHome: number | null = null;
+      if (visitingScoreboards.length > 0)
+        scoreAway = visitingScoreboards.reduce((s, i) => s + (i.ScoreCnt ?? 0), 0);
+      if (homeScoreboards.length > 0)
+        scoreHome = homeScoreboards.reduce((s, i) => s + (i.ScoreCnt ?? 0), 0);
+      if (scoreAway === null && liveLog.length > 0) {
+        const last = liveLog[liveLog.length - 1];
+        scoreAway = last.VisitingScore;
+        scoreHome = last.HomeScore;
+      }
+      if (scoreAway !== null || scoreHome !== null) {
+        await pool.query(
+          `UPDATE games SET score_away = COALESCE($1, score_away), score_home = COALESCE($2, score_home) WHERE id = $3`,
+          [scoreAway, scoreHome, g.id],
+        );
+        console.log(`[CPBL backfill] ✅ 補分 id=${g.id} GameSno=${gameSno} → ${scoreAway}-${scoreHome}`);
+        fixed++;
+      } else {
+        skipped++;
+      }
+      await new Promise(r => setTimeout(r, 500));
+    } catch (e) {
+      console.warn(`[CPBL backfill] 補分失敗 GameSno=${gameSno}:`, (e as Error).message);
+      skipped++;
+    }
+  }
+
   const msg = `CPBL backfill: fixed=${fixed}, skipped=${skipped}`;
   console.log(`[CPBL backfill] ${msg}`);
   return { fixed, skipped, message: msg };
