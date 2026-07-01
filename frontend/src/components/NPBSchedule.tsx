@@ -1,6 +1,5 @@
 ﻿import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { RefreshCw, Users, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import NpbGameDetail from './NpbGameDetail';
 import { triggerNpbScraper } from '../api/scraper';
 import { getNpbTeams, NpbTeam } from '../api/npb';
@@ -258,7 +257,6 @@ export function NpbNewsBar({ articles, onSelect }: { articles: Article[]; onSele
 const NPBSchedule: React.FC = () => {
   const today = new Date();
   const todayStr = toDateStr(today);
-  const navigate = useNavigate();
 
   const [allGames, setAllGames] = useState<NPBGame[]>([]);
   const [teams, setTeams] = useState<NpbTeam[]>([]);
@@ -274,17 +272,43 @@ const NPBSchedule: React.FC = () => {
   const [selectedMonth, setSelectedMonth] = useState<number>(today.getMonth() + 1);
   const [scrapingMonth, setScrapingMonth] = useState(false);
   const skipWindowResetRef = useRef(false);
+  const loadedMonthsRef = useRef<Set<number>>(new Set());
 
   const fetchGames = (league: 'NPB' | 'NPB2' = leagueTab, month: number = selectedMonth) => {
     setLoading(true);
+    loadedMonthsRef.current = new Set();
     const year = today.getFullYear();
     const from = `${year}-${String(month).padStart(2, '0')}-01`;
     const lastDay = new Date(year, month, 0).getDate();
     const to = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
     fetch(`${API_BASE}/api/v1/games?league=${league}&from=${from}&to=${to}`)
       .then(r => r.json())
-      .then((data: NPBGame[]) => { setAllGames(Array.isArray(data) ? data : []); setLoading(false); })
+      .then((data: NPBGame[]) => {
+        setAllGames(Array.isArray(data) ? data : []);
+        loadedMonthsRef.current = new Set([month]);
+        setLoading(false);
+      })
       .catch(() => { setAllGames([]); setLoading(false); });
+  };
+
+  const fetchAndMergeMonth = (league: 'NPB' | 'NPB2', month: number) => {
+    if (loadedMonthsRef.current.has(month)) return;
+    loadedMonthsRef.current.add(month); // Mark early to prevent duplicate requests
+    const year = today.getFullYear();
+    const from = `${year}-${String(month).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const to = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
+    fetch(`${API_BASE}/api/v1/games?league=${league}&from=${from}&to=${to}`)
+      .then(r => r.json())
+      .then((data: NPBGame[]) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setAllGames(prev => {
+            const ids = new Set(prev.map(g => g.id));
+            return [...prev, ...data.filter(g => !ids.has(g.id))];
+          });
+        }
+      })
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -318,26 +342,29 @@ const NPBSchedule: React.FC = () => {
     });
   }, [windowStart]);
 
-  const prevWeek = () => {
+  const navigateWeek = (delta: -7 | 7) => {
     const d = new Date(windowStart);
-    d.setDate(d.getDate() - 7);
+    d.setDate(d.getDate() + delta);
     setWindowStart(d);
-    const newMonth = d.getMonth() + 1;
-    if (newMonth !== selectedMonth) {
+
+    // Update month tab to the primary month (Monday of new week)
+    const primaryMonth = d.getMonth() + 1;
+    if (primaryMonth !== selectedMonth) {
       skipWindowResetRef.current = true;
-      setSelectedMonth(newMonth);
+      setSelectedMonth(primaryMonth);
+    }
+
+    // Fetch any month visible in the 7-day window that isn't loaded yet
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(d);
+      day.setDate(d.getDate() + i);
+      const m = day.getMonth() + 1;
+      fetchAndMergeMonth(leagueTab, m);
     }
   };
-  const nextWeek = () => {
-    const d = new Date(windowStart);
-    d.setDate(d.getDate() + 7);
-    setWindowStart(d);
-    const newMonth = d.getMonth() + 1;
-    if (newMonth !== selectedMonth) {
-      skipWindowResetRef.current = true;
-      setSelectedMonth(newMonth);
-    }
-  };
+
+  const prevWeek = () => navigateWeek(-7);
+  const nextWeek = () => navigateWeek(7);
   const goToday = () => {
     setWindowStart(getCenterStart(today));
     setSelectedDate(todayStr);
@@ -616,7 +643,7 @@ const NPBSchedule: React.FC = () => {
       ) : (
         /* ── 一軍：一般顯示 ── */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {selectedGames.map((g, i) => (
+          {selectedGames.map((g) => (
             <ScoreCard
               key={g.id}
               game={g}
