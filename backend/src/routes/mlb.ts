@@ -232,6 +232,80 @@ router.get('/game/:gamePk/boxscore', async (req: Request, res: Response): Promis
   }
 });
 
+// ── GET /api/v1/mlb/game/:gamePk/playbyplay ─────────────────────────────────
+router.get('/game/:gamePk/playbyplay', async (req: Request, res: Response): Promise<void> => {
+  const { gamePk } = req.params;
+  const key = `pbp:${gamePk}`;
+  const cached = ttl(key, 60_000);
+  if (cached) { res.json(cached); return; }
+
+  try {
+    const data = await mlbGet(`/game/${gamePk}/playByPlay`) as any;
+    const allPlays = (data.allPlays ?? []).map((p: any) => ({
+      inning: p.about?.inning,
+      halfInning: p.about?.halfInning, // 'top' | 'bottom'
+      event: p.result?.event ?? '',
+      description: p.result?.description ?? '',
+      isOut: p.result?.isOut ?? false,
+      rbi: p.result?.rbi ?? 0,
+      awayScore: p.result?.awayScore ?? 0,
+      homeScore: p.result?.homeScore ?? 0,
+      outs: p.about?.outs ?? 0,
+      pitcher: p.matchup?.pitcher?.fullName ?? '',
+      batter: p.matchup?.batter?.fullName ?? '',
+    }));
+
+    const scoringPlays = allPlays.filter((p: any) => p.rbi > 0 || p.event === 'Home Run');
+
+    const result = { allPlays, scoringPlays };
+    setCache(key, result);
+    res.json(result);
+  } catch (err) {
+    console.error('[MLB playbyplay]', (err as Error).message);
+    res.status(502).json({ message: '無法取得逐球資料' });
+  }
+});
+
+// ── GET /api/v1/mlb/game/:gamePk/content ────────────────────────────────────
+router.get('/game/:gamePk/content', async (req: Request, res: Response): Promise<void> => {
+  const { gamePk } = req.params;
+  const key = `content:${gamePk}`;
+  const cached = ttl(key, 10 * 60_000); // 10 分鐘快取（賽後精華）
+  if (cached) { res.json(cached); return; }
+
+  try {
+    const data = await mlbGet(`/game/${gamePk}/content`) as any;
+    const recap = data.editorial?.recap?.mlb;
+    const highlights = (data.highlights?.highlights?.items ?? [])
+      .slice(0, 10)
+      .map((h: any) => {
+        const mp4 = (h.playbacks ?? []).find((pb: any) => pb.name === 'mp4Avc' || pb.name?.includes('mp4'));
+        return {
+          title: h.headline ?? h.title ?? '',
+          duration: h.duration ?? '',
+          videoUrl: mp4?.url ?? '',
+          thumbnail: h.image?.cuts?.find((c: any) => c.width >= 320)?.src ?? '',
+        };
+      })
+      .filter((h: any) => h.videoUrl);
+
+    const result = {
+      recap: recap ? {
+        headline: recap.headline ?? '',
+        subhead: recap.subhead ?? '',
+        blurb: recap.blurb ?? '',
+      } : null,
+      highlights,
+    };
+
+    setCache(key, result);
+    res.json(result);
+  } catch (err) {
+    console.error('[MLB content]', (err as Error).message);
+    res.status(502).json({ message: '無法取得比賽內容' });
+  }
+});
+
 // ── GET /api/v1/mlb/players/taiwan ──────────────────────────────────────────
 // 台灣/旅美選手當前賽季數據
 router.get('/players/taiwan', async (_req: Request, res: Response): Promise<void> => {

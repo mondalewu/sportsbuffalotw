@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Settings, ChevronDown, ChevronRight } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Settings, ChevronDown, ChevronUp } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import AdBanner from '../components/AdBanner';
 import MLBGameDetail from '../components/MLBGameDetail';
@@ -26,88 +26,6 @@ const TEAM_COLORS: Record<string, string> = {
 
 type StandingsTab = 'AL' | 'NL';
 
-// ── 賽程卡 ───────────────────────────────────────────────────────────────────
-function GameCard({ game, onClick }: { game: MLBGame; onClick: () => void }) {
-  const isLive = game.status.abstractGameState === 'Live';
-  const isFinal = game.status.abstractGameState === 'Final';
-  const isPreview = !isLive && !isFinal;
-
-  const awayAbbr = game.teams.away.team.abbreviation;
-  const homeAbbr = game.teams.home.team.abbreviation;
-  const awayColor = TEAM_COLORS[awayAbbr] ?? '#374151';
-  const homeColor = TEAM_COLORS[homeAbbr] ?? '#374151';
-  const awayScore = game.teams.away.score ?? 0;
-  const homeScore = game.teams.home.score ?? 0;
-  const awayWin = isFinal && awayScore > homeScore;
-  const homeWin = isFinal && homeScore > awayScore;
-
-  const gameTime = new Date(game.gameDate).toLocaleTimeString('zh-TW', {
-    hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Taipei',
-  });
-
-  return (
-    <button
-      onClick={onClick}
-      className={`bg-white rounded-2xl border shadow-sm hover:shadow-md transition-all text-left w-full
-        ${isLive ? 'border-red-300 shadow-red-50' : 'border-gray-100'}`}
-    >
-      {/* Status bar */}
-      <div className={`px-3 py-1.5 rounded-t-2xl text-[10px] font-black flex items-center justify-between
-        ${isLive ? 'bg-red-50 text-red-600' : isFinal ? 'bg-gray-50 text-gray-400' : 'bg-blue-50 text-blue-600'}`}>
-        {isLive ? (
-          <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-            {game.linescore?.inningHalf === 'Top' ? '上' : '下'}
-            {game.linescore?.currentInningOrdinal} 局 &nbsp;
-            {game.linescore?.outs ?? 0} 出局
-          </span>
-        ) : isFinal ? (
-          <span>終場</span>
-        ) : (
-          <span>今日 {gameTime}</span>
-        )}
-        <ChevronRight className="w-3 h-3 opacity-50" />
-      </div>
-
-      {/* Teams + Scores */}
-      <div className="px-3 py-3 space-y-2">
-        {[
-          { abbr: awayAbbr, color: awayColor, score: awayScore, isWinner: awayWin, label: '' },
-          { abbr: homeAbbr, color: homeColor, score: homeScore, isWinner: homeWin, label: '主' },
-        ].map(({ abbr, color, score, isWinner, label }) => (
-          <div key={abbr} className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <div
-                className="w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-[7px] font-black text-white"
-                style={{ background: color }}
-              >
-                {abbr.slice(0, 2)}
-              </div>
-              <span className={`text-sm font-bold truncate ${isWinner ? 'text-gray-900' : isFinal ? 'text-gray-400' : 'text-gray-700'}`}>
-                {MLB_TEAM_ZH[abbr] ?? abbr}
-                {label && <span className="ml-1 text-[10px] text-gray-400 font-normal">{label}</span>}
-              </span>
-            </div>
-            {(isLive || isFinal) && (
-              <span className={`text-xl font-black flex-shrink-0 ${isWinner ? 'text-gray-900' : 'text-gray-400'}`}>
-                {score}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Decisions */}
-      {isFinal && game.decisions?.winner && (
-        <div className="px-3 pb-2.5 text-[10px] text-gray-400 flex gap-3">
-          <span>勝 {game.decisions.winner.fullName.split(' ').slice(-1)[0]}</span>
-          {game.decisions.loser && <span>敗 {game.decisions.loser.fullName.split(' ').slice(-1)[0]}</span>}
-          {game.decisions.save && <span>救 {game.decisions.save.fullName.split(' ').slice(-1)[0]}</span>}
-        </div>
-      )}
-    </button>
-  );
-}
 
 // ── 積分榜單一分區 ────────────────────────────────────────────────────────────
 function DivisionStandings({ division, expanded, onToggle }: {
@@ -287,6 +205,10 @@ export default function MLBPage() {
   const [selectedGame, setSelectedGame] = useState<MLBGame | null>(null);
   const [standingsTab, setStandingsTab] = useState<StandingsTab>('AL');
   const [expandedDivs, setExpandedDivs] = useState<Record<string, boolean>>({});
+  const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
+
+  const toggleDay = (key: string) =>
+    setCollapsedDays(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
 
   // 初始展開今天所有分區
   useEffect(() => {
@@ -344,9 +266,16 @@ export default function MLBPage() {
     month: 'long', day: 'numeric', weekday: 'short', timeZone: 'Asia/Taipei',
   });
 
-  const liveGames = games.filter(g => g.status.abstractGameState === 'Live');
-  const finalGames = games.filter(g => g.status.abstractGameState === 'Final');
-  const scheduledGames = games.filter(g => g.status.abstractGameState === 'Preview');
+  // Group games by date (Taipei timezone)
+  const groupedGames = (() => {
+    const map = new Map<string, MLBGame[]>();
+    for (const g of games) {
+      const dk = new Date(g.gameDate).toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
+      if (!map.has(dk)) map.set(dk, []);
+      map.get(dk)!.push(g);
+    }
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+  })();
 
   return (
     <>
@@ -404,48 +333,96 @@ export default function MLBPage() {
           </div>
 
           {gamesLoading ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-              {[...Array(10)].map((_, i) => (
-                <div key={i} className="bg-gray-100 rounded-2xl h-28 animate-pulse" />
+            <div className="space-y-2">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="bg-gray-100 rounded-2xl h-14 animate-pulse" />
               ))}
             </div>
           ) : games.length === 0 ? (
-            <div className="text-center py-12 text-gray-400 font-bold bg-gray-50 rounded-2xl">
+            <div className="text-center py-12 text-gray-400 font-bold bg-white rounded-2xl border border-gray-100">
               今日無 MLB 比賽
             </div>
           ) : (
-            <div className="space-y-4">
-              {/* 進行中 */}
-              {liveGames.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> 進行中
-                  </p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                    {liveGames.map(g => <GameCard key={g.gamePk} game={g} onClick={() => setSelectedGame(g)} />)}
+            <div className="space-y-2">
+              {groupedGames.map(([dk, dayGames]) => {
+                const d = new Date(dk + 'T00:00:00');
+                const weekday = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
+                const liveCount = dayGames.filter(g => g.status.abstractGameState === 'Live').length;
+                const collapsed = collapsedDays.has(dk);
+                return (
+                  <div key={dk} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <button
+                      onClick={() => toggleDay(dk)}
+                      className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 hover:bg-gray-100 transition"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-sm text-gray-800">{`${d.getMonth() + 1}/${d.getDate()} (${weekday})`}</span>
+                        {liveCount > 0 && <span className="text-[10px] font-black text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full animate-pulse">● LIVE</span>}
+                        <span className="text-xs text-gray-400">{dayGames.length} 場</span>
+                      </div>
+                      {collapsed ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
+                    </button>
+                    {!collapsed && (
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-gray-400 text-[10px] border-b border-gray-100">
+                            <th className="px-4 py-1.5 text-left font-bold">時間</th>
+                            <th className="px-4 py-1.5 text-left font-bold">對戰</th>
+                            <th className="px-4 py-1.5 text-center font-bold">比分</th>
+                            <th className="px-4 py-1.5 text-center font-bold">狀態</th>
+                            <th className="px-4 py-1.5 text-left font-bold hidden sm:table-cell">球場</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dayGames.map(g => {
+                            const isLive = g.status.abstractGameState === 'Live';
+                            const isFinal = g.status.abstractGameState === 'Final';
+                            const isClickable = isLive || isFinal;
+                            const awayAbbr = g.teams.away.team.abbreviation;
+                            const homeAbbr = g.teams.home.team.abbreviation;
+                            const awayScore = g.teams.away.score ?? 0;
+                            const homeScore = g.teams.home.score ?? 0;
+                            const gameTime = new Date(g.gameDate).toLocaleTimeString('zh-TW', {
+                              hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Taipei',
+                            });
+                            const statusLabel = isLive
+                              ? { text: `${g.linescore?.inningHalf === 'Top' ? '上' : '下'}${g.linescore?.currentInningOrdinal ?? ''} ${g.linescore?.outs ?? 0}出局`, cls: 'text-green-600 font-bold animate-pulse' }
+                              : isFinal
+                                ? { text: '終了', cls: 'text-gray-400' }
+                                : { text: '預定', cls: 'text-blue-500' };
+                            return (
+                              <tr
+                                key={g.gamePk}
+                                className={`border-t border-gray-50 hover:bg-gray-50 ${isClickable ? 'cursor-pointer' : ''}`}
+                                onClick={() => isClickable && setSelectedGame(g)}
+                              >
+                                <td className="px-4 py-2.5 text-gray-400 font-mono text-xs">{gameTime}</td>
+                                <td className="px-4 py-2.5 font-bold text-gray-800 text-xs">
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: TEAM_COLORS[awayAbbr] ?? '#374151' }} />
+                                    <span>{MLB_TEAM_ZH[awayAbbr] ?? awayAbbr}</span>
+                                    <span className="text-gray-300 font-normal mx-1">@</span>
+                                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: TEAM_COLORS[homeAbbr] ?? '#374151' }} />
+                                    <span>{MLB_TEAM_ZH[homeAbbr] ?? homeAbbr}</span>
+                                    <span className="text-gray-400 font-normal text-[10px] ml-1">主</span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-2.5 text-center font-mono font-black text-gray-800 text-sm">
+                                  {(isLive || isFinal)
+                                    ? `${awayScore} - ${homeScore}`
+                                    : <span className="text-gray-300 font-normal text-xs">vs</span>}
+                                </td>
+                                <td className={`px-4 py-2.5 text-center text-xs ${statusLabel.cls}`}>{statusLabel.text}</td>
+                                <td className="px-4 py-2.5 text-gray-400 text-xs hidden sm:table-cell">{g.venue ?? '-'}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
                   </div>
-                </div>
-              )}
-
-              {/* 賽前 */}
-              {scheduledGames.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-2">即將開打</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                    {scheduledGames.map(g => <GameCard key={g.gamePk} game={g} onClick={() => setSelectedGame(g)} />)}
-                  </div>
-                </div>
-              )}
-
-              {/* 終場 */}
-              {finalGames.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">終場</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                    {finalGames.map(g => <GameCard key={g.gamePk} game={g} onClick={() => setSelectedGame(g)} />)}
-                  </div>
-                </div>
-              )}
+                );
+              })}
             </div>
           )}
         </section>

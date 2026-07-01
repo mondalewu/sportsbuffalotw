@@ -94,6 +94,34 @@ export const getMLBLinescore = async (gamePk: number) => {
   return res.data;
 };
 
+export interface MLBPlay {
+  inning: number;
+  halfInning: 'top' | 'bottom';
+  event: string;
+  description: string;
+  isOut: boolean;
+  rbi: number;
+  awayScore: number;
+  homeScore: number;
+  outs: number;
+  pitcher: string;
+  batter: string;
+}
+export interface MLBContent {
+  recap: { headline: string; subhead: string; blurb: string } | null;
+  highlights: { title: string; duration: string; videoUrl: string; thumbnail: string }[];
+}
+
+export const getMLBPlayByPlay = async (gamePk: number): Promise<{ allPlays: MLBPlay[]; scoringPlays: MLBPlay[] }> => {
+  const res = await apiClient.get(`/mlb/game/${gamePk}/playbyplay`);
+  return res.data;
+};
+
+export const getMLBContent = async (gamePk: number): Promise<MLBContent> => {
+  const res = await apiClient.get(`/mlb/game/${gamePk}/content`);
+  return res.data;
+};
+
 export const getMLBBoxscore = async (gamePk: number): Promise<MLBBoxscore> => {
   const res = await apiClient.get(`/mlb/game/${gamePk}/boxscore`);
   return res.data;

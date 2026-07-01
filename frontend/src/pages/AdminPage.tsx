@@ -463,7 +463,7 @@ export default function AdminPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <select value={newArticle.category} onChange={e => setNewArticle(f => ({ ...f, category: e.target.value }))}
                     className="border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400">
-                    {['CPBL', 'NPB', 'WBC', 'MLB', 'NBA', '田徑', '三級棒球', '足球', '籃球', '其他'].map(c => <option key={c} value={c}>{c}</option>)}
+                    {['CPBL', 'NPB', 'WBC', 'MLB', 'NBA', '田徑', '三級棒球', '足球', '籃球', '桌球', '其他'].map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                   <div className="flex gap-2">
                     <input type="text" placeholder="封面圖 URL（選填）" value={newArticle.imageUrl}
@@ -747,7 +747,7 @@ export default function AdminPage() {
               {/* 已發布文章列表 */}
               {articleSubTab === 'published' && <>
               <div className="flex flex-wrap gap-2 mb-4">
-                {['全部', 'CPBL', 'NPB', 'WBC', 'MLB', 'NBA', '田徑', '三級棒球', '足球', '籃球', '其他'].map(cat => (
+                {['全部', 'CPBL', 'NPB', 'WBC', 'MLB', 'NBA', '田徑', '三級棒球', '足球', '籃球', '桌球', '其他'].map(cat => (
                   <button key={cat} onClick={() => setArticleFilterCat(cat)}
                     className={`text-xs font-black px-3 py-1.5 rounded-full border transition ${articleFilterCat === cat ? 'bg-red-600 text-white border-red-600' : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-red-300 hover:text-red-600'}`}>
                     {cat}
