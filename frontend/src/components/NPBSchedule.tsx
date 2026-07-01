@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useMemo } from 'react';
+﻿import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { RefreshCw, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import NpbGameDetail from './NpbGameDetail';
@@ -273,6 +273,7 @@ const NPBSchedule: React.FC = () => {
   const [leagueTab, setLeagueTab] = useState<'NPB' | 'NPB2'>('NPB');
   const [selectedMonth, setSelectedMonth] = useState<number>(today.getMonth() + 1);
   const [scrapingMonth, setScrapingMonth] = useState(false);
+  const skipWindowResetRef = useRef(false);
 
   const fetchGames = (league: 'NPB' | 'NPB2' = leagueTab, month: number = selectedMonth) => {
     setLoading(true);
@@ -291,15 +292,16 @@ const NPBSchedule: React.FC = () => {
     const firstDate = `${year}-${String(selectedMonth).padStart(2, '0')}-01`;
     const currentMonth = today.getMonth() + 1;
 
-    if (selectedMonth === currentMonth) {
-      // 當月：顯示今天所在的週
-      setSelectedDate(todayStr);
-      setWindowStart(getCenterStart(today));
-    } else {
-      // 其他月份：從該月第一天開始顯示
-      setSelectedDate(firstDate);
-      setWindowStart(new Date(firstDate + 'T12:00:00'));
+    if (!skipWindowResetRef.current) {
+      if (selectedMonth === currentMonth) {
+        setSelectedDate(todayStr);
+        setWindowStart(getCenterStart(today));
+      } else {
+        setSelectedDate(firstDate);
+        setWindowStart(new Date(firstDate + 'T12:00:00'));
+      }
     }
+    skipWindowResetRef.current = false;
     fetchGames(leagueTab, selectedMonth);
   }, [leagueTab, selectedMonth]);
 
@@ -320,11 +322,21 @@ const NPBSchedule: React.FC = () => {
     const d = new Date(windowStart);
     d.setDate(d.getDate() - 7);
     setWindowStart(d);
+    const newMonth = d.getMonth() + 1;
+    if (newMonth !== selectedMonth) {
+      skipWindowResetRef.current = true;
+      setSelectedMonth(newMonth);
+    }
   };
   const nextWeek = () => {
     const d = new Date(windowStart);
     d.setDate(d.getDate() + 7);
     setWindowStart(d);
+    const newMonth = d.getMonth() + 1;
+    if (newMonth !== selectedMonth) {
+      skipWindowResetRef.current = true;
+      setSelectedMonth(newMonth);
+    }
   };
   const goToday = () => {
     setWindowStart(getCenterStart(today));
