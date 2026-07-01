@@ -803,12 +803,11 @@ function InningScoreTable({ innings, stats, awayName, homeName, totalAway, total
   innings: InningRow[];
   stats: GameStats | null;
   awayName: string; homeName: string;
-  totalAway: number; totalHome: number;
+  totalAway: number | null; totalHome: number | null;
   gameStatus: string;
 }) {
   if (innings.length === 0 && !stats) {
-    // Live game with known score: show table with dashes (innings still loading)
-    if (gameStatus === 'live' && (totalAway > 0 || totalHome > 0)) {
+    if (gameStatus === 'live' && ((totalAway ?? 0) > 0 || (totalHome ?? 0) > 0)) {
       // fall through to render table
     } else {
       return <p className="text-center py-4 text-gray-400 text-sm">比分資料尚未更新</p>;
@@ -832,8 +831,8 @@ function InningScoreTable({ innings, stats, awayName, homeName, totalAway, total
         </thead>
         <tbody>
           {[
-            { name: awayName, getScore: (i: InningRow) => i.score_away, total: totalAway, hits: stats?.hits_away, errors: stats?.errors_away },
-            { name: homeName, getScore: (i: InningRow) => i.score_home, total: totalHome, hits: stats?.hits_home, errors: stats?.errors_home },
+            { name: awayName, getScore: (i: InningRow) => i.score_away, total: totalAway ?? '–', hits: stats?.hits_away, errors: stats?.errors_away },
+            { name: homeName, getScore: (i: InningRow) => i.score_home, total: totalHome ?? '–', hits: stats?.hits_home, errors: stats?.errors_home },
           ].map((team, rowIdx) => {
             const hasAnyData = innings.some(i => team.getScore(i) !== null);
             return (
@@ -848,7 +847,9 @@ function InningScoreTable({ innings, stats, awayName, homeName, totalAway, total
                   </td>
                 );
               })}
-              <td className="px-3 py-2 font-black text-gray-900 border-l border-gray-200 tabular-nums">{team.total}</td>
+              <td className="px-3 py-2 font-black text-gray-900 border-l border-gray-200 tabular-nums">
+                {team.total === '–' ? <span className="text-gray-300">–</span> : team.total}
+              </td>
               {stats && <>
                 <td className="px-2 py-2 text-gray-600 tabular-nums">{team.hits ?? 0}</td>
                 <td className="px-2 py-2 text-gray-600 tabular-nums">{team.errors ?? 0}</td>
@@ -930,8 +931,12 @@ const CPBLGameDetail: React.FC<Props> = ({
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [game.id]);
 
-  const totalAway = game.score_away ?? innings.reduce((s, i) => s + (i.score_away ?? 0), 0);
-  const totalHome = game.score_home ?? innings.reduce((s, i) => s + (i.score_home ?? 0), 0);
+  const totalAway = game.score_away !== null
+    ? game.score_away
+    : innings.length > 0 ? innings.reduce((s, i) => s + (i.score_away ?? 0), 0) : null;
+  const totalHome = game.score_home !== null
+    ? game.score_home
+    : innings.length > 0 ? innings.reduce((s, i) => s + (i.score_home ?? 0), 0) : null;
 
   // Split batters by team — match by code OR name (for robustness)
   const awayCode = Object.entries(TEAM_CODE_MAP).find(([, name]) => name === game.team_away)?.[0];
@@ -1057,19 +1062,21 @@ const CPBLGameDetail: React.FC<Props> = ({
               <TeamBadge name={game.team_away} size={28} />
               <span className="font-bold text-sm">{game.team_away}</span>
               <span className={`text-2xl font-black tabular-nums leading-none ${
-                (isFinal || isLive) && totalAway > totalHome ? 'text-yellow-400' : 'text-white'
-              }`}>{isFinal || isLive ? totalAway : '–'}</span>
+                (isFinal || isLive) && totalAway !== null && totalHome !== null && totalAway > totalHome ? 'text-yellow-400' : 'text-white'
+              }`}>{(isFinal || isLive) ? (totalAway ?? '–') : '–'}</span>
             </div>
             <div className="text-center px-1">
               {isLive  && <span className="text-xs font-black text-red-400 animate-pulse block">● LIVE</span>}
               {isFinal && <span className="text-xs text-gray-400 block">終了</span>}
               {!isLive && !isFinal && <span className="text-xs text-gray-500 block">vs</span>}
-              {game.game_detail && <div className="text-[11px] text-gray-400">{game.game_detail}</div>}
+              {game.game_detail && !/^\d+$/.test(game.game_detail) && (
+                <div className="text-[11px] text-gray-400">{game.game_detail}</div>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <span className={`text-2xl font-black tabular-nums leading-none ${
-                (isFinal || isLive) && totalHome > totalAway ? 'text-yellow-400' : 'text-white'
-              }`}>{isFinal || isLive ? totalHome : '–'}</span>
+                (isFinal || isLive) && totalAway !== null && totalHome !== null && totalHome > totalAway ? 'text-yellow-400' : 'text-white'
+              }`}>{(isFinal || isLive) ? (totalHome ?? '–') : '–'}</span>
               <span className="font-bold text-sm">{game.team_home}</span>
               <TeamBadge name={game.team_home} size={28} />
             </div>
@@ -1115,7 +1122,9 @@ const CPBLGameDetail: React.FC<Props> = ({
             /* 首頁：先發名單 */
             <div className="p-4">
               {lineups.length === 0 && awayBatters.length === 0 && homeBatters.length === 0 ? (
-                <p className="text-center py-10 text-gray-400">賽前打序尚未公布</p>
+                <p className="text-center py-10 text-gray-400">
+                  {isFinal ? '比賽詳細資料尚待整理' : '賽前打序尚未公布'}
+                </p>
               ) : (
                 <div className="space-y-4">
                   {/* YouTube 賽後精華 */}
