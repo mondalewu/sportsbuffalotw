@@ -206,6 +206,7 @@ export default function MLBPage() {
   const [standingsTab, setStandingsTab] = useState<StandingsTab>('AL');
   const [expandedDivs, setExpandedDivs] = useState<Record<string, boolean>>({});
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
+  const [selectedDateTab, setSelectedDateTab] = useState<string | null>(null);
 
   const toggleDay = (key: string) =>
     setCollapsedDays(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
@@ -261,11 +262,6 @@ export default function MLBPage() {
   const nlDivisions = standings.filter(d => d.division.name.startsWith('National'));
   const displayDivisions = standingsTab === 'AL' ? alDivisions : nlDivisions;
 
-  // 今日日期台北時間
-  const todayTW = new Date().toLocaleDateString('zh-TW', {
-    month: 'long', day: 'numeric', weekday: 'short', timeZone: 'Asia/Taipei',
-  });
-
   // Group games by date (Taipei timezone)
   const groupedGames = (() => {
     const map = new Map<string, MLBGame[]>();
@@ -276,6 +272,14 @@ export default function MLBPage() {
     }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   })();
+
+  // 自動選第一個有比賽的日期 tab
+  const dateTabs = groupedGames.map(([dk]) => dk);
+  const activeTab = selectedDateTab ?? dateTabs[0] ?? null;
+  const filteredGroups = activeTab ? groupedGames.filter(([dk]) => dk === activeTab) : groupedGames;
+
+  const todayTaipei = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
+  const WEEKDAY_ZH = ['日', '一', '二', '三', '四', '五', '六'];
 
   return (
     <>
@@ -315,13 +319,10 @@ export default function MLBPage() {
           </div>
         </div>
 
-        {/* 今日賽程 */}
+        {/* 賽程 */}
         <section className="mb-10">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-black text-gray-800 border-l-4 border-red-600 pl-3">
-              今日賽程
-              <span className="ml-2 text-sm font-bold text-gray-400">{todayTW}</span>
-            </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xl font-black text-gray-800 border-l-4 border-red-600 pl-3">賽程</h2>
             <button
               onClick={() => loadGames(true)}
               disabled={gamesRefreshing}
@@ -331,6 +332,37 @@ export default function MLBPage() {
               更新
             </button>
           </div>
+
+          {/* 日期 TAB 列 */}
+          {!gamesLoading && dateTabs.length > 0 && (
+            <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1">
+              {dateTabs.map(dk => {
+                const d = new Date(dk + 'T12:00:00');
+                const month = d.getMonth() + 1;
+                const day = d.getDate();
+                const weekday = WEEKDAY_ZH[d.getDay()];
+                const isToday = dk === todayTaipei;
+                const isSelected = dk === activeTab;
+                return (
+                  <button
+                    key={dk}
+                    onClick={() => setSelectedDateTab(dk)}
+                    className={`flex flex-col items-center px-4 py-2 rounded-xl border transition flex-shrink-0 ${
+                      isSelected
+                        ? 'bg-red-600 text-white border-red-600'
+                        : isToday
+                          ? 'bg-red-50 text-red-600 border-red-200'
+                          : 'bg-white border-gray-200 hover:border-red-300 text-gray-700'
+                    }`}
+                  >
+                    <span className={`text-[10px] font-bold ${isSelected ? 'text-red-100' : 'text-gray-400'}`}>{month}/{day}</span>
+                    <span className="text-sm font-black">{weekday}</span>
+                    {isToday && !isSelected && <span className="text-[9px] font-bold text-red-400 mt-0.5">今日</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {gamesLoading ? (
             <div className="space-y-2">
@@ -344,7 +376,7 @@ export default function MLBPage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {groupedGames.map(([dk, dayGames]) => {
+              {filteredGroups.map(([dk, dayGames]) => {
                 const d = new Date(dk + 'T00:00:00');
                 const weekday = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
                 const liveCount = dayGames.filter(g => g.status.abstractGameState === 'Live').length;
