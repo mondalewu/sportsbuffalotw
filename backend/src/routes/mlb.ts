@@ -34,17 +34,25 @@ async function mlbGet(path: string): Promise<unknown> {
 // ── GET /api/v1/mlb/schedule?date=YYYY-MM-DD ─────────────────────────────────
 // 今日或指定日期賽程（含即時比分/局分）
 router.get('/schedule', async (req: Request, res: Response): Promise<void> => {
-  const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
-  const key = `schedule:${date}`;
+  const date = req.query.date as string | undefined;
+  // 沒指定日期時，抓昨天+今天 UTC 兩天，避免台灣時區早晨看不到美國昨晚比賽
+  const getUtcDate = (offsetDays: number) => {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + offsetDays);
+    return d.toISOString().slice(0, 10);
+  };
+  const startDate = date ?? getUtcDate(-1);
+  const endDate   = date ?? getUtcDate(0);
+  const key = `schedule:${startDate}:${endDate}`;
   const cached = ttl(key, 60_000); // 1 分鐘快取
   if (cached) { res.json(cached); return; }
 
   try {
     const data = await mlbGet(
-      `/schedule?sportId=1&date=${date}&hydrate=linescore(matchup),team,game(content(summary)),decisions`
+      `/schedule?sportId=1&startDate=${startDate}&endDate=${endDate}&hydrate=linescore(matchup),team,game(content(summary)),decisions`
     ) as any;
 
-    const games = (data.dates?.[0]?.games ?? []).map((g: any) => ({
+    const games = (data.dates ?? []).flatMap((dateEntry: any) => dateEntry.games ?? []).map((g: any) => ({
       gamePk: g.gamePk,
       gameDate: g.gameDate,
       status: {

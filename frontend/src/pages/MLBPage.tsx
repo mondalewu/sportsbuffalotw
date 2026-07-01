@@ -377,7 +377,6 @@ export default function MLBPage() {
                           {dayGames.map(g => {
                             const isLive = g.status.abstractGameState === 'Live';
                             const isFinal = g.status.abstractGameState === 'Final';
-                            const isClickable = isLive || isFinal;
                             const awayAbbr = g.teams.away.team.abbreviation;
                             const homeAbbr = g.teams.home.team.abbreviation;
                             const awayScore = g.teams.away.score ?? 0;
@@ -393,8 +392,8 @@ export default function MLBPage() {
                             return (
                               <tr
                                 key={g.gamePk}
-                                className={`border-t border-gray-50 hover:bg-gray-50 ${isClickable ? 'cursor-pointer' : ''}`}
-                                onClick={() => isClickable && setSelectedGame(g)}
+                                className="border-t border-gray-50 hover:bg-gray-50 cursor-pointer"
+                                onClick={() => setSelectedGame(g)}
                               >
                                 <td className="px-4 py-2.5 text-gray-400 font-mono text-xs">{gameTime}</td>
                                 <td className="px-4 py-2.5 font-bold text-gray-800 text-xs">
