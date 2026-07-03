@@ -78,6 +78,19 @@ function Lightbox({ images, initialIndex, onClose }: LightboxProps) {
   );
 }
 
+// 將內容中單獨一行的社群網站 URL 轉換為 embed HTML
+function injectSocialEmbeds(content: string): string {
+  return content.replace(
+    /^(https?:\/\/(twitter\.com|x\.com)\/\S+\/status\/(\d+)[^\s]*)\s*$/gm,
+    (_, url, _host, id) =>
+      `<blockquote class="twitter-tweet"><a href="${url}">${url}</a></blockquote>`,
+  ).replace(
+    /^(https?:\/\/www\.threads\.net\/@[\w.]+\/post\/[\w-]+[^\s]*)\s*$/gm,
+    (_, url) =>
+      `<blockquote class="text-post-media" data-text-post-permalink="${url}"><a href="${url}">${url}</a></blockquote>`,
+  );
+}
+
 export default function ArticleDetail({ article, onBack }: Props) {
   const { currentUser, setAuthModal } = useApp();
   const categoryColor = CATEGORY_COLORS[article.category] ?? 'bg-gray-600';
@@ -336,7 +349,7 @@ export default function ArticleDetail({ article, onBack }: Props) {
               },
             }}
           >
-            {article.content}
+            {injectSocialEmbeds(article.content ?? '')}
           </Markdown>
         </div>
 
