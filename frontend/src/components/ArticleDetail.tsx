@@ -179,19 +179,26 @@ export default function ArticleDetail({ article, onBack }: Props) {
 
   // 載入 Threads embed script（若文章含有 Threads embed）
   useEffect(() => {
-    const hasThreadsEmbed = article.content?.includes('text-post-media') ||
-                            article.content?.includes('threads.net/') ||
+    const hasThreadsEmbed = article.content?.includes('threads.net/') ||
                             article.content?.includes('threads.com/');
     if (!hasThreadsEmbed) return;
 
-    const existing = document.getElementById('threads-embed-script');
-    if (existing) return;
+    const loadAndProcess = () => {
+      const existing = document.getElementById('threads-embed-script');
+      if (existing) {
+        // script 已存在，移除後重新插入以觸發處理
+        existing.remove();
+      }
+      const script = document.createElement('script');
+      script.id = 'threads-embed-script';
+      script.src = 'https://www.threads.net/embed/post.js';
+      script.async = true;
+      document.head.appendChild(script);
+    };
 
-    const script = document.createElement('script');
-    script.id = 'threads-embed-script';
-    script.src = 'https://www.threads.net/embed/post.js';
-    script.async = true;
-    document.head.appendChild(script);
+    // React 渲染後再載入，確保 blockquote 已在 DOM 中
+    const timer = setTimeout(loadAndProcess, 100);
+    return () => clearTimeout(timer);
   }, [article.content, article.id]);
 
   const pageUrl = typeof window !== 'undefined'
