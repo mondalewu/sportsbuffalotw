@@ -161,6 +161,22 @@ export default function ArticleDetail({ article, onBack }: Props) {
     document.head.appendChild(script);
   }, [article.content, article.id]);
 
+  // 載入 Threads embed script（若文章含有 Threads embed）
+  useEffect(() => {
+    const hasThreadsEmbed = article.content?.includes('text-post-media') ||
+                            article.content?.includes('threads.net/');
+    if (!hasThreadsEmbed) return;
+
+    const existing = document.getElementById('threads-embed-script');
+    if (existing) return;
+
+    const script = document.createElement('script');
+    script.id = 'threads-embed-script';
+    script.src = 'https://www.threads.net/embed/post.js';
+    script.async = true;
+    document.head.appendChild(script);
+  }, [article.content, article.id]);
+
   const pageUrl = typeof window !== 'undefined'
     ? `${window.location.origin}/article/${article.slug}`
     : '';
