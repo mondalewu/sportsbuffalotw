@@ -117,7 +117,7 @@ export default function HomePage() {
             <>
               <div className="group cursor-pointer bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100 transition-all hover:shadow-xl" onClick={() => handleSelectArticle(filteredArticles[0])}>
                 <div className="h-80 overflow-hidden relative">
-                  <img src={filteredArticles[0].image_url || 'https://picsum.photos/seed/sports/800/400'} className="w-full h-full object-cover group-hover:scale-110 transition duration-700" alt="Headline" referrerPolicy="no-referrer" />
+                  <img src={filteredArticles[0].image_url || 'https://picsum.photos/seed/sports/800/400'} className="w-full h-full object-cover group-hover:scale-110 transition duration-700" style={{ objectPosition: filteredArticles[0].image_position || 'center' }} alt="Headline" referrerPolicy="no-referrer" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
                   <div className="absolute bottom-6 left-6 right-6">
                     <span className="bg-red-600 text-white text-[10px] font-black px-2 py-1 rounded mb-3 inline-block">{filteredArticles[0].category}</span>
@@ -138,7 +138,7 @@ export default function HomePage() {
                 {filteredArticles.slice(1).map(news => (
                   <div key={news.id} className="group cursor-pointer bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 transition-all hover:shadow-md flex flex-col" onClick={() => handleSelectArticle(news)}>
                     <div className="h-48 overflow-hidden relative">
-                      <img src={news.image_url || 'https://picsum.photos/seed/sports/400/300'} className="w-full h-full object-cover group-hover:scale-110 transition duration-500" alt={news.title} referrerPolicy="no-referrer" />
+                      <img src={news.image_url || 'https://picsum.photos/seed/sports/400/300'} className="w-full h-full object-cover group-hover:scale-110 transition duration-500" style={{ objectPosition: news.image_position || 'center' }} alt={news.title} referrerPolicy="no-referrer" />
                       <div className="absolute top-3 left-3">
                         <span className="bg-black/70 backdrop-blur-sm text-white text-[10px] font-black px-2 py-1 rounded">{news.category}</span>
                       </div>

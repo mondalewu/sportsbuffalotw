@@ -78,6 +78,7 @@ export default function CPBLPage() {
                   {cpblNews[0].image_url ? (
                     <img src={cpblNews[0].image_url} alt={cpblNews[0].title}
                       className="w-44 sm:w-56 h-40 object-cover flex-shrink-0 group-hover:scale-105 transition duration-500"
+                      style={{ objectPosition: cpblNews[0].image_position || 'center' }}
                       referrerPolicy="no-referrer"
                       onError={e => { (e.target as HTMLImageElement).src = `https://picsum.photos/seed/${encodeURIComponent(cpblNews[0].title)}/400/300`; }}
                     />
@@ -104,6 +105,7 @@ export default function CPBLPage() {
                       {a.image_url ? (
                         <img src={a.image_url} alt={a.title}
                           className="w-20 h-16 object-cover rounded-lg flex-shrink-0 group-hover:scale-105 transition duration-500"
+                          style={{ objectPosition: a.image_position || 'center' }}
                           referrerPolicy="no-referrer"
                           onError={e => { (e.target as HTMLImageElement).src = `https://picsum.photos/seed/${encodeURIComponent(a.title)}/400/300`; }}
                         />

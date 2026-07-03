@@ -57,7 +57,7 @@ export default function AdminPage() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [drafts, setDrafts] = useState<Article[]>([]);
   const [articleSubTab, setArticleSubTab] = useState<'published' | 'draft'>('published');
-  const [newArticle, setNewArticle] = useState({ title: '', category: 'CPBL', imageUrl: '', summary: '', content: '', igEmbedUrl: '' });
+  const [newArticle, setNewArticle] = useState({ title: '', category: 'CPBL', imageUrl: '', imagePosition: 'center', summary: '', content: '', igEmbedUrl: '' });
   const [editingAdminArticle, setEditingAdminArticle] = useState<Article | null>(null);
   const [articleFilterCat, setArticleFilterCat] = useState('全部');
   const [expandedArticleId, setExpandedArticleId] = useState<number | null>(null);
@@ -272,6 +272,7 @@ export default function AdminPage() {
         await updateArticle(editingAdminArticle.id, {
           title: newArticle.title, category: newArticle.category,
           summary: newArticle.summary, content: newArticle.content, image_url: newArticle.imageUrl,
+          image_position: newArticle.imagePosition,
           ig_embed_url: newArticle.igEmbedUrl || null,
         });
         setEditingAdminArticle(null);
@@ -280,12 +281,13 @@ export default function AdminPage() {
         await createArticle({
           title: newArticle.title, category: newArticle.category,
           summary: newArticle.summary, content: newArticle.content, image_url: newArticle.imageUrl,
+          image_position: newArticle.imagePosition,
           ig_embed_url: newArticle.igEmbedUrl || null,
           status: asDraft ? 'draft' : 'published',
         });
         showMsg(asDraft ? '📝 草稿已儲存' : '✅ 文章已發布');
       }
-      setNewArticle({ title: '', category: 'CPBL', imageUrl: '', summary: '', content: '', igEmbedUrl: '' });
+      setNewArticle({ title: '', category: 'CPBL', imageUrl: '', imagePosition: 'center', summary: '', content: '', igEmbedUrl: '' });
       loadArticles();
       if (asDraft) setArticleSubTab('draft');
     } catch {
@@ -414,7 +416,7 @@ export default function AdminPage() {
                 <h2 className="text-2xl font-black">{editingAdminArticle ? '✏️ 編輯文章' : '發布新文章'}</h2>
                 <div className="flex items-center gap-3">
                   {editingAdminArticle && (
-                    <button onClick={() => { setEditingAdminArticle(null); setNewArticle({ title: '', category: 'CPBL', imageUrl: '', summary: '', content: '', igEmbedUrl: '' }); setArticleImages([]); }}
+                    <button onClick={() => { setEditingAdminArticle(null); setNewArticle({ title: '', category: 'CPBL', imageUrl: '', imagePosition: 'center', summary: '', content: '', igEmbedUrl: '' }); setArticleImages([]); }}
                       className="text-sm font-bold text-gray-400 hover:text-red-600 transition">✕ 取消編輯</button>
                   )}
                   {!editingAdminArticle && (
@@ -489,8 +491,34 @@ export default function AdminPage() {
                   </div>
                 </div>
                 {newArticle.imageUrl && (
-                  <img src={newArticle.imageUrl} alt="預覽" className="w-full h-40 object-cover rounded-xl"
-                    referrerPolicy="no-referrer" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  <div className="space-y-2">
+                    <div className="relative w-full h-40 rounded-xl overflow-hidden bg-gray-100">
+                      <img src={newArticle.imageUrl} alt="預覽"
+                        className="w-full h-full object-cover"
+                        style={{ objectPosition: newArticle.imagePosition }}
+                        referrerPolicy="no-referrer"
+                        onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-bold text-gray-500 whitespace-nowrap">縮圖焦點</span>
+                      <div className="grid grid-cols-3 gap-1">
+                        {[
+                          ['left top','↖'],['center top','↑'],['right top','↗'],
+                          ['left center','←'],['center','●'],['right center','→'],
+                          ['left bottom','↙'],['center bottom','↓'],['right bottom','↘'],
+                        ].map(([pos, label]) => (
+                          <button key={pos} type="button"
+                            onClick={() => setNewArticle(f => ({ ...f, imagePosition: pos }))}
+                            className={`w-7 h-7 rounded text-sm flex items-center justify-center transition font-bold
+                              ${newArticle.imagePosition === pos
+                                ? 'bg-red-600 text-white'
+                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 )}
                 <textarea placeholder="文章摘要" value={newArticle.summary} rows={2}
                   onChange={e => setNewArticle(f => ({ ...f, summary: e.target.value }))}
@@ -720,7 +748,7 @@ export default function AdminPage() {
                       <div className="flex flex-col gap-1 shrink-0">
                         <button onClick={async () => {
                           setEditingAdminArticle(a);
-                          setNewArticle({ title: a.title, category: a.category, imageUrl: a.image_url || '', summary: a.summary || '', content: a.content || '', igEmbedUrl: (a as any).ig_embed_url || '' });
+                          setNewArticle({ title: a.title, category: a.category, imageUrl: a.image_url || '', imagePosition: a.image_position || 'center', summary: a.summary || '', content: a.content || '', igEmbedUrl: (a as any).ig_embed_url || '' });
                           setArticleSubTab('published');
                           window.scrollTo({ top: 0, behavior: 'smooth' });
                         }} className="text-xs font-bold px-3 py-1 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 transition">✏️ 編輯</button>
@@ -780,7 +808,7 @@ export default function AdminPage() {
                       <div className="flex flex-col gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                         <button onClick={async () => {
                           setEditingAdminArticle(a);
-                          setNewArticle({ title: a.title, category: a.category, imageUrl: a.image_url || '', summary: a.summary || '', content: a.content || '', igEmbedUrl: a.ig_embed_url || '' });
+                          setNewArticle({ title: a.title, category: a.category, imageUrl: a.image_url || '', imagePosition: a.image_position || 'center', summary: a.summary || '', content: a.content || '', igEmbedUrl: a.ig_embed_url || '' });
                           // load existing images
                           try {
                             const res = await fetch(`${API_BASE}/api/v1/articles/${a.id}/images`, { credentials: 'include' });

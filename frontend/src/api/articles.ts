@@ -13,6 +13,7 @@ export interface CreateArticlePayload {
   summary: string;
   content: string;
   image_url: string;
+  image_position?: string;
   ig_embed_url?: string | null;
   status?: 'draft' | 'published';
 }

@@ -13,6 +13,7 @@ export interface Article {
   summary: string;
   content: string;
   image_url: string;
+  image_position?: string;
   author_id?: number;
   is_hot: boolean;
   published_at: string;
