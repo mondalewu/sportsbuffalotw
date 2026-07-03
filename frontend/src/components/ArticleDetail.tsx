@@ -78,17 +78,20 @@ function Lightbox({ images, initialIndex, onClose }: LightboxProps) {
   );
 }
 
-// 將內容中單獨一行的社群網站 URL 轉換為 embed HTML
+// 將內容中的社群網站裸 URL 轉換為 embed HTML
+// 條件：不在 markdown 連結語法 [text](url) 裡面
 function injectSocialEmbeds(content: string): string {
-  return content.replace(
-    /^(https?:\/\/(twitter\.com|x\.com)\/\S+\/status\/(\d+)[^\s]*)\s*$/gm,
-    (_, url) =>
-      `<blockquote class="twitter-tweet"><a href="${url}">${url}</a></blockquote>`,
-  ).replace(
-    /^(https?:\/\/www\.threads\.(net|com)\/@[\w.]+\/post\/[^\s]+)\s*$/gm,
-    (_, url) =>
-      `<blockquote class="text-post-media" data-text-post-permalink="${url}"><a href="${url}">${url}</a></blockquote>`,
-  );
+  return content
+    .replace(
+      /(?<!\()(https?:\/\/(twitter\.com|x\.com)\/\S+\/status\/\d+[^\s)\]]*)/g,
+      (_, url) =>
+        `\n<blockquote class="twitter-tweet"><a href="${url}">${url}</a></blockquote>\n`,
+    )
+    .replace(
+      /(?<!\()(https?:\/\/www\.threads\.(net|com)\/@[\w.]+\/post\/[^\s)\]]+)/g,
+      (_, url) =>
+        `\n<blockquote class="text-post-media" data-text-post-permalink="${url}"><a href="${url}">${url}</a></blockquote>\n`,
+    );
 }
 
 export default function ArticleDetail({ article, onBack }: Props) {
