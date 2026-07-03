@@ -397,7 +397,7 @@ export default function MLBGameDetail({ game, onClose }: Props) {
       style={{ background: 'rgba(0,0,0,0.6)' }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl max-h-[96vh] flex flex-col overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[98vh] flex flex-col overflow-hidden">
 
         {/* ── Header ── */}
         <div className="bg-gray-900 text-white px-5 py-4 shrink-0">
