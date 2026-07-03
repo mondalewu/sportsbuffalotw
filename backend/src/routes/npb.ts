@@ -419,18 +419,37 @@ const TEAM_YT_CHANNEL: Record<string, string> = {
   // 中日・広島 → fallback 全域搜尋
 };
 
-// 二軍：主場球隊 → YouTube channel ID
+// 二軍：主場球隊 → YouTube channel ID（パ・リーグは PacificLeagueTV を優先）
 const FARM_TEAM_YT_CHANNEL: Record<string, string> = {
+  // パ・リーグ → PacificLeagueTV
+  'ソフトバンク': 'UCFLlVBMqvBRVKQFa3vxl2oA',
+  '日本ハム':     'UCFLlVBMqvBRVKQFa3vxl2oA',
+  '楽天':         'UCFLlVBMqvBRVKQFa3vxl2oA',
+  'ロッテ':       'UCFLlVBMqvBRVKQFa3vxl2oA',
+  '西武':         'UCFLlVBMqvBRVKQFa3vxl2oA',
+  'オリックス':   'UCFLlVBMqvBRVKQFa3vxl2oA',
+  // セ・リーグ → 各チーム公式
   'ヤクルト':     'UCt7cNctKXoKece38M9gJV7A', // @Yakult-swallowsCoJp
   '阪神':         'UCJlRHDvGMt0FeSEEOKBJB2g', // @hanshintigers_official
   'DeNA':         'UChJI9KrjSgPzv_kfX6yuqhA', // @baystarsofficial
   '巨人':         'UCWmpFBbHOphUFBymCkBT6vA', // ntv_baseball
-  'ソフトバンク': 'UCbDAmhyRx9bakv-0Gucglgg', // @SBHawksOfficial
-  '日本ハム':     'UCc8GvFE9z3j6vphwhGpyjMQ', // @GAORATV
-  'オリックス':   'UCE_pCd9bB79Tf8eC_QZHkpA', // @buffaloestv
-  '楽天':         'UCFLlVBMqvBRVKQFa3vxl2oA', // PacificLeagueTV（個別頻道未確認）
-  'ロッテ':       'UCFLlVBMqvBRVKQFa3vxl2oA',
-  '西武':         'UCFLlVBMqvBRVKQFa3vxl2oA',
+  // 中日・広島 → fallback 全域搜尋
+};
+
+// 球隊暱稱（YouTube 標題常用）
+const FARM_TEAM_NICKNAME: Record<string, string> = {
+  'ソフトバンク': 'ホークス',
+  '日本ハム':     'ファイターズ',
+  '楽天':         'イーグルス',
+  'ロッテ':       'マリーンズ',
+  '西武':         'ライオンズ',
+  'オリックス':   'バファローズ',
+  'ヤクルト':     'スワローズ',
+  '阪神':         'タイガース',
+  'DeNA':         'ベイスターズ',
+  '巨人':         'ジャイアンツ',
+  '中日':         'ドラゴンズ',
+  '広島':         'カープ',
 };
 
 router.get('/games/:id/youtube-highlight', async (req: Request, res: Response): Promise<void> => {
@@ -525,7 +544,7 @@ router.get('/games/:id/youtube-farm-highlight', async (req: Request, res: Respon
   if (!apiKey) { res.status(503).json({ message: 'YOUTUBE_API_KEY 未設定' }); return; }
 
   const cached = ytFarmCache.get(req.params.id);
-  if (cached && Date.now() - cached.at < 60 * 60 * 1000) { res.json(cached.data); return; }
+  if (cached && Date.now() - cached.at < 30 * 60 * 1000) { res.json(cached.data); return; }
 
   try {
     const gameRes = await pool.query(
@@ -536,17 +555,27 @@ router.get('/games/:id/youtube-farm-highlight', async (req: Request, res: Respon
     const { team_away, team_home, game_date, status } = gameRes.rows[0];
 
     const gameDay = new Date(game_date);
+    const yyyy = gameDay.getFullYear();
     const mm = String(gameDay.getMonth() + 1);
     const dd = String(gameDay.getDate());
-    const query = `ファームハイライト ${mm}月${dd}日 ${team_away} ${team_home}`;
+
+    const awayNick = FARM_TEAM_NICKNAME[team_away] ?? team_away;
+    const homeNick = FARM_TEAM_NICKNAME[team_home] ?? team_home;
+
+    // PacificLeagueTV 標題格式：「[ファーム] チーム vs チーム YYYY/M/D ハイライト」
+    // セ・リーグ各チーム公式は「ファーム ハイライト チーム名」等
+    const isPacific = ['ソフトバンク','日本ハム','楽天','ロッテ','西武','オリックス'].includes(team_home);
+    const query = isPacific
+      ? `ファーム ${awayNick} ${homeNick} ${yyyy}/${mm}/${dd}`
+      : `ファーム ハイライト ${awayNick} ${homeNick} ${mm}月${dd}日`;
 
     const afterDate = new Date(gameDay); afterDate.setDate(afterDate.getDate() - 1);
-    const beforeDate = new Date(gameDay); beforeDate.setDate(beforeDate.getDate() + 5);
+    const beforeDate = new Date(gameDay); beforeDate.setDate(beforeDate.getDate() + 7);
 
-    const buildUrl = (channelId?: string) => {
+    const buildUrl = (channelId?: string, q = query) => {
       const u = new URL('https://www.googleapis.com/youtube/v3/search');
       u.searchParams.set('part', 'snippet');
-      u.searchParams.set('q', query);
+      u.searchParams.set('q', q);
       u.searchParams.set('type', 'video');
       u.searchParams.set('maxResults', '3');
       u.searchParams.set('order', 'relevance');
@@ -561,8 +590,15 @@ router.get('/games/:id/youtube-farm-highlight', async (req: Request, res: Respon
     let ytRes = await fetch(buildUrl(channelId).toString());
     if (ytRes.ok) {
       const peek = await ytRes.clone().json() as { items?: unknown[] };
+      // 指定頻道找不到 → 用暱稱 fallback 同頻道再搜一次
       if (channelId && (!peek.items || peek.items.length === 0)) {
-        ytRes = await fetch(buildUrl().toString());
+        const q2 = `ファーム ${awayNick} ${homeNick} ${yyyy}`;
+        ytRes = await fetch(buildUrl(channelId, q2).toString());
+        const peek2 = await ytRes.clone().json() as { items?: unknown[] };
+        // 再找不到 → 全域搜尋
+        if (!peek2.items || peek2.items.length === 0) {
+          ytRes = await fetch(buildUrl(undefined, query).toString());
+        }
       }
     }
     if (!ytRes.ok) { res.status(502).json({ message: 'YouTube API 錯誤' }); return; }
