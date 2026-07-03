@@ -22,16 +22,32 @@ interface Props {
 
 type MainTab = 'home' | 'score' | 'pbp' | 'stats';
 
-// ── 球隊徽章（顏色圓圈 + 縮寫）────────────────────────────────────────────
-function TeamBadge({ abbr, size = 36 }: { abbr: string; size?: number }) {
-  const color = TEAM_COLORS[abbr] ?? '#374151';
+// ESPN 縮寫對應（MLB Stats API 與 ESPN 不同的球隊）
+const ESPN_ABBR: Record<string, string> = { CWS: 'chw', AZ: 'ari', ATH: 'oak' };
+
+// ── 球隊 Logo（ESPN CDN 圖片，失敗時回退彩色圓圈）──────────────────────────
+function TeamLogo({ abbr, size = 28 }: { abbr: string; size?: number }) {
+  const [error, setError] = useState(false);
+  const espnAbbr = ESPN_ABBR[abbr] ?? abbr.toLowerCase();
+  if (error) {
+    const color = TEAM_COLORS[abbr] ?? '#374151';
+    return (
+      <div
+        className="rounded-full flex items-center justify-center text-white font-black flex-shrink-0 shadow"
+        style={{ width: size, height: size, background: color, fontSize: Math.round(size * 0.3) }}
+      >
+        {abbr.slice(0, 2)}
+      </div>
+    );
+  }
   return (
-    <div
-      className="rounded-full flex items-center justify-center text-white font-black flex-shrink-0 shadow"
-      style={{ width: size, height: size, background: color, fontSize: Math.round(size * 0.3) }}
-    >
-      {abbr.slice(0, 2)}
-    </div>
+    <img
+      src={`https://a.espncdn.com/i/teamlogos/mlb/500/${espnAbbr}.png`}
+      alt={abbr}
+      width={size} height={size}
+      onError={() => setError(true)}
+      className="flex-shrink-0"
+    />
   );
 }
 
@@ -404,7 +420,7 @@ export default function MLBGameDetail({ game, onClose }: Props) {
           <div className="flex items-center justify-center gap-4 flex-wrap">
             {/* 客隊 */}
             <div className="flex items-center gap-2">
-              <TeamBadge abbr={awayAbbr} size={32} />
+              <TeamLogo abbr={awayAbbr} size={28} />
               <div className="text-right">
                 <div className="text-xs text-gray-400 font-bold">{awayZh}</div>
               </div>
@@ -446,7 +462,7 @@ export default function MLBGameDetail({ game, onClose }: Props) {
                 <div className="text-xs text-gray-400 font-bold">{homeZh}</div>
                 <div className="text-[10px] text-gray-500">主場</div>
               </div>
-              <TeamBadge abbr={homeAbbr} size={32} />
+              <TeamLogo abbr={homeAbbr} size={28} />
             </div>
           </div>
 
