@@ -184,16 +184,16 @@ function InningScoreTable({ innings, lsTeams, awayAbbr, homeAbbr }: {
   if (!innings.length) return null;
   return (
     <div className="overflow-x-auto border-b border-gray-100">
-      <table className="w-full text-center text-xs min-w-[420px]">
+      <table className="text-center text-xs w-full">
         <thead>
           <tr className="text-gray-400 font-bold border-b border-gray-100 bg-gray-50">
-            <th className="text-left py-2 pl-3 w-14">球隊</th>
+            <th className="text-left py-2 pl-3 w-14 sticky left-0 bg-gray-50 z-10">球隊</th>
             {innings.map((inn: any) => (
-              <th key={inn.num} className="py-2 px-1 w-7">{inn.num}</th>
+              <th key={inn.num} className="py-2 px-2 min-w-[28px]">{inn.num}</th>
             ))}
-            <th className="py-2 px-2 font-black text-gray-700">R</th>
-            <th className="py-2 px-2 font-black text-gray-700">H</th>
-            <th className="py-2 px-2 font-black text-gray-700">E</th>
+            <th className="py-2 px-3 font-black text-gray-700 border-l border-gray-200">R</th>
+            <th className="py-2 px-3 font-black text-gray-700">H</th>
+            <th className="py-2 px-3 font-black text-gray-700">E</th>
           </tr>
         </thead>
         <tbody>
@@ -202,15 +202,15 @@ function InningScoreTable({ innings, lsTeams, awayAbbr, homeAbbr }: {
             { abbr: homeAbbr, side: 'home' },
           ] as const).map(({ abbr, side }) => (
             <tr key={side} className="border-b border-gray-50">
-              <td className="text-left py-2.5 pl-3 font-black text-gray-800 text-xs">{abbr}</td>
+              <td className="text-left py-2.5 pl-3 font-black text-gray-800 text-xs sticky left-0 bg-white z-10">{abbr}</td>
               {innings.map((inn: any) => (
-                <td key={inn.num} className="py-2.5 px-1 text-gray-600">
+                <td key={inn.num} className="py-2.5 px-2 text-gray-600 min-w-[28px]">
                   {inn[side]?.runs ?? (inn[side]?.runs === 0 ? '0' : '·')}
                 </td>
               ))}
-              <td className="py-2.5 px-2 font-black text-gray-900">{lsTeams?.[side]?.runs ?? '-'}</td>
-              <td className="py-2.5 px-2 text-gray-600">{lsTeams?.[side]?.hits ?? '-'}</td>
-              <td className="py-2.5 px-2 text-gray-400">{lsTeams?.[side]?.errors ?? '-'}</td>
+              <td className="py-2.5 px-3 font-black text-gray-900 border-l border-gray-200">{lsTeams?.[side]?.runs ?? '-'}</td>
+              <td className="py-2.5 px-3 text-gray-600">{lsTeams?.[side]?.hits ?? '-'}</td>
+              <td className="py-2.5 px-3 text-gray-400">{lsTeams?.[side]?.errors ?? '-'}</td>
             </tr>
           ))}
         </tbody>
