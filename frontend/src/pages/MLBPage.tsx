@@ -319,6 +319,59 @@ export default function MLBPage() {
           </div>
         </div>
 
+        {/* 最新消息 */}
+        {mlbNews.length > 0 && (
+          <section className="mb-8">
+            <h2 className="text-xl font-black text-gray-800 mb-4 border-l-4 border-red-600 pl-3">最新消息</h2>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+              <button
+                onClick={() => handleSelectArticle(mlbNews[0])}
+                className="md:col-span-3 text-left flex gap-4 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-md hover:border-red-200 transition group"
+              >
+                {mlbNews[0].image_url ? (
+                  <img src={mlbNews[0].image_url} alt={mlbNews[0].title}
+                    className="w-44 sm:w-56 h-40 object-cover flex-shrink-0 group-hover:scale-105 transition duration-500"
+                    referrerPolicy="no-referrer"
+                    onError={e => { (e.target as HTMLImageElement).src = `https://picsum.photos/seed/${encodeURIComponent(mlbNews[0].title)}/400/300`; }}
+                  />
+                ) : (
+                  <div className="w-44 sm:w-56 h-40 flex items-center justify-center bg-gradient-to-br from-red-50 to-red-100 flex-shrink-0">
+                    <span className="text-4xl">⚾</span>
+                  </div>
+                )}
+                <div className="flex flex-col justify-center py-3 pr-4 min-w-0">
+                  <span className="text-[10px] font-black text-red-600 mb-1.5">MLB 最新消息</span>
+                  <p className="font-black text-sm sm:text-base text-gray-900 line-clamp-3 leading-snug">{mlbNews[0].title}</p>
+                  <p className="text-[10px] text-gray-400 mt-2">{new Date(mlbNews[0].published_at).toLocaleDateString('zh-TW')}</p>
+                </div>
+              </button>
+
+              <div className="md:col-span-2 flex flex-col gap-3">
+                {mlbNews.slice(1, 3).map(a => (
+                  <button key={a.id} onClick={() => handleSelectArticle(a)}
+                    className="flex-1 text-left flex gap-3 bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-md hover:border-red-200 transition group p-2">
+                    {a.image_url ? (
+                      <img src={a.image_url} alt={a.title}
+                        className="w-20 h-16 object-cover rounded-lg flex-shrink-0 group-hover:scale-105 transition duration-500"
+                        referrerPolicy="no-referrer"
+                        onError={e => { (e.target as HTMLImageElement).src = `https://picsum.photos/seed/${encodeURIComponent(a.title)}/400/300`; }}
+                      />
+                    ) : (
+                      <div className="w-20 h-16 flex items-center justify-center bg-gradient-to-br from-red-50 to-red-100 rounded-lg flex-shrink-0">
+                        <span className="text-2xl">⚾</span>
+                      </div>
+                    )}
+                    <div className="flex flex-col justify-center min-w-0">
+                      <p className="text-xs font-black text-gray-800 line-clamp-3 leading-snug">{a.title}</p>
+                      <p className="text-[10px] text-gray-400 mt-1">{new Date(a.published_at).toLocaleDateString('zh-TW')}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* 賽程 */}
         <section className="mb-10">
           <div className="flex items-center justify-between mb-3">
@@ -531,80 +584,6 @@ export default function MLBPage() {
 
         {/* 小聯盟台灣選手 */}
         <MinorLeaguePlayers players={twMinors} />
-
-        {/* 最新消息 */}
-        {mlbNews.length > 0 && (
-          <section className="mb-8">
-            <h2 className="text-xl font-black text-gray-800 mb-4 border-l-4 border-red-600 pl-3">最新消息</h2>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-              <button
-                onClick={() => handleSelectArticle(mlbNews[0])}
-                className="md:col-span-3 text-left flex gap-4 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-md hover:border-red-200 transition group"
-              >
-                {mlbNews[0].image_url ? (
-                  <img src={mlbNews[0].image_url} alt={mlbNews[0].title}
-                    className="w-44 sm:w-56 h-40 object-cover flex-shrink-0 group-hover:scale-105 transition duration-500"
-                    referrerPolicy="no-referrer"
-                    onError={e => { (e.target as HTMLImageElement).src = `https://picsum.photos/seed/${encodeURIComponent(mlbNews[0].title)}/400/300`; }}
-                  />
-                ) : (
-                  <div className="w-44 sm:w-56 h-40 flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 flex-shrink-0">
-                    <span className="text-4xl">⚾</span>
-                  </div>
-                )}
-                <div className="flex flex-col justify-center py-3 pr-4 min-w-0">
-                  <span className="text-[10px] font-black text-red-600 mb-1.5">MLB 最新消息</span>
-                  <p className="font-black text-sm sm:text-base text-gray-900 line-clamp-3 leading-snug">{mlbNews[0].title}</p>
-                  <p className="text-[10px] text-gray-400 mt-2">{new Date(mlbNews[0].published_at).toLocaleDateString('zh-TW')}</p>
-                </div>
-              </button>
-
-              <div className="md:col-span-2 flex flex-col gap-3">
-                {mlbNews.slice(1, 3).map(a => (
-                  <button key={a.id} onClick={() => handleSelectArticle(a)}
-                    className="flex-1 text-left flex gap-3 bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-md hover:border-red-200 transition group p-2">
-                    {a.image_url ? (
-                      <img src={a.image_url} alt={a.title}
-                        className="w-20 h-16 object-cover rounded-lg flex-shrink-0 group-hover:scale-105 transition duration-500"
-                        referrerPolicy="no-referrer"
-                        onError={e => { (e.target as HTMLImageElement).src = `https://picsum.photos/seed/${encodeURIComponent(a.title)}/400/300`; }}
-                      />
-                    ) : (
-                      <div className="w-20 h-16 flex items-center justify-center bg-blue-50 rounded-lg flex-shrink-0">
-                        <span className="text-2xl">⚾</span>
-                      </div>
-                    )}
-                    <div className="flex flex-col justify-center min-w-0">
-                      <p className="text-xs font-black text-gray-800 line-clamp-3 leading-snug">{a.title}</p>
-                      <p className="text-[10px] text-gray-400 mt-1">{new Date(a.published_at).toLocaleDateString('zh-TW')}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {mlbNews.length > 3 && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
-                {mlbNews.slice(3, 6).map(a => (
-                  <button key={a.id} onClick={() => handleSelectArticle(a)}
-                    className="text-left flex gap-3 bg-white rounded-xl border border-gray-100 shadow-sm p-3 hover:shadow-md hover:border-red-200 transition group">
-                    {a.image_url && (
-                      <img src={a.image_url} alt={a.title}
-                        className="w-16 h-12 object-cover rounded-lg flex-shrink-0"
-                        referrerPolicy="no-referrer"
-                        onError={e => { (e.target as HTMLImageElement).src = `https://picsum.photos/seed/${encodeURIComponent(a.title)}/200/150`; }}
-                      />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-black text-gray-800 line-clamp-2 leading-snug">{a.title}</p>
-                      <p className="text-[10px] text-gray-400 mt-1">{new Date(a.published_at).toLocaleDateString('zh-TW')}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
       </main>
 
       {/* Game Detail Modal */}

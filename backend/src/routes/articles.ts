@@ -73,7 +73,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.get('/drafts', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
   try {
     const result = await pool.query(
-      `SELECT a.id, a.title, a.slug, a.category, a.summary, a.image_url, a.published_at, a.status,
+      `SELECT a.id, a.title, a.slug, a.category, a.summary, a.content, a.image_url, a.published_at, a.status,
               u.username as author_name
        FROM articles a
        LEFT JOIN users u ON a.author_id = u.id
