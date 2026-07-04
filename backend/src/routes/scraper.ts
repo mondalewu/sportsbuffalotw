@@ -91,6 +91,48 @@ router.post('/trigger', verifyToken, requireRole('editor', 'admin'), async (_req
   res.json({ ...result, status: scraperStatus });
 });
 
+// GET /api/v1/scraper/test-cpbl — 診斷：直接測試 CPBL API 連通性
+router.get('/test-cpbl', verifyToken, requireRole('editor', 'admin'), async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const axios = (await import('axios')).default;
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}/${String(today.getMonth()+1).padStart(2,'0')}/${String(today.getDate()).padStart(2,'0')}`;
+    const params = new URLSearchParams({ GameDate: dateStr, KindCode: 'A' });
+    const CPBL_BASE = 'https://www.cpbl.com.tw';
+
+    // Step 1: GET 首頁取 cookie
+    let cookie = '';
+    try {
+      await axios.get(`${CPBL_BASE}/games`, { timeout: 10000, maxRedirects: 0,
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+      });
+    } catch (e: unknown) {
+      const err = e as { response?: { status?: number; headers?: Record<string, unknown> } };
+      if (err.response?.status === 308 || err.response?.status === 307) {
+        const raw = err.response.headers?.['set-cookie'];
+        const parts = Array.isArray(raw) ? raw : (raw ? [raw as string] : []);
+        cookie = parts.map((c: string) => c.split(';')[0]).join('; ');
+      }
+    }
+
+    // Step 2: POST getdetaillist
+    const postRes = await axios.post(`${CPBL_BASE}/home/getdetaillist`, params.toString(), {
+      timeout: 10000,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0',
+        ...(cookie ? { Cookie: cookie } : {}) },
+      maxRedirects: 5,
+    });
+
+    const data = postRes.data as { Success: boolean; GameADetailJson: string | null };
+    const games = data.GameADetailJson ? JSON.parse(data.GameADetailJson) : [];
+    res.json({ ok: true, date: dateStr, cookieLen: cookie.length, success: data.Success, gamesCount: games.length,
+      games: games.map((g: { GameSno: number; VisitingTeamName: string; HomeTeamName: string; GameStatus: number; GameStatusChi: string }) => ({ sno: g.GameSno, away: g.VisitingTeamName, home: g.HomeTeamName, status: g.GameStatus, statusChi: g.GameStatusChi }))
+    });
+  } catch (err) {
+    res.json({ ok: false, error: (err as Error).message });
+  }
+});
+
 // POST /api/v1/scraper/backfill-cpbl-scheduled — 補抓過去仍是 scheduled 的 CPBL 比賽
 router.post('/backfill-cpbl-scheduled', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
   const daysBack = parseInt(req.body?.daysBack ?? '14', 10);
