@@ -1,10 +1,8 @@
 import { Router, Request, Response } from 'express';
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { verifyToken, requireRole } from '../middleware/auth';
 
 const router = Router();
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // POST /api/v1/ai/generate-article  [editor+]
 router.post('/generate-article', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
@@ -15,8 +13,9 @@ router.post('/generate-article', verifyToken, requireRole('editor', 'admin'), as
     return;
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    res.status(503).json({ message: 'AI 功能尚未設定，請聯絡管理員設定 ANTHROPIC_API_KEY' });
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ message: 'AI 功能尚未設定，請聯絡管理員設定 GEMINI_API_KEY' });
     return;
   }
 
@@ -50,15 +49,11 @@ router.post('/generate-article', verifyToken, requireRole('editor', 'admin'), as
 請直接輸出文章本文（不要輸出 JSON、不要加前言說明）：`;
 
   try {
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
-      messages: [{ role: 'user', content: prompt }],
-    });
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const result = await model.generateContent(prompt);
+    const content = result.response.text();
 
-    const content = message.content[0].type === 'text' ? message.content[0].text : '';
-
-    // 自動萃取摘要（第一段，最多 120 字）
     const firstPara = content.split('\n').find(l => l.trim().length > 20 && !l.startsWith('#')) ?? '';
     const summary = firstPara.replace(/\*\*/g, '').substring(0, 120);
 
