@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import { verifyToken, requireRole } from '../middleware/auth';
 
 const router = Router();
@@ -49,10 +49,12 @@ router.post('/generate-article', verifyToken, requireRole('editor', 'admin'), as
 請直接輸出文章本文（不要輸出 JSON、不要加前言說明）：`;
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
-    const result = await model.generateContent(prompt);
-    const content = result.response.text();
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
+      contents: prompt,
+    });
+    const content = response.text ?? '';
 
     const firstPara = content.split('\n').find(l => l.trim().length > 20 && !l.startsWith('#')) ?? '';
     const summary = firstPara.replace(/\*\*/g, '').substring(0, 120);
