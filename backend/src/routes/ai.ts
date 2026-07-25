@@ -51,7 +51,7 @@ router.post('/generate-article', verifyToken, requireRole('editor', 'admin'), as
   try {
     // 直接呼叫 Gemini v1 REST API，繞過 SDK 的 v1beta 限制
     const geminiRes = await axios.post(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-lite:generateContent`,
       { contents: [{ parts: [{ text: prompt }] }] },
       {
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
