@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { GoogleGenAI } from '@google/genai';
+import axios from 'axios';
 import { verifyToken, requireRole } from '../middleware/auth';
 
 const router = Router();
@@ -49,12 +49,21 @@ router.post('/generate-article', verifyToken, requireRole('editor', 'admin'), as
 請直接輸出文章本文（不要輸出 JSON、不要加前言說明）：`;
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
-      contents: prompt,
-    });
-    const content = response.text ?? '';
+    // 直接呼叫 Gemini v1 REST API，繞過 SDK 的 v1beta 限制
+    const geminiRes = await axios.post(
+      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent`,
+      { contents: [{ parts: [{ text: prompt }] }] },
+      {
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        timeout: 30000,
+      }
+    );
+
+    const content: string = geminiRes.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    if (!content) {
+      res.status(500).json({ message: 'AI 未回傳內容，請再試一次' });
+      return;
+    }
 
     const firstPara = content.split('\n').find(l => l.trim().length > 20 && !l.startsWith('#')) ?? '';
     const summary = firstPara.replace(/\*\*/g, '').substring(0, 120);
@@ -62,7 +71,10 @@ router.post('/generate-article', verifyToken, requireRole('editor', 'admin'), as
     res.json({ content, summary, title });
   } catch (err: unknown) {
     console.error('AI generate error:', err);
-    const msg = err instanceof Error ? err.message : '生成失敗';
+    const axiosErr = err as { response?: { data?: unknown } };
+    const msg = axiosErr.response?.data
+      ? JSON.stringify(axiosErr.response.data)
+      : (err instanceof Error ? err.message : '生成失敗');
     res.status(500).json({ message: `AI 生成失敗：${msg}` });
   }
 });
