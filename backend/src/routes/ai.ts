@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import axios from 'axios';
+import Anthropic from '@anthropic-ai/sdk';
 import { verifyToken, requireRole } from '../middleware/auth';
 
 const router = Router();
@@ -13,9 +13,9 @@ router.post('/generate-article', verifyToken, requireRole('editor', 'admin'), as
     return;
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    res.status(503).json({ message: 'AI 功能尚未設定，請聯絡管理員設定 GEMINI_API_KEY' });
+    res.status(503).json({ message: 'AI 功能尚未設定，請聯絡管理員設定 ANTHROPIC_API_KEY' });
     return;
   }
 
@@ -49,32 +49,21 @@ router.post('/generate-article', verifyToken, requireRole('editor', 'admin'), as
 請直接輸出文章本文（不要輸出 JSON、不要加前言說明）：`;
 
   try {
-    // 直接呼叫 Gemini v1 REST API，繞過 SDK 的 v1beta 限制
-    const geminiRes = await axios.post(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-lite:generateContent`,
-      { contents: [{ parts: [{ text: prompt }] }] },
-      {
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-        timeout: 30000,
-      }
-    );
+    const client = new Anthropic({ apiKey });
+    const message = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: prompt }],
+    });
 
-    const content: string = geminiRes.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-    if (!content) {
-      res.status(500).json({ message: 'AI 未回傳內容，請再試一次' });
-      return;
-    }
-
+    const content = message.content[0].type === 'text' ? message.content[0].text : '';
     const firstPara = content.split('\n').find(l => l.trim().length > 20 && !l.startsWith('#')) ?? '';
     const summary = firstPara.replace(/\*\*/g, '').substring(0, 120);
 
     res.json({ content, summary, title });
   } catch (err: unknown) {
     console.error('AI generate error:', err);
-    const axiosErr = err as { response?: { data?: unknown } };
-    const msg = axiosErr.response?.data
-      ? JSON.stringify(axiosErr.response.data)
-      : (err instanceof Error ? err.message : '生成失敗');
+    const msg = err instanceof Error ? err.message : '生成失敗';
     res.status(500).json({ message: `AI 生成失敗：${msg}` });
   }
 });
