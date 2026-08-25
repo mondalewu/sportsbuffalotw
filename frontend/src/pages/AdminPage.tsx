@@ -176,15 +176,24 @@ export default function AdminPage() {
     if (!file) return;
     setUploadingVideo(true);
     try {
+      const token = localStorage.getItem('authToken');
       const fd = new FormData();
       fd.append('video', file);
-      const r = await fetch(`${API_BASE}/api/v1/stories/upload`, { method: 'POST', credentials: 'include', body: fd });
-      if (!r.ok) throw new Error('上傳失敗');
-      const { url } = await r.json();
-      setUploadedVideos(prev => [{ url, name: file.name, duration: 0 }, ...prev]);
+      const r = await fetch(`${API_BASE}/api/v1/stories/upload`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.message || '上傳失敗');
+      }
+      const { url, duration } = await r.json();
+      setUploadedVideos(prev => [{ url, name: file.name, duration: duration ?? 0 }, ...prev]);
       showMsg('✅ 影片上傳成功');
-    } catch {
-      showMsg('❌ 影片上傳失敗');
+    } catch (e: unknown) {
+      showMsg(`❌ 影片上傳失敗：${e instanceof Error ? e.message : '請稍後再試'}`);
     } finally {
       setUploadingVideo(false);
     }
