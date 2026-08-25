@@ -3,17 +3,28 @@ import multer from 'multer';
 import ffmpeg from 'fluent-ffmpeg';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
+import { v2 as cloudinary } from 'cloudinary';
 import pool from '../db/pool';
 import { verifyToken, requireRole } from '../middleware/auth';
 
 const router = Router();
 
-// ── 影片上傳設定 ──────────────────────────────────────────────────────────────
-const uploadDir = path.join(__dirname, '../../uploads/stories');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+// ── Cloudinary 設定 ───────────────────────────────────────────────────────────
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+const hasCloudinary = !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
+
+// ── 暫存目錄（上傳後即刪除）─────────────────────────────────────────────────
+const tmpDir = path.join(os.tmpdir(), 'stories-upload');
+if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
 
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
+  destination: (_req, _file, cb) => cb(null, tmpDir),
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname);
     cb(null, `${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`);
@@ -22,62 +33,87 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 200 * 1024 * 1024 }, // 200 MB
+  limits: { fileSize: 200 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowed = /mp4|webm|mov|avi|mkv/i;
     cb(null, allowed.test(path.extname(file.originalname)));
   },
 });
 
-// POST /api/v1/stories/upload — 上傳影片
-router.post('/upload', verifyToken, requireRole('editor', 'admin'), upload.single('video'), (req: Request, res: Response): void => {
+// POST /api/v1/stories/upload — 上傳影片到 Cloudinary
+router.post('/upload', verifyToken, requireRole('editor', 'admin'), upload.single('video'), async (req: Request, res: Response): Promise<void> => {
   if (!req.file) {
     res.status(400).json({ message: '未收到影片檔案，或格式不支援' });
     return;
   }
-  const url = `/uploads/stories/${req.file.filename}`;
-  // 同時回傳影片時長（秒）
-  ffmpeg.ffprobe(req.file.path, (err, meta) => {
-    const duration = err ? null : (meta?.format?.duration ?? null);
-    res.status(201).json({ url, duration });
+
+  const localPath = req.file.path;
+
+  // 取得影片時長
+  const duration: number | null = await new Promise(resolve => {
+    ffmpeg.ffprobe(localPath, (err, meta) => resolve(err ? null : (meta?.format?.duration ?? null)));
   });
-});
 
-// POST /api/v1/stories/trim — 裁切影片
-router.post('/trim', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
-  const { filename, start, end } = req.body as { filename: string; start: number; end: number };
-
-  if (!filename || start == null || end == null || end <= start) {
-    res.status(400).json({ message: '必填：filename, start, end（end 必須大於 start）' });
+  if (!hasCloudinary) {
+    // fallback：沒設定 Cloudinary 時仍回傳本地路徑（開發用）
+    res.status(201).json({ url: `/uploads/stories/${req.file.filename}`, duration });
     return;
   }
-
-  // 安全性：只允許 uploads/stories 目錄內的檔案，防止路徑穿越
-  const safeName = path.basename(filename);
-  const inputPath = path.join(uploadDir, safeName);
-  if (!fs.existsSync(inputPath)) {
-    res.status(404).json({ message: '找不到原始影片' });
-    return;
-  }
-
-  const ext = path.extname(safeName) || '.mp4';
-  const outName = `trim-${Date.now()}${ext}`;
-  const outputPath = path.join(uploadDir, outName);
 
   try {
+    const result = await cloudinary.uploader.upload(localPath, {
+      resource_type: 'video',
+      folder: 'sports-buffalo/stories',
+      use_filename: false,
+    });
+    fs.unlink(localPath, () => {});
+    res.status(201).json({ url: result.secure_url, duration, public_id: result.public_id });
+  } catch (err) {
+    fs.unlink(localPath, () => {});
+    console.error('Cloudinary upload error:', err);
+    res.status(500).json({ message: '影片上傳失敗，請稍後再試' });
+  }
+});
+
+// POST /api/v1/stories/trim — 裁切影片後上傳到 Cloudinary
+router.post('/trim', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const { url: videoUrl, start, end } = req.body as { url: string; start: number; end: number };
+
+  if (!videoUrl || start == null || end == null || end <= start) {
+    res.status(400).json({ message: '必填：url, start, end（end 必須大於 start）' });
+    return;
+  }
+
+  const outName = `trim-${Date.now()}.mp4`;
+  const outputPath = path.join(tmpDir, outName);
+
+  try {
+    // ffmpeg 可直接讀取 Cloudinary URL
     await new Promise<void>((resolve, reject) => {
-      ffmpeg(inputPath)
+      ffmpeg(videoUrl)
         .setStartTime(start)
         .setDuration(end - start)
-        .outputOptions('-c copy')          // stream copy：不重新編碼，速度極快
+        .outputOptions('-c copy')
         .output(outputPath)
         .on('end', () => resolve())
         .on('error', (e) => reject(e))
         .run();
     });
-    res.json({ url: `/uploads/stories/${outName}`, duration: end - start });
+
+    if (!hasCloudinary) {
+      res.json({ url: `/uploads/stories/${outName}`, duration: end - start });
+      return;
+    }
+
+    const result = await cloudinary.uploader.upload(outputPath, {
+      resource_type: 'video',
+      folder: 'sports-buffalo/stories',
+    });
+    fs.unlink(outputPath, () => {});
+    res.json({ url: result.secure_url, duration: end - start, public_id: result.public_id });
   } catch (err) {
-    console.error('FFmpeg trim error:', err);
+    fs.unlink(outputPath, () => {});
+    console.error('FFmpeg/Cloudinary trim error:', err);
     res.status(500).json({ message: '裁切失敗' });
   }
 });
