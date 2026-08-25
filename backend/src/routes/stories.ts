@@ -40,7 +40,28 @@ const upload = multer({
   },
 });
 
-// POST /api/v1/stories/upload — 上傳影片到 Cloudinary
+// GET /api/v1/stories/sign-upload — 產生 Cloudinary 直傳簽名（前端直傳用）
+router.get('/sign-upload', verifyToken, requireRole('editor', 'admin'), (req: Request, res: Response): void => {
+  if (!hasCloudinary) {
+    res.status(503).json({ message: 'Cloudinary 未設定' });
+    return;
+  }
+  const timestamp = Math.round(Date.now() / 1000);
+  const folder = 'sports-buffalo/stories';
+  const signature = cloudinary.utils.api_sign_request(
+    { timestamp, folder },
+    process.env.CLOUDINARY_API_SECRET!
+  );
+  res.json({
+    timestamp,
+    signature,
+    folder,
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+  });
+});
+
+// POST /api/v1/stories/upload — 上傳影片到 Cloudinary（小檔用，大檔請用 sign-upload 直傳）
 router.post('/upload', verifyToken, requireRole('editor', 'admin'), upload.single('video'), async (req: Request, res: Response): Promise<void> => {
   if (!req.file) {
     res.status(400).json({ message: '未收到影片檔案，或格式不支援' });

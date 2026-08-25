@@ -137,7 +137,11 @@ export default function AdminPage() {
 
   const loadStories = () => {
     setStoriesLoading(true);
-    fetch(`${API_BASE}/api/v1/stories/admin`, { credentials: 'include' })
+    const token = localStorage.getItem('authToken');
+    fetch(`${API_BASE}/api/v1/stories/admin`, {
+      credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
       .then(r => r.json()).then(d => setStories(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setStoriesLoading(false));
   };
 
@@ -177,21 +181,43 @@ export default function AdminPage() {
     setUploadingVideo(true);
     try {
       const token = localStorage.getItem('authToken');
-      const fd = new FormData();
-      fd.append('video', file);
-      const r = await fetch(`${API_BASE}/api/v1/stories/upload`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: fd,
+      const authHeader = token ? { Authorization: `Bearer ${token}` } : {} as Record<string, string>;
+
+      // 取得 Cloudinary 直傳簽名
+      const signRes = await fetch(`${API_BASE}/api/v1/stories/sign-upload`, {
+        credentials: 'include', headers: authHeader,
       });
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({}));
-        throw new Error(err.message || '上傳失敗');
+
+      if (signRes.ok) {
+        // 直傳 Cloudinary（繞過 Railway 大小限制）
+        const { timestamp, signature, folder, cloud_name, api_key } = await signRes.json();
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('timestamp', String(timestamp));
+        fd.append('signature', signature);
+        fd.append('folder', folder);
+        fd.append('api_key', api_key);
+        fd.append('resource_type', 'video');
+        const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloud_name}/video/upload`, {
+          method: 'POST', body: fd,
+        });
+        if (!uploadRes.ok) throw new Error('Cloudinary 上傳失敗');
+        const data = await uploadRes.json();
+        const duration = data.duration ?? 0;
+        setUploadedVideos(prev => [{ url: data.secure_url, name: file.name, duration }, ...prev]);
+        showMsg('✅ 影片上傳成功');
+      } else {
+        // fallback：走後端 proxy（小檔）
+        const fd = new FormData();
+        fd.append('video', file);
+        const r = await fetch(`${API_BASE}/api/v1/stories/upload`, {
+          method: 'POST', credentials: 'include', headers: authHeader, body: fd,
+        });
+        if (!r.ok) { const err = await r.json().catch(() => ({})); throw new Error(err.message || '上傳失敗'); }
+        const { url, duration } = await r.json();
+        setUploadedVideos(prev => [{ url, name: file.name, duration: duration ?? 0 }, ...prev]);
+        showMsg('✅ 影片上傳成功');
       }
-      const { url, duration } = await r.json();
-      setUploadedVideos(prev => [{ url, name: file.name, duration: duration ?? 0 }, ...prev]);
-      showMsg('✅ 影片上傳成功');
     } catch (e: unknown) {
       showMsg(`❌ 影片上傳失敗：${e instanceof Error ? e.message : '請稍後再試'}`);
     } finally {
