@@ -190,7 +190,8 @@ export default function AdminPage() {
 
       if (signRes.ok) {
         // 直傳 Cloudinary（繞過 Railway 大小限制）
-        const { timestamp, signature, folder, cloud_name, api_key } = await signRes.json();
+        const signData = await signRes.json();
+        const { timestamp, signature, folder, cloud_name, api_key } = signData;
         const fd = new FormData();
         fd.append('file', file);
         fd.append('timestamp', String(timestamp));
@@ -201,22 +202,16 @@ export default function AdminPage() {
         const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloud_name}/video/upload`, {
           method: 'POST', body: fd,
         });
-        if (!uploadRes.ok) throw new Error('Cloudinary 上傳失敗');
+        if (!uploadRes.ok) {
+          const errData = await uploadRes.json().catch(() => ({}));
+          throw new Error(`Cloudinary 上傳失敗 ${uploadRes.status}: ${JSON.stringify(errData)}`);
+        }
         const data = await uploadRes.json();
         const duration = data.duration ?? 0;
         setUploadedVideos(prev => [{ url: data.secure_url, name: file.name, duration }, ...prev]);
         showMsg('✅ 影片上傳成功');
       } else {
-        // fallback：走後端 proxy（小檔）
-        const fd = new FormData();
-        fd.append('video', file);
-        const r = await fetch(`${API_BASE}/api/v1/stories/upload`, {
-          method: 'POST', credentials: 'include', headers: authHeader, body: fd,
-        });
-        if (!r.ok) { const err = await r.json().catch(() => ({})); throw new Error(err.message || '上傳失敗'); }
-        const { url, duration } = await r.json();
-        setUploadedVideos(prev => [{ url, name: file.name, duration: duration ?? 0 }, ...prev]);
-        showMsg('✅ 影片上傳成功');
+        throw new Error(`sign-upload 失敗 (${signRes.status})，請重新登入後再試`);
       }
     } catch (e: unknown) {
       showMsg(`❌ 影片上傳失敗：${e instanceof Error ? e.message : '請稍後再試'}`);
