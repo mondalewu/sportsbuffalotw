@@ -197,7 +197,7 @@ export default function AdminPage() {
         fd.append('signature', signature);
         fd.append('folder', folder);
         fd.append('api_key', api_key);
-        fd.append('resource_type', 'video');
+        // resource_type 在 URL 裡，不放 form data（否則導致簽名驗證失敗）
         const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloud_name}/video/upload`, {
           method: 'POST', body: fd,
         });
