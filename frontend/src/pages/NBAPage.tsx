@@ -223,7 +223,7 @@ export default function NBAPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-6 mb-8">
         <h1 className="text-5xl font-black italic tracking-tighter uppercase leading-tight">
-          2024–25 NBA <span className="text-red-600">美國職籃</span>
+          2026-27 NBA <span className="text-red-600">美國職籃</span>
         </h1>
         <div className="hidden md:flex flex-col w-1/2 shrink-0 gap-1">
           <div className="rounded-2xl overflow-hidden bg-gradient-to-r from-gray-100 to-gray-200 border border-gray-200" style={{ minHeight: 90 }}>

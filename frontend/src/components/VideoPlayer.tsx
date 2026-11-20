@@ -13,9 +13,9 @@ interface HomeVideo {
 
 function YoutubeEmbed({ videoId }: { videoId: string }) {
   return (
-    <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+    <div className="relative w-full" style={{ paddingTop: '75%' }}>
       <iframe
-        className="absolute inset-0 w-full h-full rounded-2xl"
+        className="absolute inset-0 w-full h-full rounded-lg"
         src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`}
         title="YouTube video"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -27,9 +27,9 @@ function YoutubeEmbed({ videoId }: { videoId: string }) {
 
 function UploadEmbed({ url }: { url: string }) {
   return (
-    <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+    <div className="relative w-full" style={{ paddingTop: '75%' }}>
       <video
-        className="absolute inset-0 w-full h-full rounded-2xl object-contain bg-black"
+        className="absolute inset-0 w-full h-full rounded-lg object-contain bg-black"
         src={url}
         controls
         autoPlay
@@ -68,9 +68,9 @@ export default function VideoPlayer() {
   const active = filtered[safeIdx] ?? filtered[0];
 
   return (
-    <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
       {/* Player */}
-      <div className="p-3 pb-0">
+      <div className="p-2 pb-0">
         {active.type === 'youtube' ? (
           <YoutubeEmbed key={active.id} videoId={active.url} />
         ) : (
@@ -80,14 +80,14 @@ export default function VideoPlayer() {
 
       {/* Title */}
       {active.title && (
-        <div className="px-4 pt-3 pb-1">
-          <p className="font-black text-sm text-gray-800 leading-snug line-clamp-2">{active.title}</p>
+        <div className="px-3 pt-2 pb-0">
+          <p className="font-black text-xs text-gray-800 leading-snug line-clamp-1">{active.title}</p>
         </div>
       )}
 
       {/* Category filter */}
       {cats.length > 1 && (
-        <div className="px-4 pt-3 flex flex-wrap gap-1.5">
+        <div className="px-3 pt-2 flex flex-wrap gap-1">
           {cats.map(cat => (
             <button
               key={cat}
@@ -106,9 +106,9 @@ export default function VideoPlayer() {
 
       {/* Playlist */}
       {filtered.length > 1 && (
-        <div className="px-4 pb-4 pt-2">
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">播放清單</p>
-          <div ref={scrollRef} className="space-y-2 max-h-48 overflow-y-auto">
+        <div className="px-3 pb-3 pt-1.5">
+          <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5">播放清單</p>
+          <div ref={scrollRef} className="space-y-1.5 max-h-32 overflow-y-auto">
             {filtered.map((v, i) => (
               <button
                 key={v.id}

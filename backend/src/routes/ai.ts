@@ -51,8 +51,8 @@ router.post('/generate-article', verifyToken, requireRole('editor', 'admin'), as
   try {
     const client = new Anthropic({ apiKey });
     const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
+      model: 'claude-haiku-5-5',
+      max_tokens: 2048,
       messages: [{ role: 'user', content: prompt }],
     });
 
