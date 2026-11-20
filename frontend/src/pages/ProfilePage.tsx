@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, User, Mail, Lock, LogOut, ChevronRight, ShieldCheck, Pencil, Check, X, Heart } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { ArrowLeft, User, Mail, Lock, LogOut, ChevronRight, ShieldCheck, Pencil, Check, X, Heart, Bookmark, ThumbsUp } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { updateProfile, changePassword, logout, updatePreferences } from '../api/auth';
+import { getLikedArticles, getBookmarkedArticles } from '../api/articles';
+import type { Article } from '../types';
 
 interface SportConfig {
   key: string;
@@ -64,6 +66,21 @@ export default function ProfilePage() {
   const [localFavTeams, setLocalFavTeams] = useState<Record<string, string[]>>(preferences.fav_teams);
   const [prefSaving, setPrefSaving] = useState(false);
   const [prefSuccess, setPrefSuccess] = useState(false);
+
+  // ── 收藏 & 按讚 ─────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<'bookmarked' | 'liked'>('bookmarked');
+  const [bookmarkedArticles, setBookmarkedArticles] = useState<Article[]>([]);
+  const [likedArticles, setLikedArticles] = useState<Article[]>([]);
+  const [articlesLoading, setArticlesLoading] = useState(true);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    setArticlesLoading(true);
+    Promise.all([getBookmarkedArticles(), getLikedArticles()])
+      .then(([b, l]) => { setBookmarkedArticles(b); setLikedArticles(l); })
+      .catch(() => {})
+      .finally(() => setArticlesLoading(false));
+  }, [currentUser]);
 
   if (!currentUser) { navigate('/'); return null; }
 
@@ -261,6 +278,94 @@ export default function ProfilePage() {
             >
               {prefSaving ? '儲存中...' : prefSuccess ? '✓ 已儲存' : '儲存設定'}
             </button>
+          </div>
+        </section>
+
+        {/* ── 我的收藏 & 按讚 ── */}
+        <section>
+          <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-2 px-1">我的新聞</p>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            {/* Tabs */}
+            <div className="flex border-b border-gray-100">
+              <button
+                onClick={() => setActiveTab('bookmarked')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-sm font-bold transition ${activeTab === 'bookmarked' ? 'text-yellow-600 border-b-2 border-yellow-500' : 'text-gray-400 hover:text-gray-600'}`}
+              >
+                <Bookmark className="w-4 h-4" /> 收藏 ({bookmarkedArticles.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('liked')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-sm font-bold transition ${activeTab === 'liked' ? 'text-red-600 border-b-2 border-red-500' : 'text-gray-400 hover:text-gray-600'}`}
+              >
+                <ThumbsUp className="w-4 h-4" /> 按讚 ({likedArticles.length})
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="max-h-[400px] overflow-y-auto">
+              {articlesLoading ? (
+                <div className="p-6 text-center text-sm text-gray-400">載入中...</div>
+              ) : (
+                <>
+                  {activeTab === 'bookmarked' && (
+                    bookmarkedArticles.length === 0 ? (
+                      <div className="p-6 text-center">
+                        <Bookmark className="w-8 h-8 text-gray-200 mx-auto mb-2" />
+                        <p className="text-sm text-gray-400">尚未收藏任何新聞</p>
+                        <p className="text-xs text-gray-300 mt-1">在文章頁面點擊書籤圖示即可收藏</p>
+                      </div>
+                    ) : (
+                      bookmarkedArticles.map(a => (
+                        <Link key={a.id} to={`/article/${a.slug}`}
+                          className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition border-b border-gray-50 last:border-b-0">
+                          {a.image_url && (
+                            <img src={a.image_url} alt="" className="w-16 h-10 rounded-lg object-cover flex-shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-gray-800 line-clamp-1">{a.title}</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded">{a.category}</span>
+                              <span className="text-[10px] text-gray-400">
+                                {new Date(a.published_at).toLocaleDateString('zh-TW')}
+                              </span>
+                            </div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
+                        </Link>
+                      ))
+                    )
+                  )}
+                  {activeTab === 'liked' && (
+                    likedArticles.length === 0 ? (
+                      <div className="p-6 text-center">
+                        <ThumbsUp className="w-8 h-8 text-gray-200 mx-auto mb-2" />
+                        <p className="text-sm text-gray-400">尚未按讚任何新聞</p>
+                        <p className="text-xs text-gray-300 mt-1">在文章頁面點擊讚圖示即可按讚</p>
+                      </div>
+                    ) : (
+                      likedArticles.map(a => (
+                        <Link key={a.id} to={`/article/${a.slug}`}
+                          className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition border-b border-gray-50 last:border-b-0">
+                          {a.image_url && (
+                            <img src={a.image_url} alt="" className="w-16 h-10 rounded-lg object-cover flex-shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-gray-800 line-clamp-1">{a.title}</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded">{a.category}</span>
+                              <span className="text-[10px] text-gray-400">
+                                {new Date(a.published_at).toLocaleDateString('zh-TW')}
+                              </span>
+                            </div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
+                        </Link>
+                      ))
+                    )
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </section>
 

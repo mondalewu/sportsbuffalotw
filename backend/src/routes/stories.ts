@@ -246,6 +246,93 @@ router.post('/', verifyToken, requireRole('editor', 'admin'), async (req: Reques
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Story Cards（首頁精華 Reels 卡片）
+// ══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/v1/stories/cards — 公開：取得啟用中的卡片
+router.get('/cards', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(
+      `SELECT id, title, image_url, video_url, category, link_url, duration_ms, created_at
+       FROM story_cards WHERE is_active = true
+       ORDER BY sort_order ASC, created_at DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get story cards error:', err);
+    res.status(500).json({ message: '無法取得精華卡片' });
+  }
+});
+
+// GET /api/v1/stories/cards/admin — 管理：取得全部卡片
+router.get('/cards/admin', verifyToken, requireRole('editor', 'admin'), async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM story_cards ORDER BY sort_order ASC, created_at DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ message: '無法取得精華卡片' });
+  }
+});
+
+// POST /api/v1/stories/cards — 新增卡片
+router.post('/cards', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const { title, image_url, video_url, category, link_url, duration_ms, sort_order } = req.body;
+  if (!title || !image_url) {
+    res.status(400).json({ message: '必填：title, image_url' });
+    return;
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO story_cards (title, image_url, video_url, category, link_url, duration_ms, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [title, image_url, video_url ?? null, category ?? '', link_url ?? null, duration_ms ?? 6000, sort_order ?? 0]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Create story card error:', err);
+    res.status(500).json({ message: '新增精華卡片失敗' });
+  }
+});
+
+// PUT /api/v1/stories/cards/:id — 更新卡片
+router.put('/cards/:id', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  const { title, image_url, video_url, category, link_url, duration_ms, is_active, sort_order } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE story_cards SET
+         title      = COALESCE($1, title),
+         image_url  = COALESCE($2, image_url),
+         video_url  = COALESCE($3, video_url),
+         category   = COALESCE($4, category),
+         link_url   = COALESCE($5, link_url),
+         duration_ms= COALESCE($6, duration_ms),
+         is_active  = COALESCE($7, is_active),
+         sort_order = COALESCE($8, sort_order)
+       WHERE id = $9 RETURNING *`,
+      [title ?? null, image_url ?? null, video_url ?? null, category ?? null,
+       link_url ?? null, duration_ms ?? null, is_active ?? null, sort_order ?? null, req.params.id]
+    );
+    if (!result.rows.length) { res.status(404).json({ message: '卡片不存在' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ message: '更新精華卡片失敗' });
+  }
+});
+
+// DELETE /api/v1/stories/cards/:id — 刪除卡片
+router.delete('/cards/:id', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query('DELETE FROM story_cards WHERE id=$1 RETURNING id', [req.params.id]);
+    if (!result.rows.length) { res.status(404).json({ message: '卡片不存在' }); return; }
+    res.json({ message: '已刪除', id: result.rows[0].id });
+  } catch (err) {
+    res.status(500).json({ message: '刪除精華卡片失敗' });
+  }
+});
+
 // PUT /api/v1/stories/:id — 更新 Story
 router.put('/:id', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
   const { home_team, away_team, home_abbr, away_abbr, home_color, away_color, league, is_live, is_active, sort_order } = req.body;

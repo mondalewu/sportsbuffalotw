@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageCircle, Send, Trash2, LogIn } from 'lucide-react';
 import { getArticleComments, postArticleComment, deleteArticleComment } from '../api/articles';
+import CommentReactions from './ArticleReactions';
 import type { ArticleComment } from '../types';
 import type { User } from '../types';
 
@@ -152,6 +153,7 @@ export default function ArticleComments({ articleId, currentUser, onRequireAuth 
                     )}
                   </div>
                   <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{c.content}</p>
+                  <CommentReactions articleId={articleId} commentId={c.id} />
                 </div>
               </li>
             );

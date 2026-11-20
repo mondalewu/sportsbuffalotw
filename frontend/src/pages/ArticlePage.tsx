@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { useApp } from '../context/AppContext';
 import ArticleDetail from '../components/ArticleDetail';
-import { getArticleBySlug } from '../api/articles';
+import { getArticleBySlug, recordArticleView } from '../api/articles';
 import type { Article } from '../types';
 
 export default function ArticlePage() {
@@ -25,6 +25,10 @@ export default function ArticlePage() {
   }, [slug]);
 
   const article = fetched ?? selectedArticle;
+
+  useEffect(() => {
+    if (article?.id) recordArticleView(article.id);
+  }, [article?.id]);
   const canonicalUrl = article
     ? `https://sportsbuffalotw.vercel.app/article/${article.slug}`
     : 'https://sportsbuffalotw.vercel.app';

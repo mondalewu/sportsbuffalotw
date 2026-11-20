@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Calendar, Tag, X, ChevronLeft, ChevronRight, Link2, Check } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -6,6 +6,9 @@ import rehypeRaw from 'rehype-raw';
 import type { Article } from '../types';
 import { useApp } from '../context/AppContext';
 import ArticleComments from './ArticleComments';
+import RelatedArticles from './RelatedArticles';
+import ArticleFloatingActions from './ArticleFloatingActions';
+import { getArticleComments } from '../api/articles';
 
 interface Props {
   article: Article;
@@ -118,6 +121,18 @@ export default function ArticleDetail({ article, onBack }: Props) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [commentCount, setCommentCount] = useState(0);
+  const commentsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    getArticleComments(article.id)
+      .then(c => setCommentCount(c.length))
+      .catch(() => {});
+  }, [article.id]);
+
+  const scrollToComments = () => {
+    commentsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const openLightbox = (index: number) => {
     setLightboxIndex(index);
@@ -219,7 +234,13 @@ export default function ArticleDetail({ article, onBack }: Props) {
         <Lightbox images={allImages} initialIndex={lightboxIndex} onClose={() => setLightboxOpen(false)} />
       )}
 
-      <main className="max-w-4xl mx-auto px-4 py-8">
+      <ArticleFloatingActions
+        articleId={article.id}
+        commentCount={commentCount}
+        onScrollToComments={scrollToComments}
+      />
+
+      <main className="max-w-4xl mx-auto px-4 py-8 pb-20 lg:pb-8">
         {/* Back + Share */}
         <div className="mb-6 flex items-center justify-between">
           <button
@@ -261,6 +282,18 @@ export default function ArticleDetail({ article, onBack }: Props) {
             >
               <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white">
                 <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+              </svg>
+            </a>
+
+            {/* Threads */}
+            <a
+              href={`https://www.threads.net/intent/post?text=${encodeURIComponent(`${article.title}\n${pageUrl}`)}`}
+              target="_blank" rel="noopener noreferrer"
+              title="分享到 Threads"
+              className="flex items-center justify-center w-8 h-8 rounded-full bg-black hover:bg-gray-800 transition border border-gray-200"
+            >
+              <svg viewBox="0 0 192 192" className="w-4 h-4 fill-white">
+                <path d="M141.537 88.988a66.667 66.667 0 0 0-2.518-1.143c-1.482-27.307-16.403-42.94-41.457-43.1h-.34c-14.986 0-27.449 6.396-35.12 18.036l13.779 9.452c5.73-8.695 14.724-10.548 21.348-10.548h.229c8.249.053 14.474 2.452 18.503 7.129 2.932 3.405 4.893 8.111 5.864 14.05-7.314-1.243-15.224-1.626-23.68-1.14-23.82 1.371-39.134 15.24-38.37 34.76.384 9.812 5.08 18.253 13.22 23.768 6.88 4.66 15.736 7.016 24.924 6.635 12.14-.503 21.647-5.175 28.263-13.882 5.022-6.613 8.188-15.14 9.6-25.916 5.754 3.472 10.034 8.082 12.467 13.72 4.08 9.46 4.322 25.03-7.264 36.615-10.189 10.182-22.44 14.583-40.896 14.72-20.432-.153-35.886-6.713-45.924-19.498C65.49 142.603 59.816 125.273 59.63 105c.186-20.273 5.86-37.604 16.874-51.504C86.541 40.712 102 34.153 122.432 34c20.6.157 36.213 6.804 46.374 19.756C178.657 65.633 183.882 82.206 184 101.5l16.5.5c-.169-22.735-6.47-42.658-18.738-57.258C168.34 28.252 149.142 19.74 125 18h-5.25c-24.027.173-43.126 8.676-56.722 25.236C50.482 59.058 43.72 80.063 43.5 105v.5c.22 24.938 6.982 45.942 19.528 61.764C76.622 183.561 95.72 192.064 119.747 192.237h2.686c22.28-.163 39.14-6.17 51.58-18.377 16.84-16.52 17.33-37.187 11.524-50.872-4.166-9.817-12.21-17.78-23.267-23.04l-.733-.96zM99.684 130.885c-10.18.588-20.774-4.006-21.278-14.244-.368-7.49 5.313-15.84 25.473-17.003 2.228-.128 4.41-.19 6.55-.19 6.274 0 12.146.56 17.456 1.656-1.988 23.42-14.058 29.194-28.201 29.781z"/>
               </svg>
             </a>
 
@@ -435,11 +468,16 @@ export default function ArticleDetail({ article, onBack }: Props) {
         })()}
 
         {/* 留言區 */}
-        <ArticleComments
-          articleId={article.id}
-          currentUser={currentUser}
-          onRequireAuth={() => setAuthModal('login')}
-        />
+        <div ref={commentsRef}>
+          <ArticleComments
+            articleId={article.id}
+            currentUser={currentUser}
+            onRequireAuth={() => setAuthModal('login')}
+          />
+        </div>
+
+        {/* 相關新聞 */}
+        <RelatedArticles articleId={article.id} currentCategory={article.category} />
       </main>
     </>
   );

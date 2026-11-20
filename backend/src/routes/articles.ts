@@ -111,6 +111,112 @@ router.get('/search', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// GET /api/v1/articles/trending — 一周內瀏覽成長最快的文章
+router.get('/trending', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 10;
+    const result = await pool.query(
+      `SELECT a.id, a.title, a.slug, a.category, a.summary, a.image_url, a.published_at,
+              COUNT(v.id)::int AS week_views
+       FROM articles a
+       LEFT JOIN article_views v ON v.article_id = a.id AND v.viewed_at > NOW() - INTERVAL '7 days'
+       WHERE COALESCE(a.status, 'published') = 'published'
+       GROUP BY a.id
+       ORDER BY week_views DESC, a.published_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get trending error:', err);
+    res.status(500).json({ message: '無法取得熱門排名' });
+  }
+});
+
+// GET /api/v1/articles/me/liked — 我按讚的文章
+router.get('/me/liked', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT a.id, a.title, a.slug, a.category, a.summary, a.image_url, a.published_at, l.created_at AS liked_at
+       FROM article_likes l
+       JOIN articles a ON a.id = l.article_id
+       WHERE l.user_id = $1
+       ORDER BY l.created_at DESC
+       LIMIT 50`,
+      [req.user!.userId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Get liked articles error:', err);
+    res.status(500).json({ message: '伺服器錯誤' });
+  }
+});
+
+// GET /api/v1/articles/me/bookmarked — 我收藏的文章
+router.get('/me/bookmarked', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT a.id, a.title, a.slug, a.category, a.summary, a.image_url, a.published_at, b.created_at AS bookmarked_at
+       FROM article_bookmarks b
+       JOIN articles a ON a.id = b.article_id
+       WHERE b.user_id = $1
+       ORDER BY b.created_at DESC
+       LIMIT 50`,
+      [req.user!.userId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Get bookmarked articles error:', err);
+    res.status(500).json({ message: '伺服器錯誤' });
+  }
+});
+
+// POST /api/v1/articles/:id/view — 記錄瀏覽
+router.post('/:id/view', async (req: Request, res: Response): Promise<void> => {
+  try {
+    await pool.query('INSERT INTO article_views (article_id) VALUES ($1)', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: '記錄失敗' });
+  }
+});
+
+// GET /api/v1/articles/:id/related
+router.get('/:id/related', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { rows: current } = await pool.query('SELECT category FROM articles WHERE id = $1', [req.params.id]);
+    if (current.length === 0) { res.status(404).json({ message: '文章不存在' }); return; }
+
+    const result = await pool.query(
+      `SELECT id, title, slug, category, summary, image_url, published_at
+       FROM articles
+       WHERE id != $1 AND category = $2 AND COALESCE(status, 'published') = 'published'
+       ORDER BY published_at DESC
+       LIMIT 6`,
+      [req.params.id, current[0].category]
+    );
+
+    // If fewer than 6 same-category articles, fill with recent articles from other categories
+    if (result.rows.length < 6) {
+      const excludeIds = [parseInt(req.params.id as string), ...result.rows.map((r: any) => r.id)];
+      const fill = await pool.query(
+        `SELECT id, title, slug, category, summary, image_url, published_at
+         FROM articles
+         WHERE id != ALL($1::int[]) AND COALESCE(status, 'published') = 'published'
+         ORDER BY published_at DESC
+         LIMIT $2`,
+        [excludeIds, 6 - result.rows.length]
+      );
+      result.rows.push(...fill.rows);
+    }
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get related articles error:', err);
+    res.status(500).json({ message: '無法取得相關新聞' });
+  }
+});
+
 // GET /api/v1/articles/:slug
 router.get('/:slug', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -144,7 +250,7 @@ router.get('/:slug', async (req: Request, res: Response): Promise<void> => {
 
 // POST /api/v1/articles  [editor+]
 router.post('/', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
-  const { title, category, summary, content, image_url, image_position, ig_embed_url, status = 'published' } = req.body;
+  const { title, category, summary, content, image_url, image_position, ig_embed_url, placement = 'default', status = 'published' } = req.body;
 
   if (!title || !category || !content) {
     res.status(400).json({ message: '標題、分類、內文為必填欄位' });
@@ -155,10 +261,10 @@ router.post('/', verifyToken, requireRole('editor', 'admin'), async (req: Reques
     const slug = generateSlug(title);
     const isDraft = status === 'draft';
     const result = await pool.query(
-      `INSERT INTO articles (title, slug, category, summary, content, image_url, image_position, author_id, is_hot, ig_embed_url, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO articles (title, slug, category, summary, content, image_url, image_position, author_id, is_hot, ig_embed_url, placement, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
-      [title, slug, category, summary || '', content, image_url || '', image_position || 'center', req.user!.userId, !isDraft, ig_embed_url || null, isDraft ? 'draft' : 'published']
+      [title, slug, category, summary || '', content, image_url || '', image_position || 'center', req.user!.userId, !isDraft, ig_embed_url || null, placement, isDraft ? 'draft' : 'published']
     );
 
     if (!isDraft) {
@@ -190,7 +296,7 @@ router.patch('/:id/publish', verifyToken, requireRole('editor', 'admin'), async 
 
 // PUT /api/v1/articles/:id  [editor+]
 router.put('/:id', verifyToken, requireRole('editor', 'admin'), async (req: Request, res: Response): Promise<void> => {
-  const { title, category, summary, content, image_url, image_position, is_hot, ig_embed_url } = req.body;
+  const { title, category, summary, content, image_url, image_position, is_hot, ig_embed_url, placement } = req.body;
 
   try {
     // 更新前先儲存當前版本
@@ -219,10 +325,11 @@ router.put('/:id', verifyToken, requireRole('editor', 'admin'), async (req: Requ
            image_url = COALESCE($5, image_url),
            image_position = COALESCE($6, image_position),
            is_hot = COALESCE($7, is_hot),
-           ig_embed_url = COALESCE($8, ig_embed_url)
-       WHERE id = $9
+           ig_embed_url = COALESCE($8, ig_embed_url),
+           placement = COALESCE($9, placement)
+       WHERE id = $10
        RETURNING *`,
-      [title, category, summary, content, image_url, image_position ?? null, is_hot, ig_embed_url ?? null, req.params.id]
+      [title, category, summary, content, image_url, image_position ?? null, is_hot, ig_embed_url ?? null, placement ?? null, req.params.id]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -500,6 +607,154 @@ router.post('/fetch-external', verifyToken, requireRole('editor', 'admin'), asyn
   } catch (err) {
     console.error('Fetch external error:', err);
     res.status(500).json({ message: '拉取外部新聞失敗' });
+  }
+});
+
+// ─── 留言表情反應 API ─────────────────────────────────────────────────────────
+
+const VALID_REACTIONS = ['empathy', 'informative', 'hmm'] as const;
+
+// GET /api/v1/articles/:articleId/comments/:commentId/reactions
+router.get('/:articleId/comments/:commentId/reactions', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { commentId } = req.params;
+    const countRes = await pool.query(
+      'SELECT reaction, COUNT(*)::int AS count FROM comment_reactions WHERE comment_id = $1 GROUP BY reaction',
+      [commentId]
+    );
+    const counts: Record<string, number> = { empathy: 0, informative: 0, hmm: 0 };
+    for (const row of countRes.rows) counts[row.reaction] = row.count;
+
+    let userReactions: string[] = [];
+    const token = req.headers.authorization?.replace('Bearer ', '') || req.cookies?.token;
+    if (token) {
+      try {
+        const jwt = await import('jsonwebtoken');
+        const decoded = jwt.default.verify(token, process.env.JWT_SECRET!) as { userId: number };
+        const r = await pool.query('SELECT reaction FROM comment_reactions WHERE comment_id = $1 AND user_id = $2', [commentId, decoded.userId]);
+        userReactions = r.rows.map(row => row.reaction);
+      } catch {}
+    }
+    res.json({ counts, userReactions });
+  } catch (err) {
+    console.error('Get comment reactions error:', err);
+    res.status(500).json({ message: '伺服器錯誤' });
+  }
+});
+
+// POST /api/v1/articles/:articleId/comments/:commentId/reactions
+router.post('/:articleId/comments/:commentId/reactions', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { commentId } = req.params;
+    const userId = req.user!.userId;
+    const { reaction } = req.body;
+    if (!reaction || !VALID_REACTIONS.includes(reaction)) {
+      res.status(400).json({ message: '無效的反應類型' }); return;
+    }
+    const existing = await pool.query(
+      'SELECT id FROM comment_reactions WHERE comment_id = $1 AND user_id = $2 AND reaction = $3',
+      [commentId, userId, reaction]
+    );
+    if (existing.rows.length > 0) {
+      await pool.query('DELETE FROM comment_reactions WHERE comment_id = $1 AND user_id = $2 AND reaction = $3', [commentId, userId, reaction]);
+    } else {
+      await pool.query('INSERT INTO comment_reactions (comment_id, user_id, reaction) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [commentId, userId, reaction]);
+    }
+    const countRes = await pool.query('SELECT reaction, COUNT(*)::int AS count FROM comment_reactions WHERE comment_id = $1 GROUP BY reaction', [commentId]);
+    const counts: Record<string, number> = { empathy: 0, informative: 0, hmm: 0 };
+    for (const row of countRes.rows) counts[row.reaction] = row.count;
+    const userRes = await pool.query('SELECT reaction FROM comment_reactions WHERE comment_id = $1 AND user_id = $2', [commentId, userId]);
+    res.json({ counts, userReactions: userRes.rows.map(r => r.reaction) });
+  } catch (err) {
+    console.error('Toggle comment reaction error:', err);
+    res.status(500).json({ message: '伺服器錯誤' });
+  }
+});
+
+// ─── 按讚 / 收藏 API ──────────────────────────────────────────────────────────
+
+// GET /api/v1/articles/:id/like — 查詢是否已按讚 & 讚數
+router.get('/:id/like', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const articleId = req.params.id;
+    const countRes = await pool.query('SELECT COUNT(*)::int AS count FROM article_likes WHERE article_id = $1', [articleId]);
+    const count = countRes.rows[0].count;
+
+    // 嘗試從 token 取得 userId
+    let liked = false;
+    const token = req.headers.authorization?.replace('Bearer ', '') || req.cookies?.token;
+    if (token) {
+      try {
+        const jwt = await import('jsonwebtoken');
+        const decoded = jwt.default.verify(token, process.env.JWT_SECRET!) as { userId: number };
+        const userRes = await pool.query('SELECT 1 FROM article_likes WHERE article_id = $1 AND user_id = $2', [articleId, decoded.userId]);
+        liked = userRes.rows.length > 0;
+      } catch {}
+    }
+    res.json({ count, liked });
+  } catch (err) {
+    console.error('Get like error:', err);
+    res.status(500).json({ message: '伺服器錯誤' });
+  }
+});
+
+// POST /api/v1/articles/:id/like — 切換按讚
+router.post('/:id/like', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const articleId = req.params.id;
+    const userId = req.user!.userId;
+    const existing = await pool.query('SELECT id FROM article_likes WHERE article_id = $1 AND user_id = $2', [articleId, userId]);
+    if (existing.rows.length > 0) {
+      await pool.query('DELETE FROM article_likes WHERE article_id = $1 AND user_id = $2', [articleId, userId]);
+    } else {
+      await pool.query('INSERT INTO article_likes (article_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [articleId, userId]);
+    }
+    const countRes = await pool.query('SELECT COUNT(*)::int AS count FROM article_likes WHERE article_id = $1', [articleId]);
+    const liked = existing.rows.length === 0;
+    res.json({ count: countRes.rows[0].count, liked });
+  } catch (err) {
+    console.error('Toggle like error:', err);
+    res.status(500).json({ message: '伺服器錯誤' });
+  }
+});
+
+// GET /api/v1/articles/:id/bookmark — 查詢是否已收藏
+router.get('/:id/bookmark', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const articleId = req.params.id;
+    let bookmarked = false;
+    const token = req.headers.authorization?.replace('Bearer ', '') || req.cookies?.token;
+    if (token) {
+      try {
+        const jwt = await import('jsonwebtoken');
+        const decoded = jwt.default.verify(token, process.env.JWT_SECRET!) as { userId: number };
+        const r = await pool.query('SELECT 1 FROM article_bookmarks WHERE article_id = $1 AND user_id = $2', [articleId, decoded.userId]);
+        bookmarked = r.rows.length > 0;
+      } catch {}
+    }
+    res.json({ bookmarked });
+  } catch (err) {
+    console.error('Get bookmark error:', err);
+    res.status(500).json({ message: '伺服器錯誤' });
+  }
+});
+
+// POST /api/v1/articles/:id/bookmark — 切換收藏
+router.post('/:id/bookmark', verifyToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const articleId = req.params.id;
+    const userId = req.user!.userId;
+    const existing = await pool.query('SELECT id FROM article_bookmarks WHERE article_id = $1 AND user_id = $2', [articleId, userId]);
+    if (existing.rows.length > 0) {
+      await pool.query('DELETE FROM article_bookmarks WHERE article_id = $1 AND user_id = $2', [articleId, userId]);
+    } else {
+      await pool.query('INSERT INTO article_bookmarks (article_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [articleId, userId]);
+    }
+    const bookmarked = existing.rows.length === 0;
+    res.json({ bookmarked });
+  } catch (err) {
+    console.error('Toggle bookmark error:', err);
+    res.status(500).json({ message: '伺服器錯誤' });
   }
 });
 

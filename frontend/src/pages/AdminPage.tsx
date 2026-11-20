@@ -5,7 +5,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import ScraperStatusCard from '../components/ScraperStatusCard';
-import { getArticles, createArticle, updateArticle, deleteArticle, fetchExternalNews, uploadArticleImages, deleteArticleImage, uploadCoverImage, getDrafts, publishDraft } from '../api/articles';
+import { getArticles, createArticle, updateArticle, deleteArticle, fetchExternalNews, uploadArticleImages, deleteArticleImage, uploadCoverImage, getDrafts, publishDraft, getStoryCardsAdmin, createStoryCard, updateStoryCard, deleteStoryCard } from '../api/articles';
+import type { StoryCard } from '../api/articles';
 import { getGames, updateGame, addPlayByPlay } from '../api/games';
 import { getAllPolls, createPoll, updatePoll, deletePoll, addPollOption, deletePollOption, getAdminAnalytics } from '../api/polls';
 import type { Poll, AdminAnalytics } from '../api/polls';
@@ -53,11 +54,20 @@ export default function AdminPage() {
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [adminMsg, setAdminMsg] = useState('');
 
+  // Story Cards
+  const [storyCards, setStoryCards] = useState<StoryCard[]>([]);
+  const [storyCardsLoading, setStoryCardsLoading] = useState(false);
+  const [showStoryCardForm, setShowStoryCardForm] = useState(false);
+  const [editingCard, setEditingCard] = useState<Partial<StoryCard> | null>(null);
+  const BLANK_CARD: Partial<StoryCard> = { title: '', image_url: '', video_url: '', category: '', link_url: '', duration_ms: 6000, sort_order: 0 };
+  const [cardImgUploading, setCardImgUploading] = useState(false);
+  const [cardVidUploading, setCardVidUploading] = useState(false);
+
   // Article state
   const [articles, setArticles] = useState<Article[]>([]);
   const [drafts, setDrafts] = useState<Article[]>([]);
   const [articleSubTab, setArticleSubTab] = useState<'published' | 'draft'>('published');
-  const [newArticle, setNewArticle] = useState({ title: '', category: 'CPBL', imageUrl: '', imagePosition: 'center', summary: '', content: '', igEmbedUrl: '' });
+  const [newArticle, setNewArticle] = useState({ title: '', category: 'CPBL', imageUrl: '', imagePosition: 'center', summary: '', content: '', igEmbedUrl: '', placement: 'default' as 'default' | 'hero' | 'featured' | 'pinned' });
   const [editingAdminArticle, setEditingAdminArticle] = useState<Article | null>(null);
   const [articleFilterCat, setArticleFilterCat] = useState('全部');
   const [expandedArticleId, setExpandedArticleId] = useState<number | null>(null);
@@ -147,7 +157,9 @@ export default function AdminPage() {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const saveStory = async (form: any) => {
-    const headers = { 'Content-Type': 'application/json' };
+    const token = localStorage.getItem('authToken');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     try {
       let storyId = form.id;
       if (storyId) {
@@ -163,7 +175,7 @@ export default function AdminPage() {
       }
       for (let i = 0; i < form.clips.length; i++) {
         const c = form.clips[i];
-        if (!c.background_image_url.trim()) continue;
+        if (!c.background_image_url?.trim() && !c.video_url?.trim()) continue;
         await fetch(`${API_BASE}/api/v1/stories/${storyId}/clips`, { method: 'POST', headers, credentials: 'include', body: JSON.stringify({ ...c, clip_order: i }) });
       }
       showMsg('✅ Story 已儲存'); setShowStoryForm(false); setEditingStory(null); loadStories();
@@ -171,9 +183,34 @@ export default function AdminPage() {
   };
 
   const deleteStory = async (id: number) => {
-    if (!confirm('確定刪除？')) return;
-    await fetch(`${API_BASE}/api/v1/stories/${id}`, { method: 'DELETE', credentials: 'include' });
+    if (!confirm('確定刪除此限時動態？')) return;
+    const token = localStorage.getItem('authToken');
+    await fetch(`${API_BASE}/api/v1/stories/${id}`, {
+      method: 'DELETE', credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
     showMsg('✅ 已刪除'); loadStories();
+  };
+
+  // Story Cards CRUD
+  const loadStoryCards = () => {
+    setStoryCardsLoading(true);
+    getStoryCardsAdmin().then(setStoryCards).catch(() => {}).finally(() => setStoryCardsLoading(false));
+  };
+  const saveStoryCard = async (form: Partial<StoryCard>) => {
+    try {
+      if (form.id) { await updateStoryCard(form.id, form); }
+      else { await createStoryCard(form); }
+      showMsg('✅ 精華卡片已儲存');
+      setShowStoryCardForm(false); setEditingCard(null); loadStoryCards();
+    } catch { showMsg('❌ 儲存失敗'); }
+  };
+  const removeStoryCard = async (id: number) => {
+    if (!confirm('確定刪除此精華卡片？')) return;
+    try { await deleteStoryCard(id); showMsg('✅ 已刪除'); loadStoryCards(); } catch { showMsg('❌ 刪除失敗'); }
+  };
+  const toggleStoryCardActive = async (card: StoryCard) => {
+    try { await updateStoryCard(card.id, { is_active: !card.is_active }); loadStoryCards(); } catch {}
   };
 
   const uploadVideo = async (file: File) => {
@@ -221,10 +258,26 @@ export default function AdminPage() {
   };
 
   const copyUrl = (url: string) => {
-    navigator.clipboard.writeText(url).then(() => {
-      setCopiedUrl(url);
-      setTimeout(() => setCopiedUrl(null), 2000);
-    });
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url).then(() => {
+        setCopiedUrl(url);
+        setTimeout(() => setCopiedUrl(null), 2000);
+      }).catch(() => fallbackCopy(url));
+    } else {
+      fallbackCopy(url);
+    }
+  };
+  const fallbackCopy = (text: string) => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    setCopiedUrl(text);
+    setTimeout(() => setCopiedUrl(null), 2000);
   };
 
   const showMsg = (msg: string) => { setAdminMsg(msg); setTimeout(() => setAdminMsg(''), 3000); };
@@ -270,7 +323,7 @@ export default function AdminPage() {
     if (tab === 'scraper') { setScraperLoading(true); getScraperStatus().then(setScraperStatus).finally(() => setScraperLoading(false)); }
     if (tab === 'athletes') loadAthletes();
     if (tab === 'ad') loadAds();
-    if (tab === 'stories') loadStories();
+    if (tab === 'stories') { loadStories(); loadStoryCards(); }
   };
 
   const handleAiGenerate = async () => {
@@ -304,6 +357,7 @@ export default function AdminPage() {
           summary: newArticle.summary, content: newArticle.content, image_url: newArticle.imageUrl,
           image_position: newArticle.imagePosition,
           ig_embed_url: newArticle.igEmbedUrl || null,
+          placement: newArticle.placement,
         });
         setEditingAdminArticle(null);
         showMsg('✅ 文章已更新');
@@ -313,11 +367,12 @@ export default function AdminPage() {
           summary: newArticle.summary, content: newArticle.content, image_url: newArticle.imageUrl,
           image_position: newArticle.imagePosition,
           ig_embed_url: newArticle.igEmbedUrl || null,
+          placement: newArticle.placement,
           status: asDraft ? 'draft' : 'published',
         });
         showMsg(asDraft ? '📝 草稿已儲存' : '✅ 文章已發布');
       }
-      setNewArticle({ title: '', category: 'CPBL', imageUrl: '', imagePosition: 'center', summary: '', content: '', igEmbedUrl: '' });
+      setNewArticle({ title: '', category: 'CPBL', imageUrl: '', imagePosition: 'center', summary: '', content: '', igEmbedUrl: '', placement: 'default' });
       loadArticles();
       if (asDraft) setArticleSubTab('draft');
     } catch {
@@ -446,7 +501,7 @@ export default function AdminPage() {
                 <h2 className="text-2xl font-black">{editingAdminArticle ? '✏️ 編輯文章' : '發布新文章'}</h2>
                 <div className="flex items-center gap-3">
                   {editingAdminArticle && (
-                    <button onClick={() => { setEditingAdminArticle(null); setNewArticle({ title: '', category: 'CPBL', imageUrl: '', imagePosition: 'center', summary: '', content: '', igEmbedUrl: '' }); setArticleImages([]); }}
+                    <button onClick={() => { setEditingAdminArticle(null); setNewArticle({ title: '', category: 'CPBL', imageUrl: '', imagePosition: 'center', summary: '', content: '', igEmbedUrl: '', placement: 'default' }); setArticleImages([]); }}
                       className="text-sm font-bold text-gray-400 hover:text-red-600 transition">✕ 取消編輯</button>
                   )}
                   {!editingAdminArticle && (
@@ -492,10 +547,17 @@ export default function AdminPage() {
                 <input type="text" placeholder="文章標題" value={newArticle.title} required
                   onChange={e => setNewArticle(f => ({ ...f, title: e.target.value }))}
                   className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400" />
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <select value={newArticle.category} onChange={e => setNewArticle(f => ({ ...f, category: e.target.value }))}
                     className="border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400">
                     {['CPBL', 'NPB', 'WBC', 'MLB', 'NBA', '田徑', '三級棒球', '足球', '籃球', '桌球', '其他'].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <select value={newArticle.placement} onChange={e => setNewArticle(f => ({ ...f, placement: e.target.value as any }))}
+                    className="border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-400">
+                    <option value="default">📄 一般位置</option>
+                    <option value="hero">🖼️ 首頁大圖 Hero</option>
+                    <option value="featured">⭐ 精選區塊</option>
+                    <option value="pinned">📌 置頂</option>
                   </select>
                   <div className="flex gap-2">
                     <input type="text" placeholder="封面圖 URL（選填）" value={newArticle.imageUrl}
@@ -778,7 +840,7 @@ export default function AdminPage() {
                       <div className="flex flex-col gap-1 shrink-0">
                         <button onClick={async () => {
                           setEditingAdminArticle(a);
-                          setNewArticle({ title: a.title, category: a.category, imageUrl: a.image_url || '', imagePosition: a.image_position || 'center', summary: a.summary || '', content: a.content || '', igEmbedUrl: (a as any).ig_embed_url || '' });
+                          setNewArticle({ title: a.title, category: a.category, imageUrl: a.image_url || '', imagePosition: a.image_position || 'center', summary: a.summary || '', content: a.content || '', igEmbedUrl: (a as any).ig_embed_url || '', placement: a.placement || 'default' });
                           setArticleSubTab('published');
                           window.scrollTo({ top: 0, behavior: 'smooth' });
                         }} className="text-xs font-bold px-3 py-1 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 transition">✏️ 編輯</button>
@@ -838,7 +900,7 @@ export default function AdminPage() {
                       <div className="flex flex-col gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                         <button onClick={async () => {
                           setEditingAdminArticle(a);
-                          setNewArticle({ title: a.title, category: a.category, imageUrl: a.image_url || '', imagePosition: a.image_position || 'center', summary: a.summary || '', content: a.content || '', igEmbedUrl: a.ig_embed_url || '' });
+                          setNewArticle({ title: a.title, category: a.category, imageUrl: a.image_url || '', imagePosition: a.image_position || 'center', summary: a.summary || '', content: a.content || '', igEmbedUrl: a.ig_embed_url || '', placement: a.placement || 'default' });
                           // load existing images
                           try {
                             const res = await fetch(`${API_BASE}/api/v1/articles/${a.id}/images`, { credentials: 'include' });
@@ -2555,6 +2617,220 @@ export default function AdminPage() {
               showMsg={showMsg}
             />
 
+            {/* ═══ 精華 Story Cards 管理 ═══ */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-black">精華卡片（首頁 Stories）</h3>
+                <button
+                  onClick={() => { setEditingCard({ ...BLANK_CARD }); setShowStoryCardForm(true); }}
+                  className="bg-red-600 text-white text-sm font-bold px-4 py-2 rounded-full hover:bg-red-700 transition"
+                >
+                  + 新增卡片
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mb-4">可上傳精華影片或圖片，將會顯示在首頁的 Stories 橫向卡片列，點擊後以全螢幕 Reels 模式播放。</p>
+
+              {/* Story Card Form Modal */}
+              {showStoryCardForm && editingCard && (() => {
+                const form = editingCard;
+                const setF = (u: Partial<StoryCard>) => setEditingCard(prev => ({ ...prev, ...u }));
+                return (
+                  <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-8">
+                      <div className="flex items-center justify-between mb-6">
+                        <h2 className="text-xl font-black">{form.id ? '編輯精華卡片' : '新增精華卡片'}</h2>
+                        <button onClick={() => { setShowStoryCardForm(false); setEditingCard(null); }} className="text-gray-400 hover:text-red-500 font-black text-lg">✕</button>
+                      </div>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="text-xs font-bold text-gray-500 block mb-1">標題 *</label>
+                          <input value={form.title ?? ''} onChange={e => setF({ title: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Thursday's Recap" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-gray-500 block mb-1">封面圖片 *</label>
+                          <div className="flex gap-2">
+                            <input value={form.image_url ?? ''} onChange={e => setF({ image_url: e.target.value })} className="flex-1 border rounded-xl px-3 py-2 text-sm" placeholder="貼上網址或上傳圖片" />
+                            <label className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 border-dashed cursor-pointer text-sm font-bold transition whitespace-nowrap ${cardImgUploading ? 'border-gray-200 text-gray-300' : 'border-gray-300 text-gray-500 hover:border-red-400 hover:text-red-500'}`}>
+                              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                              {cardImgUploading ? '上傳中...' : '上傳'}
+                              <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="hidden" disabled={cardImgUploading}
+                                onChange={async e => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  setCardImgUploading(true);
+                                  try {
+                                    const url = await uploadCoverImage(file);
+                                    setF({ image_url: url });
+                                    showMsg('✅ 圖片上傳成功');
+                                  } catch { showMsg('❌ 圖片上傳失敗'); }
+                                  finally { setCardImgUploading(false); e.target.value = ''; }
+                                }} />
+                            </label>
+                          </div>
+                          {form.image_url && (
+                            <img src={form.image_url} alt="preview" className="mt-2 w-32 h-44 object-cover rounded-xl border" />
+                          )}
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-gray-500 block mb-1">影片（選填，若填入將以影片播放）</label>
+                          <div className="flex gap-2">
+                            <input value={form.video_url ?? ''} onChange={e => {
+                              const url = e.target.value;
+                              setF({ video_url: url });
+                              const ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{11})/);
+                              if (ytMatch) {
+                                setEditingCard(prev => ({
+                                  ...prev,
+                                  video_url: url,
+                                  ...(!prev?.image_url ? { image_url: `https://img.youtube.com/vi/${ytMatch[1]}/hqdefault.jpg` } : {}),
+                                }));
+                              }
+                            }} className="flex-1 border rounded-xl px-3 py-2 text-sm" placeholder="貼上 YouTube 或影片網址" />
+                            <label className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 border-dashed cursor-pointer text-sm font-bold transition whitespace-nowrap ${cardVidUploading ? 'border-gray-200 text-gray-300' : 'border-gray-300 text-gray-500 hover:border-red-400 hover:text-red-500'}`}>
+                              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                              {cardVidUploading ? '上傳中...' : '上傳'}
+                              <input type="file" accept="video/mp4,video/webm,video/mov" className="hidden" disabled={cardVidUploading}
+                                onChange={async e => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  setCardVidUploading(true);
+                                  try {
+                                    const token = localStorage.getItem('authToken');
+                                    const authHeader = token ? { Authorization: `Bearer ${token}` } : {} as Record<string, string>;
+                                    const signRes = await fetch(`${API_BASE}/api/v1/stories/sign-upload`, { credentials: 'include', headers: authHeader });
+                                    if (!signRes.ok) throw new Error('簽名取得失敗');
+                                    const { timestamp, signature, folder, cloud_name, api_key } = await signRes.json();
+                                    const fd = new FormData();
+                                    fd.append('file', file);
+                                    fd.append('timestamp', String(timestamp));
+                                    fd.append('signature', signature);
+                                    fd.append('folder', folder);
+                                    fd.append('api_key', api_key);
+                                    const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloud_name}/video/upload`, { method: 'POST', body: fd });
+                                    if (!uploadRes.ok) throw new Error('上傳失敗');
+                                    const data = await uploadRes.json();
+                                    const thumbUrl = data.secure_url.replace(/\.\w+$/, '.jpg');
+                                    setEditingCard(prev => ({
+                                      ...prev,
+                                      video_url: data.secure_url,
+                                      duration_ms: Math.round((data.duration ?? 6) * 1000),
+                                      ...(!prev?.image_url ? { image_url: thumbUrl } : {}),
+                                    }));
+                                    showMsg('✅ 影片上傳成功');
+                                  } catch (err: unknown) { showMsg(`❌ 影片上傳失敗：${err instanceof Error ? err.message : '請稍後再試'}`); }
+                                  finally { setCardVidUploading(false); e.target.value = ''; }
+                                }} />
+                            </label>
+                          </div>
+                          {form.video_url && (() => {
+                            const ytMatch = form.video_url!.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{11})/);
+                            return ytMatch ? (
+                              <iframe src={`https://www.youtube.com/embed/${ytMatch[1]}`} className="mt-2 w-full h-56 rounded-xl border" allow="autoplay; encrypted-media" allowFullScreen />
+                            ) : (
+                              <video src={form.video_url} className="mt-2 w-full max-h-40 rounded-xl border object-cover" controls muted />
+                            );
+                          })()}
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs font-bold text-gray-500 block mb-1">分類</label>
+                            <select value={form.category ?? ''} onChange={e => setF({ category: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm">
+                              <option value="">無</option>
+                              <option value="CPBL">⚾ CPBL</option>
+                              <option value="MLB">⚾ MLB</option>
+                              <option value="NPB">⚾ NPB</option>
+                              <option value="NBA">🏀 NBA</option>
+                              <option value="PLG">🏀 PLG</option>
+                              <option value="TPBL">🏀 TPBL</option>
+                              <option value="足球">⚽ 足球</option>
+                              <option value="田徑">🏃 田徑</option>
+                              <option value="其他">🏅 其他</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs font-bold text-gray-500 block mb-1">排序（小 → 前）</label>
+                            <input type="number" value={form.sort_order ?? 0} onChange={e => setF({ sort_order: +e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-gray-500 block mb-1">連結網址（選填，Reels 內的「查看更多」按鈕）</label>
+                          <input value={form.link_url ?? ''} onChange={e => setF({ link_url: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm" placeholder="/article/xxx 或 https://..." />
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-gray-500 block mb-1">顯示時長（毫秒，圖片用，預設 6000）</label>
+                          <input type="number" value={form.duration_ms ?? 6000} onChange={e => setF({ duration_ms: +e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm" />
+                        </div>
+                        <div className="flex items-center justify-end gap-3 mt-4">
+                          {(!form.title?.trim() || !form.image_url?.trim()) && (
+                            <span className="text-xs text-red-400">
+                              {!form.title?.trim() ? '請填寫標題' : '請填寫或上傳封面圖片'}
+                            </span>
+                          )}
+                          <button onClick={() => { setShowStoryCardForm(false); setEditingCard(null); }} className="px-4 py-2 text-sm font-bold text-gray-500 hover:text-gray-700">取消</button>
+                          <button
+                            onClick={() => saveStoryCard(form)}
+                            disabled={!form.title?.trim() || !form.image_url?.trim()}
+                            className="bg-red-600 text-white text-sm font-bold px-6 py-2 rounded-full hover:bg-red-700 transition disabled:opacity-40"
+                          >
+                            儲存
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Card list */}
+              {storyCardsLoading ? (
+                <div className="text-center text-gray-400 text-sm py-6">載入中...</div>
+              ) : storyCards.length === 0 ? (
+                <div className="text-center text-gray-400 text-sm py-6">尚無精華卡片，請新增第一張</div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {storyCards.map(card => (
+                    <div key={card.id} className={`relative rounded-xl overflow-hidden border ${card.is_active ? 'border-gray-200' : 'border-red-300 opacity-60'} group`}>
+                      <div className="aspect-[3/4] relative">
+                        <img src={card.image_url} alt={card.title} className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                        {card.video_url && (
+                          <span className="absolute top-2 left-2 bg-black/50 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">影片</span>
+                        )}
+                        {card.category && (
+                          <span className="absolute top-2 right-2 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">{card.category}</span>
+                        )}
+                        <div className="absolute bottom-0 left-0 right-0 p-2">
+                          <p className="text-white text-xs font-bold line-clamp-2 leading-snug">{card.title}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between p-2 bg-white">
+                        <button
+                          onClick={() => toggleStoryCardActive(card)}
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${card.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}
+                        >
+                          {card.is_active ? '啟用中' : '已停用'}
+                        </button>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => { setEditingCard(card); setShowStoryCardForm(true); }}
+                            className="text-[10px] font-bold text-blue-600 hover:underline"
+                          >
+                            編輯
+                          </button>
+                          <button
+                            onClick={() => removeStoryCard(card.id)}
+                            className="text-[10px] font-bold text-red-500 hover:underline"
+                          >
+                            刪除
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* Modal: 新增/編輯 Story */}
             {showStoryForm && (
               <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -2612,10 +2888,17 @@ export default function AdminPage() {
                             <label className="block text-xs font-black text-gray-500 mb-1">聯盟</label>
                             <select value={form.league} onChange={e => setForm(f => ({ ...f, league: e.target.value }))}
                               className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm">
-                              <option value="CPBL">CPBL</option>
-                              <option value="NPB">NPB</option>
-                              <option value="NPB2">NPB 二軍</option>
-                              <option value="MLB">MLB</option>
+                              <option value="CPBL">⚾ CPBL 中華職棒</option>
+                              <option value="NPB">⚾ NPB 日本職棒</option>
+                              <option value="NPB2">⚾ NPB 二軍</option>
+                              <option value="MLB">⚾ MLB 美國職棒</option>
+                              <option value="WBC">⚾ WBC 世界棒球經典賽</option>
+                              <option value="NBA">🏀 NBA 美國職籃</option>
+                              <option value="PLG">🏀 PLG 職籃聯盟</option>
+                              <option value="TPBL">🏀 TPBL 台灣職籃</option>
+                              <option value="籃球">🏀 籃球</option>
+                              <option value="足球">⚽ 足球</option>
+                              <option value="其他">🏅 其他</option>
                             </select>
                           </div>
                           <div>
@@ -2653,19 +2936,25 @@ export default function AdminPage() {
                                     className="text-xs text-red-400 hover:text-red-600 font-bold">✕ 刪除</button>
                                 </div>
                                 <div>
-                                  <label className="block text-xs font-black text-gray-500 mb-1">影片網址（從上方上傳後複製）</label>
+                                  <label className="block text-xs font-black text-gray-500 mb-1">🎬 影片網址（從上方上傳後複製）</label>
                                   <input value={clip.video_url}
                                     onChange={e => setForm(f => ({ ...f, clips: f.clips.map((c, i) => i === idx ? { ...c, video_url: e.target.value } : c) }))}
-                                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="/uploads/stories/..." />
+                                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="https://res.cloudinary.com/..." />
                                   {clip.video_url && (
-                                    <video src={clip.video_url} className="mt-2 w-full h-24 object-cover rounded-xl bg-black" controls />
+                                    <video src={clip.video_url} className="mt-2 w-full h-32 object-cover rounded-xl bg-black" controls />
                                   )}
                                 </div>
                                 <div>
-                                  <label className="block text-xs font-black text-gray-500 mb-1">背景圖片網址（選填，沒有影片時顯示）</label>
+                                  <label className="block text-xs font-black text-gray-500 mb-1">🖼️ 背景圖片網址（沒有影片時顯示，或作為影片封面）</label>
                                   <input value={clip.background_image_url}
                                     onChange={e => setForm(f => ({ ...f, clips: f.clips.map((c, i) => i === idx ? { ...c, background_image_url: e.target.value } : c) }))}
                                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm" placeholder="https://..." />
+                                  {clip.background_image_url && (
+                                    <img src={clip.background_image_url} alt="" className="mt-2 w-full h-24 object-cover rounded-xl bg-gray-100" />
+                                  )}
+                                  {!clip.video_url && !clip.background_image_url && (
+                                    <p className="text-[10px] text-orange-500 font-bold mt-1">⚠ 影片或背景圖至少需填一個</p>
+                                  )}
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
                                   <div>
@@ -2736,31 +3025,54 @@ export default function AdminPage() {
               ) : (
                 <div className="space-y-3">
                   {(stories as unknown as (typeof BLANK_STORY & { id: number; clips: (typeof BLANK_CLIP & { id?: number })[] })[]).map(story => (
-                    <div key={story.id} className="flex items-center justify-between p-4 rounded-2xl border border-gray-100 hover:bg-gray-50">
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-1">
-                          <span className="w-3 h-3 rounded-full inline-block" style={{ background: story.home_color }} />
-                          <span className="w-3 h-3 rounded-full inline-block" style={{ background: story.away_color }} />
+                    <div key={story.id} className="p-4 rounded-2xl border border-gray-100 hover:bg-gray-50 transition">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-11 h-11 rounded-full flex items-center justify-center text-white text-[9px] font-black"
+                            style={{ background: `linear-gradient(135deg, ${story.home_color}, ${story.away_color})` }}>
+                            {story.home_abbr}
+                          </div>
+                          <div>
+                            <p className="font-black text-sm text-gray-800">
+                              {story.home_team} vs {story.away_team}
+                              {story.is_live && <span className="ml-2 text-[10px] bg-red-500 text-white px-2 py-0.5 rounded-full animate-pulse">🔴 LIVE</span>}
+                              {!story.is_active && <span className="ml-2 text-[10px] bg-gray-300 text-gray-600 px-2 py-0.5 rounded-full">停用</span>}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              {({'CPBL':'⚾','NPB':'⚾','NPB2':'⚾','MLB':'⚾','WBC':'⚾','NBA':'🏀','PLG':'🏀','TPBL':'🏀','籃球':'🏀','足球':'⚽'} as Record<string,string>)[story.league] ?? '🏅'} {story.league} · {story.home_abbr} vs {story.away_abbr} · {story.clips.length} clips
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-black text-sm text-gray-800">
-                            {story.home_abbr} vs {story.away_abbr}
-                            {story.is_live && <span className="ml-2 text-xs bg-red-500 text-white px-2 py-0.5 rounded-full">LIVE</span>}
-                            {!story.is_active && <span className="ml-2 text-xs bg-gray-300 text-gray-600 px-2 py-0.5 rounded-full">停用</span>}
-                          </p>
-                          <p className="text-xs text-gray-400">{story.league} · {story.home_team} vs {story.away_team} · {story.clips.length} clips</p>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => { setEditingStory({ ...story }); setShowStoryForm(true); }}
+                            className="text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-200 hover:border-gray-400 transition">
+                            ✏️ 編輯
+                          </button>
+                          <button onClick={() => deleteStory(story.id)}
+                            className="text-xs font-bold px-3 py-1.5 rounded-lg border border-red-200 text-red-400 hover:bg-red-50 transition">
+                            🗑️ 刪除
+                          </button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => { setEditingStory({ ...story }); setShowStoryForm(true); }}
-                          className="text-xs font-bold px-3 py-1 rounded-lg border border-gray-200 hover:border-gray-400 transition">
-                          編輯
-                        </button>
-                        <button onClick={() => deleteStory(story.id)}
-                          className="text-xs font-bold px-3 py-1 rounded-lg border border-red-200 text-red-400 hover:bg-red-50 transition">
-                          刪除
-                        </button>
-                      </div>
+                      {/* Clip thumbnails preview */}
+                      {story.clips.length > 0 && (
+                        <div className="flex gap-2 mt-3 overflow-x-auto">
+                          {story.clips.map((clip, ci) => (
+                            <div key={ci} className="w-16 h-24 rounded-lg overflow-hidden bg-gray-200 flex-shrink-0 relative">
+                              {clip.video_url ? (
+                                <video src={clip.video_url} className="w-full h-full object-cover" muted />
+                              ) : clip.background_image_url ? (
+                                <img src={clip.background_image_url} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-gray-400 text-[9px] font-bold">無媒體</div>
+                              )}
+                              <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] font-bold text-center py-0.5">
+                                {clip.score || `#${ci + 1}`}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

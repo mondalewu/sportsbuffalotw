@@ -22,9 +22,19 @@ CREATE TABLE IF NOT EXISTS articles (
   image_url VARCHAR(1000),
   author_id INT REFERENCES users(id) ON DELETE SET NULL,
   is_hot BOOLEAN DEFAULT FALSE,
+  placement VARCHAR(20) DEFAULT 'default' CHECK (placement IN ('default','hero','featured','pinned')),
   published_at TIMESTAMPTZ DEFAULT NOW(),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- 文章瀏覽紀錄（用於計算熱門排名）
+CREATE TABLE IF NOT EXISTS article_views (
+  id SERIAL PRIMARY KEY,
+  article_id INT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+  viewed_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_article_views_article_id ON article_views(article_id);
+CREATE INDEX IF NOT EXISTS idx_article_views_viewed_at ON article_views(viewed_at);
 
 -- 賽程 / 比分資料表
 CREATE TABLE IF NOT EXISTS games (
@@ -468,6 +478,40 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- 留言表情反應（有感/漲知識/嗯...）
+CREATE TABLE IF NOT EXISTS comment_reactions (
+  id          SERIAL PRIMARY KEY,
+  comment_id  INT NOT NULL REFERENCES article_comments(id) ON DELETE CASCADE,
+  user_id     INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reaction    VARCHAR(20) NOT NULL CHECK (reaction IN ('empathy','informative','hmm')),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(comment_id, user_id, reaction)
+);
+CREATE INDEX IF NOT EXISTS idx_comment_reactions_comment ON comment_reactions(comment_id);
+CREATE INDEX IF NOT EXISTS idx_comment_reactions_user ON comment_reactions(user_id);
+
+-- 文章按讚
+CREATE TABLE IF NOT EXISTS article_likes (
+  id          SERIAL PRIMARY KEY,
+  article_id  INT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+  user_id     INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(article_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_article_likes_article ON article_likes(article_id);
+CREATE INDEX IF NOT EXISTS idx_article_likes_user ON article_likes(user_id);
+
+-- 文章收藏
+CREATE TABLE IF NOT EXISTS article_bookmarks (
+  id          SERIAL PRIMARY KEY,
+  article_id  INT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+  user_id     INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(article_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_article_bookmarks_article ON article_bookmarks(article_id);
+CREATE INDEX IF NOT EXISTS idx_article_bookmarks_user ON article_bookmarks(user_id);
+
 -- 文章留言
 CREATE TABLE IF NOT EXISTS article_comments (
   id          SERIAL PRIMARY KEY,
@@ -480,3 +524,18 @@ CREATE TABLE IF NOT EXISTS article_comments (
 );
 CREATE INDEX IF NOT EXISTS idx_article_comments_article ON article_comments(article_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_article_comments_user ON article_comments(user_id);
+
+-- ── Story Cards（首頁精華 Reels 卡片列）──────────────────────────────────────
+CREATE TABLE IF NOT EXISTS story_cards (
+  id          SERIAL PRIMARY KEY,
+  title       VARCHAR(200) NOT NULL,
+  image_url   TEXT NOT NULL,
+  video_url   TEXT,
+  category    VARCHAR(30) NOT NULL DEFAULT '',
+  link_url    TEXT,
+  duration_ms INT NOT NULL DEFAULT 6000,
+  is_active   BOOLEAN NOT NULL DEFAULT true,
+  sort_order  INT NOT NULL DEFAULT 0,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_story_cards_active ON story_cards(is_active, sort_order);

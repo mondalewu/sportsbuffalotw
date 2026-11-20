@@ -16,6 +16,7 @@ export interface Article {
   image_position?: string;
   author_id?: number;
   is_hot: boolean;
+  placement?: 'default' | 'hero' | 'featured' | 'pinned';
   published_at: string;
   images?: ArticleImage[];
   ig_embed_url?: string | null;

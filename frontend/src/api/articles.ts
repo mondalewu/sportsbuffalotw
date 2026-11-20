@@ -15,6 +15,7 @@ export interface CreateArticlePayload {
   image_url: string;
   image_position?: string;
   ig_embed_url?: string | null;
+  placement?: 'default' | 'hero' | 'featured' | 'pinned';
   status?: 'draft' | 'published';
 }
 
@@ -75,6 +76,20 @@ export const searchArticles = async (q: string): Promise<Article[]> => {
   return res.data;
 };
 
+export const getRelatedArticles = async (articleId: number): Promise<Article[]> => {
+  const res = await apiClient.get(`/articles/${articleId}/related`);
+  return res.data;
+};
+
+export const getTrendingArticles = async (limit = 10): Promise<(Article & { week_views: number })[]> => {
+  const res = await apiClient.get('/articles/trending', { params: { limit } });
+  return res.data;
+};
+
+export const recordArticleView = async (articleId: number): Promise<void> => {
+  await apiClient.post(`/articles/${articleId}/view`).catch(() => {});
+};
+
 export const getArticleComments = async (articleId: number): Promise<ArticleComment[]> => {
   const res = await apiClient.get(`/articles/${articleId}/comments`);
   return res.data;
@@ -87,6 +102,94 @@ export const postArticleComment = async (articleId: number, content: string): Pr
 
 export const deleteArticleComment = async (articleId: number, commentId: number): Promise<void> => {
   await apiClient.delete(`/articles/${articleId}/comments/${commentId}`);
+};
+
+// ─── 留言表情反應 ─────────────────────────────────────────────────────────────
+
+export interface ReactionsData {
+  counts: Record<string, number>;
+  userReactions: string[];
+}
+
+export const getCommentReactions = async (articleId: number, commentId: number): Promise<ReactionsData> => {
+  const res = await apiClient.get(`/articles/${articleId}/comments/${commentId}/reactions`);
+  return res.data;
+};
+
+export const toggleCommentReaction = async (articleId: number, commentId: number, reaction: string): Promise<ReactionsData> => {
+  const res = await apiClient.post(`/articles/${articleId}/comments/${commentId}/reactions`, { reaction });
+  return res.data;
+};
+
+// ─── 按讚 / 收藏 ─────────────────────────────────────────────────────────────
+
+export const getArticleLike = async (articleId: number): Promise<{ count: number; liked: boolean }> => {
+  const res = await apiClient.get(`/articles/${articleId}/like`);
+  return res.data;
+};
+
+export const toggleArticleLike = async (articleId: number): Promise<{ count: number; liked: boolean }> => {
+  const res = await apiClient.post(`/articles/${articleId}/like`);
+  return res.data;
+};
+
+export const getArticleBookmark = async (articleId: number): Promise<{ bookmarked: boolean }> => {
+  const res = await apiClient.get(`/articles/${articleId}/bookmark`);
+  return res.data;
+};
+
+export const toggleArticleBookmark = async (articleId: number): Promise<{ bookmarked: boolean }> => {
+  const res = await apiClient.post(`/articles/${articleId}/bookmark`);
+  return res.data;
+};
+
+export const getLikedArticles = async (): Promise<Article[]> => {
+  const res = await apiClient.get('/articles/me/liked');
+  return res.data;
+};
+
+export const getBookmarkedArticles = async (): Promise<Article[]> => {
+  const res = await apiClient.get('/articles/me/bookmarked');
+  return res.data;
+};
+
+// ─── Story Cards（精華 Reels）────────────────────────────────────────────────
+
+export interface StoryCard {
+  id: number;
+  title: string;
+  image_url: string;
+  video_url?: string;
+  category: string;
+  link_url?: string;
+  duration_ms: number;
+  is_active?: boolean;
+  sort_order?: number;
+  created_at: string;
+}
+
+export const getStoryCards = async (): Promise<StoryCard[]> => {
+  const res = await apiClient.get('/stories/cards');
+  return res.data;
+};
+
+export const getStoryCardsAdmin = async (): Promise<StoryCard[]> => {
+  const res = await apiClient.get('/stories/cards/admin');
+  return res.data;
+};
+
+export const createStoryCard = async (payload: Partial<StoryCard>): Promise<StoryCard> => {
+  const res = await apiClient.post('/stories/cards', payload);
+  return res.data;
+};
+
+export const updateStoryCard = async (id: number, payload: Partial<StoryCard>): Promise<StoryCard> => {
+  const res = await apiClient.put(`/stories/cards/${id}`, payload);
+  return res.data;
+};
+
+export const deleteStoryCard = async (id: number): Promise<void> => {
+  await apiClient.delete(`/stories/cards/${id}`);
 };
 
 export const uploadCoverImage = async (file: File): Promise<string> => {
